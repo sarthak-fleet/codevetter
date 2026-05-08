@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import { buildActiveStandardsContext } from "@/lib/review-service";
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /**
@@ -306,10 +308,15 @@ export async function runCliReview(
   changeDescription: string,
   agent?: string,
 ): Promise<CliReviewResult> {
+  const standardsContext = buildActiveStandardsContext();
+  const projectWithStandards = projectDescription.trim()
+    ? `${projectDescription}\n\n${standardsContext}`
+    : standardsContext;
+
   return safeInvoke("run_cli_review", {
     repoPath,
     diffRange,
-    projectDescription,
+    projectDescription: projectWithStandards,
     changeDescription,
     agent: agent ?? null,
   });

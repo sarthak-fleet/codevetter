@@ -12,6 +12,7 @@ import { getPreference, isTauriAvailable } from "@/lib/tauri-ipc";
 import Home from "@/pages/Home";
 import QuickReview from "@/pages/QuickReview";
 import RepoUnpacked from "@/pages/RepoUnpacked";
+import Rubrics from "@/pages/Rubrics";
 import Settings from "@/pages/Settings";
 
 /** Hook: open/close command palette via Cmd+K */
@@ -131,6 +132,7 @@ export default function App() {
       <Route element={<Shell />}>
         <Route path="/" element={<Home />} />
         <Route path="/review" element={<QuickReview />} />
+        <Route path="/rubrics" element={<Rubrics />} />
         <Route path="/unpack" element={<RepoUnpacked />} />
         <Route path="/settings" element={<Settings />} />
       </Route>

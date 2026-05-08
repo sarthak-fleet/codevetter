@@ -1,4 +1,4 @@
-import { Home, ScanSearch, Settings, ShieldCheck, Zap } from "lucide-react";
+import { ClipboardCheck, Home, ScanSearch, Settings, ShieldCheck, Zap } from "lucide-react";
 import { type ReactNode,useEffect, useRef, useState } from "react";
 import { Link, useLocation,useNavigate } from "react-router-dom";
 
@@ -20,6 +20,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: "Home", href: "/", icon: <Home size={18} />, shortcut: "H" },
   { label: "Review", href: "/review", icon: <Zap size={18} />, shortcut: "R" },
+  { label: "Rubrics", href: "/rubrics", icon: <ClipboardCheck size={18} />, shortcut: "B" },
   { label: "Unpack", href: "/unpack", icon: <ScanSearch size={18} />, shortcut: "U" },
   { label: "Settings", href: "/settings", icon: <Settings size={18} />, shortcut: "," },
 ];
