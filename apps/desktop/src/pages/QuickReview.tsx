@@ -12,6 +12,7 @@ import {
   GitCommitHorizontal,
   GitMerge,
   GitPullRequest,
+  ListOrdered,
   Loader2,
   Plus,
   RefreshCw,
@@ -117,6 +118,17 @@ function formatDuration(ms: number): string {
   const mins = Math.floor(secs / 60);
   const remSecs = secs % 60;
   return `${mins}m ${remSecs}s`;
+}
+
+function queueGuidance(findings: CliReviewFinding[]): string {
+  if (findings.length === 0) return "Select findings to build a patch queue.";
+  const blocking = findings.filter((finding) =>
+    ["critical", "high", "medium", "warning"].includes(finding.severity),
+  ).length;
+  if (blocking > 0) {
+    return `Start with ${blocking} blocking finding${blocking !== 1 ? "s" : ""}; keep unrelated cleanup out of this patch.`;
+  }
+  return "Low-risk queue. Patch together only if the files overlap.";
 }
 
 interface DiffFile {
@@ -567,6 +579,20 @@ export default function QuickReview() {
       )
       : []
   ), [result]);
+
+  const patchQueue = useMemo(
+    () => sortedFindings.filter((_, idx) => selectedFindings.has(idx)),
+    [selectedFindings, sortedFindings],
+  );
+
+  const patchQueueSeverityCounts = useMemo(
+    () =>
+      patchQueue.reduce<Record<string, number>>((acc, finding) => {
+        acc[finding.severity] = (acc[finding.severity] ?? 0) + 1;
+        return acc;
+      }, {}),
+    [patchQueue],
+  );
 
   // ─── Fix handlers ───────────────────────────────────────────────────────
 
@@ -1124,6 +1150,66 @@ export default function QuickReview() {
               <div className="mb-3 flex items-center justify-between">
                 <span className="cv-label">review comments</span>
                 <span className="cv-label">{sortedFindings.length} total</span>
+              </div>
+              <div className="mb-3 rounded-xl border border-[var(--cv-line)] bg-[#050505] p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <ListOrdered size={14} className="text-[var(--cv-accent)]" />
+                    <span className="cv-label text-slate-300">patch queue</span>
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-500">
+                    {patchQueue.length} selected
+                  </span>
+                </div>
+                <p className="text-[11px] leading-5 text-slate-500">
+                  {queueGuidance(patchQueue)}
+                </p>
+                {patchQueue.length > 0 && (
+                  <>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {Object.entries(patchQueueSeverityCounts).map(([severity, count]) => (
+                        <Badge
+                          key={severity}
+                          variant="outline"
+                          className={cn(
+                            "rounded-full px-2 py-0.5 font-mono text-[9px] uppercase",
+                            severityColor(severity),
+                          )}
+                        >
+                          {severity} · {count}
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="mt-3 space-y-1.5">
+                      {patchQueue.slice(0, 4).map((finding, queueIdx) => (
+                        <button
+                          key={`${finding.title}-${queueIdx}`}
+                          type="button"
+                          onClick={() => {
+                            const sortedIdx = sortedFindings.indexOf(finding);
+                            if (sortedIdx >= 0) handleFindingClick(sortedIdx);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-lg border border-[var(--cv-line)] bg-[#07080a] px-2 py-2 text-left hover:border-[var(--cv-line-strong)]"
+                        >
+                          <span className="font-mono text-[10px] text-slate-600">
+                            {queueIdx + 1}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-[11px] text-slate-300">
+                            {finding.filePath || finding.title}
+                          </span>
+                          <span className="shrink-0 text-[10px] text-slate-600">
+                            {finding.line != null ? `:${finding.line}` : finding.severity}
+                          </span>
+                        </button>
+                      ))}
+                      {patchQueue.length > 4 && (
+                        <div className="px-2 text-[10px] text-slate-600">
+                          +{patchQueue.length - 4} more queued
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
               <div className="space-y-2">
                 {sortedFindings.map((finding, idx) => (
