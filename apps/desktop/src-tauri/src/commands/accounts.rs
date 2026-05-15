@@ -426,6 +426,8 @@ pub async fn detect_provider_accounts(db: State<'_, DbState>) -> Result<Value, S
                 .iter()
                 .filter(|e| e.provider == det.provider)
                 .collect();
+            let detected_for_provider =
+                detected.iter().filter(|d| d.provider == det.provider).count();
             let matched_account = provider_accounts
                 .iter()
                 .copied()
@@ -435,7 +437,10 @@ pub async fn detect_provider_accounts(db: State<'_, DbState>) -> Result<Value, S
                         .map_or(e.name == det.name, |oid| e.api_key.as_deref() == Some(oid))
                 })
                 .or_else(|| {
-                    if provider_accounts.len() == 1 {
+                    // Only collapse onto the lone existing account when there's also exactly
+                    // one detected for this provider — otherwise a second detected account
+                    // would silently overwrite the first.
+                    if provider_accounts.len() == 1 && detected_for_provider == 1 {
                         provider_accounts.first().copied()
                     } else {
                         None
@@ -497,43 +502,48 @@ pub async fn detect_provider_accounts(db: State<'_, DbState>) -> Result<Value, S
 
 /// Detect all Claude Code accounts from macOS Keychain entries.
 ///
-/// Scans for all `Claude Code-credentials*` keychain items, deduplicates
-/// by subscription type (keeping the freshest token), and returns one
-/// `DetectedAccount` per unique plan. The keychain service name is stored
+/// Scans for all `Claude Code-credentials*` keychain items and returns one
+/// `DetectedAccount` per keychain entry. The keychain service name is stored
 /// as `org_id` so it can be passed back as `credential_key` later.
+///
+/// When multiple entries share the same `subscriptionType`, the service-name
+/// suffix is appended to the display name to keep them distinguishable
+/// (e.g. `Claude Max` vs `Claude Max (f50ce9b7)`).
 async fn detect_claude_accounts() -> Vec<DetectedAccount> {
     let services = tokio::task::spawn_blocking(find_claude_keychain_services)
         .await
         .unwrap_or_default();
 
-    // Collect entries, dedup by subscription type (keep freshest token)
-    let mut best_per_plan: std::collections::HashMap<String, (DetectedAccount, i64)> =
-        std::collections::HashMap::new();
-
+    let mut accounts: Vec<DetectedAccount> = Vec::new();
     for service in services {
         let svc = service.clone();
         let result = tokio::task::spawn_blocking(move || read_keychain_account_info(&svc))
             .await
             .ok()
             .flatten();
-        if let Some((det, expires_at)) = result {
-            let plan = det.plan.clone().unwrap_or_default();
-            let entry = best_per_plan.entry(plan);
-            use std::collections::hash_map::Entry;
-            match entry {
-                Entry::Vacant(e) => {
-                    e.insert((det, expires_at));
+        if let Some((det, _expires_at)) = result {
+            accounts.push(det);
+        }
+    }
+
+    // Disambiguate display names when multiple entries share a base name.
+    let mut name_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for acc in &accounts {
+        *name_counts.entry(acc.name.clone()).or_insert(0) += 1;
+    }
+    for acc in &mut accounts {
+        if name_counts.get(&acc.name).copied().unwrap_or(0) > 1 {
+            if let Some(service) = acc.org_id.as_deref() {
+                if let Some(suffix) = service.strip_prefix("Claude Code-credentials-") {
+                    acc.name = format!("{} ({})", acc.name, suffix);
                 }
-                Entry::Occupied(mut e) => {
-                    if expires_at > e.get().1 {
-                        e.insert((det, expires_at));
-                    }
-                }
+                // The default entry "Claude Code-credentials" keeps its base name.
             }
         }
     }
 
-    best_per_plan.into_values().map(|(det, _)| det).collect()
+    accounts
 }
 
 /// Detect Gemini CLI account from `~/.gemini/oauth_creds.json`.
