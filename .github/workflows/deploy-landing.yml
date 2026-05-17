@@ -47,8 +47,8 @@ jobs:
 
       - name: Validate Cloudflare deploy secrets
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || '7d048325699a5acddb44d3be31cf6ba9' }}
         run: |
           missing=()
           test -n "$CLOUDFLARE_API_TOKEN" || missing+=("CLOUDFLARE_API_TOKEN")
@@ -61,7 +61,7 @@ jobs:
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || '7d048325699a5acddb44d3be31cf6ba9' }}
           command: pages deploy apps/landing-page/out --project-name=codevetter --branch=main
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
