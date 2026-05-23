@@ -185,8 +185,10 @@ function AccountUsageRow({
   const geminiModels = liveUsage?.models;
   const quotaBuckets = liveUsage?.quota_api?.buckets;
 
-  // Cursor-specific live data — from api2.cursor.sh/auth/usage-summary
+  // Cursor-specific live data — from
+  // aiserver.v1.DashboardService.GetCurrentPeriodUsage + GetAggregatedUsageEvents
   const cursorPlan = liveUsage?.cursor_plan;
+  const cursorTokens = liveUsage?.cursor_tokens;
 
   // Determine bar color based on utilization
   function barColor(pct: number): "amber" | "red" {
@@ -414,33 +416,78 @@ function AccountUsageRow({
         )}
 
         {/* ── Cursor-specific plan usage (live from api2.cursor.sh) ─── */}
-        {account.provider === "cursor" && cursorPlan && (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="text-slate-400">
-                Plan usage
-                {cursorPlan.membership && (
-                  <span className="ml-1.5 text-slate-600 uppercase tracking-wide">
-                    ({cursorPlan.membership})
-                  </span>
-                )}
-              </span>
-              <div className="flex items-center gap-2 tabular-nums">
-                {cursorPlan.used != null && cursorPlan.limit != null && (
-                  <span className="text-slate-500">
-                    {cursorPlan.used.toLocaleString()} / {cursorPlan.limit.toLocaleString()}
-                  </span>
-                )}
-                {cursorPlan.total_pct_used != null && (
+        {account.provider === "cursor" && (cursorPlan || cursorTokens) && (
+          <div className="flex flex-col gap-2">
+            {/* Tokens row — this is the "millions" figure cursor.com shows. */}
+            {cursorTokens && cursorTokens.total > 0 && (
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400">Tokens this cycle</span>
+                <div className="flex items-center gap-3 tabular-nums">
                   <span className="font-semibold text-violet-300">
-                    {cursorPlan.total_pct_used.toFixed(1)}%
+                    {formatTokens(cursorTokens.total)}
                   </span>
+                </div>
+              </div>
+            )}
+            {/* Per-token-type split: cache-read dominates on Cursor's pricing. */}
+            {cursorTokens && cursorTokens.total > 0 && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] tabular-nums text-slate-600">
+                <span>{formatTokens(cursorTokens.input)} in</span>
+                <span className="text-slate-700">·</span>
+                <span>{formatTokens(cursorTokens.output)} out</span>
+                {cursorTokens.cache_read > 0 && (
+                  <>
+                    <span className="text-slate-700">·</span>
+                    <span className="text-violet-400/70">
+                      {formatTokens(cursorTokens.cache_read)} cached
+                    </span>
+                  </>
                 )}
               </div>
-            </div>
-            {cursorPlan.auto_message && (
+            )}
+            {/* Plan spend row — dollar-denominated usage cap. */}
+            {cursorPlan && (
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400">Plan spend</span>
+                <div className="flex items-center gap-2 tabular-nums">
+                  {cursorPlan.total_spend_cents != null &&
+                    cursorPlan.limit_cents != null && (
+                      <span className="text-slate-500">
+                        ${(cursorPlan.total_spend_cents / 100).toFixed(2)} /
+                        ${(cursorPlan.limit_cents / 100).toFixed(2)}
+                      </span>
+                    )}
+                  {cursorPlan.total_pct_used != null && (
+                    <span className="font-semibold text-violet-300">
+                      {cursorPlan.total_pct_used.toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+            {/* Per-model breakdown — usually just composer-2.5-fast but
+                future-proofed for users running multiple models. */}
+            {cursorTokens && cursorTokens.by_model.length > 1 && (
+              <div className="flex flex-col gap-0.5 border-l border-violet-500/20 pl-2">
+                {cursorTokens.by_model.map((m) => {
+                  const t = m.input_tokens + m.output_tokens + m.cache_read_tokens;
+                  return (
+                    <div
+                      key={m.model ?? "unknown"}
+                      className="flex items-center justify-between text-[10px] tabular-nums"
+                    >
+                      <span className="text-slate-500 truncate">
+                        {m.model ?? "unknown"}
+                      </span>
+                      <span className="text-slate-600">{formatTokens(t)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {cursorPlan?.display_message && (
               <div className="text-[10px] text-slate-600 italic">
-                {cursorPlan.auto_message}
+                {cursorPlan.display_message}
               </div>
             )}
             <div className="text-[10px] text-slate-700">

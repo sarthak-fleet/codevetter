@@ -659,18 +659,34 @@ export interface LiveUsageResult {
     checked_at?: string;
   };
   quota_api_error?: string;
-  // Cursor-specific: monthly plan usage straight from api2.cursor.sh
+  // Cursor-specific: billing cycle / spend from
+  // aiserver.v1.DashboardService.GetCurrentPeriodUsage
   cursor_plan?: {
-    membership: string | null;
-    is_unlimited: boolean;
-    used: number | null;
-    limit: number | null;
-    remaining: number | null;
+    total_spend_cents: number | null;
+    limit_cents: number | null;
+    remaining_cents: number | null;
     total_pct_used: number | null;
     auto_pct_used: number | null;
+    display_message: string | null;
     auto_message: string | null;
-    cycle_start: string | null;
-    cycle_end: string | null;
+    cycle_start_ms: number | null;
+    cycle_end_ms: number | null;
+  };
+  // Cursor-specific: real token counts from
+  // aiserver.v1.DashboardService.GetAggregatedUsageEvents
+  cursor_tokens?: {
+    input: number;
+    output: number;
+    cache_read: number;
+    total: number;
+    total_cost_cents: number | null;
+    by_model: Array<{
+      model: string | null;
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+      total_cents: number | null;
+    }>;
   };
 }
 

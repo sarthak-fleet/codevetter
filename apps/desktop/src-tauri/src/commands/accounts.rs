@@ -1000,14 +1000,20 @@ async fn check_live_usage_anthropic(credential_key: Option<String>) -> Result<Va
 }
 
 /// Cursor live usage: pull the JWT Cursor stores in its globalStorage DB
-/// and hit `api2.cursor.sh/auth/usage-summary` — the same endpoint that
-/// powers cursor.com/dashboard. Returns the billing-cycle "used / limit"
-/// pair (cents) along with the percent-used numbers Cursor itself surfaces.
+/// and hit two Connect RPC endpoints under `aiserver.v1.DashboardService`
+/// on `api2.cursor.sh` — the same surface the desktop app and
+/// cursor.com/dashboard use.
 ///
-/// Note: Cursor charges in dollars/credits, not tokens. We map the
-/// monthly-cycle percentage onto `five_h` so the existing LiveUsageResult
-/// renderer picks it up, and stuff the raw cents + display strings into
-/// the `cursor_plan` extension so the UI can show "$X.XX / $Y.YY".
+/// 1. `GetCurrentPeriodUsage` → billing cycle bounds, spend %, plan info
+///    (`totalSpend` / `limit` in cents).
+/// 2. `GetAggregatedUsageEvents` over the current cycle → real token
+///    counts: `totalInputTokens`, `totalOutputTokens`, `totalCacheReadTokens`,
+///    plus a per-model breakdown.
+///
+/// We surface both: the percentage on `five_h` (so the existing
+/// UsageBar renderer picks it up), the spend numbers in `cursor_plan`,
+/// and the token totals in `cursor_tokens` so the UI can show the real
+/// "millions of tokens" figure Cursor's web dashboard reports.
 async fn check_live_usage_cursor() -> Result<Value, String> {
     let token = tokio::task::spawn_blocking(|| {
         crate::commands::history::read_cursor_item_table("cursorAuth/accessToken")
@@ -1019,108 +1025,176 @@ async fn check_live_usage_cursor() -> Result<Value, String> {
     })?;
 
     let client = reqwest::Client::new();
-    let resp = client
-        .get("https://api2.cursor.sh/auth/usage-summary")
+
+    // ── 1. Current billing cycle + spend ────────────────────────────────
+    let period_resp = client
+        .post("https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage")
         .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .header("Connect-Protocol-Version", "1")
+        .body("{}")
         .send()
         .await
-        .map_err(|e| format!("Cursor usage request failed: {e}"))?;
+        .map_err(|e| format!("Cursor GetCurrentPeriodUsage failed: {e}"))?;
 
-    let status_code = resp.status().as_u16();
+    let status_code = period_resp.status().as_u16();
     if status_code == 401 || status_code == 403 {
         return Err(
             "Cursor token rejected — sign in again from inside Cursor to refresh it.".to_string(),
         );
     }
-    if !resp.status().is_success() {
-        return Err(format!("Cursor usage endpoint returned {}", status_code));
+    if !period_resp.status().is_success() {
+        return Err(format!(
+            "Cursor GetCurrentPeriodUsage returned {}",
+            status_code
+        ));
     }
 
-    let body: Value = resp
+    let period: Value = period_resp
         .json()
         .await
-        .map_err(|e| format!("Failed to parse Cursor usage response: {e}"))?;
+        .map_err(|e| format!("Failed to parse GetCurrentPeriodUsage: {e}"))?;
 
-    // Pull the user-visible fields out of the response. Field names mirror
-    // Cursor's web dashboard so a future schema break is easy to spot.
-    let cycle_end_iso = body
-        .get("billingCycleEnd")
-        .and_then(|v| v.as_str())
-        .map(String::from);
-    let cycle_start_iso = body
-        .get("billingCycleStart")
-        .and_then(|v| v.as_str())
-        .map(String::from);
-    let cycle_end_epoch = cycle_end_iso
-        .as_deref()
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|dt| dt.timestamp());
+    // Timestamps come back as stringified epoch ms.
+    let parse_ms = |v: Option<&Value>| -> Option<i64> {
+        v.and_then(|x| x.as_str())
+            .and_then(|s| s.parse::<i64>().ok())
+            .or_else(|| v.and_then(|x| x.as_i64()))
+    };
+    let cycle_start_ms = parse_ms(period.get("billingCycleStart"));
+    let cycle_end_ms = parse_ms(period.get("billingCycleEnd"));
+    let cycle_end_epoch = cycle_end_ms.map(|ms| ms / 1000);
 
-    let membership = body
-        .get("membershipType")
+    let total_pct_used = period
+        .pointer("/planUsage/totalPercentUsed")
+        .and_then(|v| v.as_f64());
+    let auto_pct_used = period
+        .pointer("/planUsage/autoPercentUsed")
+        .and_then(|v| v.as_f64());
+    let total_spend_cents = period
+        .pointer("/planUsage/totalSpend")
+        .and_then(|v| v.as_f64());
+    let limit_cents = period
+        .pointer("/planUsage/limit")
+        .and_then(|v| v.as_f64());
+    let remaining_cents = period
+        .pointer("/planUsage/remaining")
+        .and_then(|v| v.as_f64());
+    let display_message = period
+        .get("displayMessage")
         .and_then(|v| v.as_str())
         .map(String::from);
-    let is_unlimited = body
-        .get("isUnlimited")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let total_pct_used = body
-        .pointer("/individualUsage/plan/totalPercentUsed")
-        .and_then(|v| v.as_f64());
-    let auto_pct_used = body
-        .pointer("/individualUsage/plan/autoPercentUsed")
-        .and_then(|v| v.as_f64());
-    let used = body
-        .pointer("/individualUsage/plan/used")
-        .and_then(|v| v.as_f64());
-    let limit = body
-        .pointer("/individualUsage/plan/limit")
-        .and_then(|v| v.as_f64());
-    let remaining = body
-        .pointer("/individualUsage/plan/remaining")
-        .and_then(|v| v.as_f64());
-    let auto_msg = body
+    let auto_message = period
         .get("autoModelSelectedDisplayMessage")
         .and_then(|v| v.as_str())
         .map(String::from);
 
+    // ── 2. Token totals for the same window ─────────────────────────────
+    // The aggregated endpoint accepts startDate/endDate as stringified
+    // epoch-ms. We pass the cycle bounds we just got so the spend % and
+    // token totals are talking about the same window.
+    let agg_tokens = if let (Some(start), Some(end)) = (cycle_start_ms, cycle_end_ms) {
+        let body = format!(
+            "{{\"startDate\":\"{}\",\"endDate\":\"{}\"}}",
+            start, end
+        );
+        match client
+            .post("https://api2.cursor.sh/aiserver.v1.DashboardService/GetAggregatedUsageEvents")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .header("Connect-Protocol-Version", "1")
+            .body(body)
+            .send()
+            .await
+        {
+            Ok(r) if r.status().is_success() => r.json::<Value>().await.ok(),
+            Ok(r) => {
+                log::warn!("GetAggregatedUsageEvents returned {}", r.status());
+                None
+            }
+            Err(e) => {
+                log::warn!("GetAggregatedUsageEvents failed: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Tokens come back as stringified i64s (protobuf int64 → JSON string).
+    let parse_token = |v: Option<&Value>| -> i64 {
+        v.and_then(|x| x.as_str())
+            .and_then(|s| s.parse::<i64>().ok())
+            .or_else(|| v.and_then(|x| x.as_i64()))
+            .unwrap_or(0)
+    };
+    let total_input_tokens = parse_token(agg_tokens.as_ref().and_then(|t| t.get("totalInputTokens")));
+    let total_output_tokens =
+        parse_token(agg_tokens.as_ref().and_then(|t| t.get("totalOutputTokens")));
+    let total_cache_read_tokens = parse_token(
+        agg_tokens
+            .as_ref()
+            .and_then(|t| t.get("totalCacheReadTokens")),
+    );
+    let total_tokens = total_input_tokens + total_output_tokens + total_cache_read_tokens;
+    let total_cost_cents = agg_tokens
+        .as_ref()
+        .and_then(|t| t.get("totalCostCents"))
+        .and_then(|v| v.as_f64());
+
+    let per_model: Vec<Value> = agg_tokens
+        .as_ref()
+        .and_then(|t| t.get("aggregations"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|m| {
+                    json!({
+                        "model": m.get("modelIntent").and_then(|v| v.as_str()),
+                        "input_tokens": parse_token(m.get("inputTokens")),
+                        "output_tokens": parse_token(m.get("outputTokens")),
+                        "cache_read_tokens": parse_token(m.get("cacheReadTokens")),
+                        "total_cents": m.get("totalCents").and_then(|v| v.as_f64()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     let now_epoch = chrono::Utc::now().timestamp();
     let resets_in_secs = cycle_end_epoch.map(|e| (e - now_epoch).max(0));
+    let is_rate_limited = total_pct_used.map_or(false, |p| p >= 100.0);
 
-    // Cursor's quota is a single monthly window. Surface it on `five_h` so
-    // the existing AccountUsageRow picks it up; leave `seven_d` empty.
     Ok(json!({
         "supported": true,
-        "status": if total_pct_used.map_or(false, |p| p >= 100.0) {
-            "rate_limited"
-        } else {
-            "allowed"
-        },
+        "status": if is_rate_limited { "rate_limited" } else { "allowed" },
         "five_h": {
             "utilization": total_pct_used.map(|p| p / 100.0),
             "utilization_pct": total_pct_used,
             "reset_at": cycle_end_epoch,
             "resets_in_secs": resets_in_secs,
-            "status": if total_pct_used.map_or(false, |p| p >= 100.0) {
-                "rate_limited"
-            } else {
-                "allowed"
-            },
+            "status": if is_rate_limited { "rate_limited" } else { "allowed" },
         },
         "checked_at": chrono::Utc::now().to_rfc3339(),
         "cursor_plan": {
-            "membership": membership,
-            "is_unlimited": is_unlimited,
-            "used": used,
-            "limit": limit,
-            "remaining": remaining,
+            "total_spend_cents": total_spend_cents,
+            "limit_cents": limit_cents,
+            "remaining_cents": remaining_cents,
             "total_pct_used": total_pct_used,
             "auto_pct_used": auto_pct_used,
-            "auto_message": auto_msg,
-            "cycle_start": cycle_start_iso,
-            "cycle_end": cycle_end_iso,
+            "display_message": display_message,
+            "auto_message": auto_message,
+            "cycle_start_ms": cycle_start_ms,
+            "cycle_end_ms": cycle_end_ms,
         },
-        "_raw": body,
+        "cursor_tokens": {
+            "input": total_input_tokens,
+            "output": total_output_tokens,
+            "cache_read": total_cache_read_tokens,
+            "total": total_tokens,
+            "total_cost_cents": total_cost_cents,
+            "by_model": per_model,
+        },
     }))
 }
 
