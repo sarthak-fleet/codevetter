@@ -174,7 +174,7 @@ function AccountUsageRow({
   const plan = usage?.plan ?? account.plan;
 
   // Live rate limit data — supported for all providers now
-  const isLiveSupported = ["anthropic", "openai", "google"].includes(account.provider);
+  const isLiveSupported = ["anthropic", "openai", "google", "cursor"].includes(account.provider);
   const hasLive = liveUsage?.supported === true;
   const fiveH = liveUsage?.five_h;
   const sevenD = liveUsage?.seven_d;
@@ -184,6 +184,9 @@ function AccountUsageRow({
   const geminiToday = liveUsage?.today;
   const geminiModels = liveUsage?.models;
   const quotaBuckets = liveUsage?.quota_api?.buckets;
+
+  // Cursor-specific live data — from api2.cursor.sh/auth/usage-summary
+  const cursorPlan = liveUsage?.cursor_plan;
 
   // Determine bar color based on utilization
   function barColor(pct: number): "amber" | "red" {
@@ -205,6 +208,8 @@ function AccountUsageRow({
               ? "bg-amber-400"
               : account.provider === "google"
               ? "bg-blue-400"
+              : account.provider === "cursor"
+              ? "bg-violet-400"
               : "bg-emerald-400"
           }`}
         />
@@ -219,6 +224,8 @@ function AccountUsageRow({
                 ? "bg-amber-500/15 text-amber-400"
                 : account.provider === "google"
                 ? "bg-blue-500/15 text-blue-400"
+                : account.provider === "cursor"
+                ? "bg-violet-500/15 text-violet-300"
                 : "bg-emerald-500/15 text-emerald-400"
             }`}
           >
@@ -237,12 +244,16 @@ function AccountUsageRow({
                 ? "text-amber-400/70 hover:text-amber-400"
                 : account.provider === "google"
                 ? "text-blue-400/70 hover:text-blue-400"
+                : account.provider === "cursor"
+                ? "text-violet-300/70 hover:text-violet-300"
                 : "text-emerald-400/70 hover:text-emerald-400"
             }`}
             title={account.provider === "openai"
               ? "Check live usage from OpenAI"
               : account.provider === "google"
               ? "Check live usage from Google"
+              : account.provider === "cursor"
+              ? "Check live plan usage from Cursor"
               : "Check live usage (makes a small API call)"
             }
           >
@@ -256,14 +267,22 @@ function AccountUsageRow({
         {hasLive && fiveH?.utilization_pct != null && (
           <UsageBar
             pct={fiveH.utilization_pct}
-            label={account.provider === "anthropic" ? "5-hour window" : "Primary window"}
+            label={
+              account.provider === "anthropic"
+                ? "5-hour window"
+                : account.provider === "cursor"
+                ? "Monthly plan"
+                : "Primary window"
+            }
             resetLabel={
               fiveH.resets_in_secs != null && fiveH.resets_in_secs > 0
                 ? `resets in ${formatDuration(fiveH.resets_in_secs)}`
                 : undefined
             }
             color={barColor(fiveH.utilization_pct)}
-            windowTotalSecs={5 * 3600}
+            windowTotalSecs={
+              account.provider === "cursor" ? 30 * 24 * 3600 : 5 * 3600
+            }
             resetsInSecs={fiveH.resets_in_secs ?? undefined}
           />
         )}
@@ -394,8 +413,48 @@ function AccountUsageRow({
           </div>
         )}
 
+        {/* ── Cursor-specific plan usage (live from api2.cursor.sh) ─── */}
+        {account.provider === "cursor" && cursorPlan && (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">
+                Plan usage
+                {cursorPlan.membership && (
+                  <span className="ml-1.5 text-slate-600 uppercase tracking-wide">
+                    ({cursorPlan.membership})
+                  </span>
+                )}
+              </span>
+              <div className="flex items-center gap-2 tabular-nums">
+                {cursorPlan.used != null && cursorPlan.limit != null && (
+                  <span className="text-slate-500">
+                    {cursorPlan.used.toLocaleString()} / {cursorPlan.limit.toLocaleString()}
+                  </span>
+                )}
+                {cursorPlan.total_pct_used != null && (
+                  <span className="font-semibold text-violet-300">
+                    {cursorPlan.total_pct_used.toFixed(1)}%
+                  </span>
+                )}
+              </div>
+            </div>
+            {cursorPlan.auto_message && (
+              <div className="text-[10px] text-slate-600 italic">
+                {cursorPlan.auto_message}
+              </div>
+            )}
+            <div className="text-[10px] text-slate-700">
+              {weekSessions} session{weekSessions === 1 ? "" : "s"} indexed
+              this week
+            </div>
+          </div>
+        )}
+
         {/* ── Estimated stats (from local JSONL data) ───────────── */}
-        {!isSharedUsage ? (
+        {/* Cursor: skip the local "tokens this week" line — Cursor doesn't
+            expose per-message tokens locally, so the live plan-usage block
+            above is the source of truth. */}
+        {!isSharedUsage && account.provider !== "cursor" ? (
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-3">
               <span className="text-[10px] text-slate-600 tabular-nums">
@@ -983,7 +1042,7 @@ export default function Home() {
 
   const refreshLiveUsage = useCallback(async (accts: ProviderAccount[]) => {
     const supported = accts.filter((a) =>
-      ["anthropic", "openai", "google"].includes(a.provider)
+      ["anthropic", "openai", "google", "cursor"].includes(a.provider)
     );
     if (supported.length === 0) return;
 

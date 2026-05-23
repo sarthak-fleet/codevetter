@@ -599,25 +599,29 @@ async fn detect_gemini() -> Option<DetectedAccount> {
 
 /// Detect Cursor IDE.
 ///
-/// Cursor doesn't expose an OAuth token or user identity that we can read
-/// without screen-scraping its protected storage, so the signal here is
-/// just: the app's data dir exists and the global conversation DB is
-/// present. That's the same condition `index_cursor_sessions` needs to
-/// surface any usage at all, so it cleanly couples account visibility to
-/// "we actually have data for this tool."
+/// Cursor stores its OAuth artifacts (JWT + email + Stripe plan) in plain
+/// text inside `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`,
+/// which lets us populate the account row with the real email + plan
+/// instead of a generic "Cursor" placeholder.
 fn detect_cursor_account() -> Option<DetectedAccount> {
     let cursor_dir = crate::commands::history::resolve_cursor_data_dir();
     let global_db = crate::commands::history::resolve_cursor_global_db();
     if !cursor_dir.exists() || !global_db.exists() {
         return None;
     }
+    let email = crate::commands::history::read_cursor_item_table("cursorAuth/cachedEmail");
+    let plan = crate::commands::history::read_cursor_item_table("cursorAuth/stripeMembershipType");
+    let name = email
+        .clone()
+        .map(|e| format!("Cursor — {}", e))
+        .unwrap_or_else(|| "Cursor".to_string());
     Some(DetectedAccount {
         provider: "cursor".to_string(),
-        name: "Cursor".to_string(),
-        email: None,
+        name,
+        email,
         org_id: Some("cursor-local".to_string()),
         org_name: None,
-        plan: None,
+        plan,
     })
 }
 
@@ -848,6 +852,7 @@ pub async fn check_live_usage(
     match provider.as_str() {
         "anthropic" => check_live_usage_anthropic(credential_key).await,
         "openai" => check_live_usage_openai().await,
+        "cursor" => check_live_usage_cursor().await,
         "google" => {
             let local = check_live_usage_gemini_local().await;
             let api = check_live_usage_gemini_api().await;
@@ -991,6 +996,131 @@ async fn check_live_usage_anthropic(credential_key: Option<String>) -> Result<Va
         "overage_disabled_reason": overage_disabled_reason,
         "fallback_pct": fallback_pct,
         "checked_at": chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+/// Cursor live usage: pull the JWT Cursor stores in its globalStorage DB
+/// and hit `api2.cursor.sh/auth/usage-summary` — the same endpoint that
+/// powers cursor.com/dashboard. Returns the billing-cycle "used / limit"
+/// pair (cents) along with the percent-used numbers Cursor itself surfaces.
+///
+/// Note: Cursor charges in dollars/credits, not tokens. We map the
+/// monthly-cycle percentage onto `five_h` so the existing LiveUsageResult
+/// renderer picks it up, and stuff the raw cents + display strings into
+/// the `cursor_plan` extension so the UI can show "$X.XX / $Y.YY".
+async fn check_live_usage_cursor() -> Result<Value, String> {
+    let token = tokio::task::spawn_blocking(|| {
+        crate::commands::history::read_cursor_item_table("cursorAuth/accessToken")
+    })
+    .await
+    .map_err(|e| format!("spawn error: {e}"))?
+    .ok_or_else(|| {
+        "No Cursor access token found in globalStorage — sign in to Cursor first.".to_string()
+    })?;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://api2.cursor.sh/auth/usage-summary")
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Cursor usage request failed: {e}"))?;
+
+    let status_code = resp.status().as_u16();
+    if status_code == 401 || status_code == 403 {
+        return Err(
+            "Cursor token rejected — sign in again from inside Cursor to refresh it.".to_string(),
+        );
+    }
+    if !resp.status().is_success() {
+        return Err(format!("Cursor usage endpoint returned {}", status_code));
+    }
+
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Cursor usage response: {e}"))?;
+
+    // Pull the user-visible fields out of the response. Field names mirror
+    // Cursor's web dashboard so a future schema break is easy to spot.
+    let cycle_end_iso = body
+        .get("billingCycleEnd")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let cycle_start_iso = body
+        .get("billingCycleStart")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let cycle_end_epoch = cycle_end_iso
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.timestamp());
+
+    let membership = body
+        .get("membershipType")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let is_unlimited = body
+        .get("isUnlimited")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let total_pct_used = body
+        .pointer("/individualUsage/plan/totalPercentUsed")
+        .and_then(|v| v.as_f64());
+    let auto_pct_used = body
+        .pointer("/individualUsage/plan/autoPercentUsed")
+        .and_then(|v| v.as_f64());
+    let used = body
+        .pointer("/individualUsage/plan/used")
+        .and_then(|v| v.as_f64());
+    let limit = body
+        .pointer("/individualUsage/plan/limit")
+        .and_then(|v| v.as_f64());
+    let remaining = body
+        .pointer("/individualUsage/plan/remaining")
+        .and_then(|v| v.as_f64());
+    let auto_msg = body
+        .get("autoModelSelectedDisplayMessage")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    let now_epoch = chrono::Utc::now().timestamp();
+    let resets_in_secs = cycle_end_epoch.map(|e| (e - now_epoch).max(0));
+
+    // Cursor's quota is a single monthly window. Surface it on `five_h` so
+    // the existing AccountUsageRow picks it up; leave `seven_d` empty.
+    Ok(json!({
+        "supported": true,
+        "status": if total_pct_used.map_or(false, |p| p >= 100.0) {
+            "rate_limited"
+        } else {
+            "allowed"
+        },
+        "five_h": {
+            "utilization": total_pct_used.map(|p| p / 100.0),
+            "utilization_pct": total_pct_used,
+            "reset_at": cycle_end_epoch,
+            "resets_in_secs": resets_in_secs,
+            "status": if total_pct_used.map_or(false, |p| p >= 100.0) {
+                "rate_limited"
+            } else {
+                "allowed"
+            },
+        },
+        "checked_at": chrono::Utc::now().to_rfc3339(),
+        "cursor_plan": {
+            "membership": membership,
+            "is_unlimited": is_unlimited,
+            "used": used,
+            "limit": limit,
+            "remaining": remaining,
+            "total_pct_used": total_pct_used,
+            "auto_pct_used": auto_pct_used,
+            "auto_message": auto_msg,
+            "cycle_start": cycle_start_iso,
+            "cycle_end": cycle_end_iso,
+        },
+        "_raw": body,
     }))
 }
 

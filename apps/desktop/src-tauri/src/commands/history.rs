@@ -1096,6 +1096,27 @@ pub fn resolve_cursor_global_db() -> std::path::PathBuf {
         .join("state.vscdb")
 }
 
+/// Look up a value in Cursor's global `ItemTable`. Returns `None` if the
+/// DB is missing, the row doesn't exist, or anything goes wrong — caller
+/// should treat absence as "feature unavailable" rather than an error.
+pub fn read_cursor_item_table(key: &str) -> Option<String> {
+    let db_path = resolve_cursor_global_db();
+    if !db_path.exists() {
+        return None;
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    conn.query_row(
+        "SELECT value FROM ItemTable WHERE key = ?1",
+        rusqlite::params![key],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+}
+
 /// Index Cursor AI sessions from the global `cursorDiskKV` table.
 ///
 /// Modern Cursor (Anysphere/Glass) stores every AI conversation in:
@@ -1261,11 +1282,13 @@ fn index_cursor_sessions(
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty() && *s != "default")
             .map(String::from);
-        let context_tokens_used = composer
-            .get("contextTokensUsed")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0)
-            .max(0);
+        // `contextTokensUsed` is the *last* conversation context size, not a
+        // cumulative billing figure — using it as a token total understates
+        // Cursor's real burn by orders of magnitude (every assistant turn
+        // re-sends the whole context). The live `api2.cursor.sh` call below
+        // is the source of truth for usage. We deliberately don't fabricate
+        // a token count locally.
+        let _ = composer.get("contextTokensUsed");
 
         let composer_created_at = composer
             .get("createdAt")
@@ -1344,11 +1367,10 @@ fn index_cursor_sessions(
             let _ = queries::bump_session_day(conn, &session_id, day, *n);
         }
 
-        // Cursor doesn't ship per-message token counts in local storage.
-        // We surface the composer's last `contextTokensUsed` as a rough
-        // input-token proxy so the dashboard isn't entirely blank for
-        // Cursor sessions. Output tokens and cost stay 0 — Cursor's plans
-        // are seat-based, not per-token.
+        // Cursor doesn't ship per-message token counts in local storage and
+        // the composer's `contextTokensUsed` is a snapshot, not a cumulative
+        // total — so we store 0 here and rely on the live API in
+        // `check_live_usage_cursor` for actual usage figures.
         queries::upsert_session(
             conn,
             &queries::SessionInput {
@@ -1362,7 +1384,7 @@ fn index_cursor_sessions(
                 first_message,
                 last_message,
                 message_count: Some(msg_count),
-                total_input_tokens: Some(context_tokens_used),
+                total_input_tokens: Some(0),
                 total_output_tokens: Some(0),
                 model_used,
                 slug: title,

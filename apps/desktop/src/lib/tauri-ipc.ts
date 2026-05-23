@@ -659,6 +659,19 @@ export interface LiveUsageResult {
     checked_at?: string;
   };
   quota_api_error?: string;
+  // Cursor-specific: monthly plan usage straight from api2.cursor.sh
+  cursor_plan?: {
+    membership: string | null;
+    is_unlimited: boolean;
+    used: number | null;
+    limit: number | null;
+    remaining: number | null;
+    total_pct_used: number | null;
+    auto_pct_used: number | null;
+    auto_message: string | null;
+    cycle_start: string | null;
+    cycle_end: string | null;
+  };
 }
 
 export async function checkLiveUsage(provider: string, credentialKey?: string): Promise<LiveUsageResult> {
