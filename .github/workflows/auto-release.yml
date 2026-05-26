@@ -1,9 +1,13 @@
 name: Auto-publish release
 
-# When tauri.conf.json's version changes on main, create a GitHub release
-# with tag v<version>. That `release: created` event triggers release.yml,
-# which builds and uploads the signed updater artifacts. The in-app
-# UpdateChecker (polls every 30 min) then surfaces the update to users.
+# When tauri.conf.json's version changes on main:
+#   1. Create a GitHub release with tag v<version>.
+#   2. Dispatch release.yml directly to build + sign + upload artifacts.
+#
+# Step 2 is required because workflows triggered by GITHUB_TOKEN (which is
+# how step 1 creates the release) do NOT cascade to other workflows — this
+# is a documented anti-recursion safeguard. workflow_dispatch is the one
+# event that fires even from GITHUB_TOKEN, so we use it explicitly.
 #
 # Idempotent: if a release with that tag already exists, this no-ops.
 
@@ -66,3 +70,14 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "CodeVetter ${{ steps.ver.outputs.tag }}" \
             --generate-notes
+
+      - name: Dispatch release build workflow
+        if: steps.check.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f tag="${{ steps.ver.outputs.tag }}"

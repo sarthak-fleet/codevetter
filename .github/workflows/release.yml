@@ -3,6 +3,12 @@ name: Release Desktop App
 on:
   release:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.1.12) to build artifacts for"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -16,6 +22,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          # On workflow_dispatch we want the commit the tag points at, not
+          # the head of main — checkout the tag explicitly.
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -51,9 +61,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
-          tagName: ${{ github.event.release.tag_name }}
-          releaseName: ${{ github.event.release.name }}
-          releaseBody: ${{ github.event.release.body }}
+          tagName: ${{ github.event.release.tag_name || inputs.tag }}
+          releaseName: ${{ github.event.release.name || format('CodeVetter {0}', inputs.tag) }}
+          releaseBody: ${{ github.event.release.body || '' }}
           releaseDraft: false
           prerelease: false
           # Emit latest.json manifest with signatures so the in-app updater
@@ -72,7 +82,7 @@ jobs:
         if: always() && hashFiles('apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/CodeVetter.app.tar.gz') != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
