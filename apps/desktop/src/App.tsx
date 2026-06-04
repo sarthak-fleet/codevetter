@@ -11,6 +11,8 @@ import { getPreference, isTauriAvailable } from "@/lib/tauri-ipc";
 import { useTrayMonitor } from "@/lib/use-tray-monitor";
 // Pages
 import Home from "@/pages/Home";
+import IntentDebugger from "@/pages/IntentDebugger";
+import QaReplay from "@/pages/QaReplay";
 import QuickReview from "@/pages/QuickReview";
 import RepoUnpacked from "@/pages/RepoUnpacked";
 import Rubrics from "@/pages/Rubrics";
@@ -168,6 +170,8 @@ export default function App() {
         <Route path="/review" element={<QuickReview />} />
         <Route path="/rubrics" element={<Rubrics />} />
         <Route path="/unpack" element={<RepoUnpacked />} />
+        <Route path="/intent-debugger" element={<IntentDebugger />} />
+        <Route path="/qa-replay" element={<QaReplay />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<NotFound />} />
       </Route>

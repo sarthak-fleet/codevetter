@@ -13,8 +13,11 @@
     "test:e2e": "npx playwright test",
     "test:e2e:ui": "npx playwright test --ui",
     "test:e2e:tauri": "node --import tsx --test tests/e2e/app.tauri-spec.ts",
-    "test:synthetic-qa": "node --import tsx --test src/lib/synthetic-qa/apply-evidence.test.ts",
+    "test:synthetic-qa": "node --import tsx --test src/lib/synthetic-qa/apply-evidence.test.ts src/lib/synthetic-qa/fixture-runner.test.ts",
+    "test:intent-debugger": "node --import tsx --test src/lib/intent-debugger/report.test.ts",
+    "intent-debugger": "node --import tsx src/lib/intent-debugger/run-intent-cli.ts",
     "synthetic-qa:run": "node scripts/run-synthetic-qa.mjs",
+    "synthetic-qa:replay": "node --import tsx src/lib/synthetic-qa/run-fixture-cli.ts",
     "lint": "eslint src/ --ext .ts,.tsx --quiet"
   },
   "dependencies": {
