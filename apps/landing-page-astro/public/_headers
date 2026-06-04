@@ -1,0 +1,18 @@
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Cache HTML at the CF edge for ~1 day; SWR keeps it instant while a
+# single deploy bumps the source of truth. Explicit max-age (browser
+# cache) tells CF Pages the HTML is cacheable at edge — without it,
+# responses return as cf-cache-status: DYNAMIC.
+/
+  Cache-Control: public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800
+
+/*.html
+  Cache-Control: public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800

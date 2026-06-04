@@ -1,0 +1,126 @@
+---
+// Port of apps/landing-page/components/organisms/Providers.tsx.
+// The React Spotlight wrapper tracked the mouse to drive a radial
+// gradient — dropped here. The radial sits at the default top-right.
+
+const providers = [
+  {
+    name: 'Anthropic',
+    models: ['Claude 3.5 Sonnet', 'Claude 3 Opus'],
+    status: 'Native',
+    accent: 'from-orange-500 to-amber-500',
+    note: 'Recommended for security review',
+  },
+  {
+    name: 'OpenAI',
+    models: ['GPT-4o', 'GPT-4o-mini', 'o1-preview'],
+    status: 'Native',
+    accent: 'from-emerald-500 to-sky-500',
+    note: 'Fast diffs · robust reasoning',
+  },
+  {
+    name: 'OpenRouter',
+    models: ['Gemini 1.5 Pro', 'Llama 3.1 405B'],
+    status: 'Gateway',
+    accent: 'from-purple-500 to-pink-500',
+    note: '300+ models · single API key',
+  },
+  {
+    name: 'Local LLMs',
+    models: ['Qwen 2.5 Coder', 'DeepSeek Coder'],
+    status: 'Private',
+    accent: 'from-blue-500 to-indigo-500',
+    note: '100% private · air-gapped',
+  },
+];
+
+const providerStats = [
+  { n: '300+', l: 'Models reachable' },
+  { n: '0', l: 'Tokens proxied' },
+  { n: '<200ms', l: 'Provider latency' },
+  { n: '∞', l: 'Reviews allowed' },
+];
+---
+
+<section id="providers" class="py-32 relative overflow-hidden">
+  <div class="absolute inset-0 grid-bg opacity-20 pointer-events-none" aria-hidden="true"></div>
+
+  <div class="relative max-w-7xl mx-auto px-6">
+    <div class="grid lg:grid-cols-12 gap-16 items-end mb-20">
+      <div class="lg:col-span-7">
+        <div class="max-w-3xl flex flex-col items-center mx-auto text-center">
+          <div class="flex items-center gap-3 mb-6 bg-blue-500/10 border border-blue-500/20 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(96,165,250,0.15)]">
+            <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+            <span class="text-xs uppercase tracking-widest text-blue-400 font-semibold">
+              Provider matrix
+            </span>
+          </div>
+          <h2 class="font-display text-[clamp(2.4rem,5vw,4.2rem)] font-bold leading-[1.05] tracking-tight">
+            Any model. <span class="text-gradient">Your key.</span>
+          </h2>
+          <p class="mt-6 text-[18px] text-gray-400 leading-relaxed max-w-2xl mx-auto">
+            CodeVetter is provider-agnostic. Test the same diff across models, pin one per repo, or rotate as new releases land.
+          </p>
+        </div>
+      </div>
+      <div class="lg:col-span-5 grid grid-cols-2 gap-4">
+        {providerStats.map((p) => (
+          <div class="group p-5 rounded-2xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.03] hover:border-white/10 transition-all">
+            <div class="font-display text-3xl font-bold text-white group-hover:text-blue-400 transition-colors tabular-nums">
+              {p.n}
+            </div>
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-1">
+              {p.l}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {providers.map((p) => (
+        <div class="spotlight group relative bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all duration-500 p-8 rounded-[2rem] overflow-hidden">
+          <div
+            class:list={[
+              'absolute -top-32 -right-32 w-80 h-80 rounded-full blur-3xl opacity-0 group-hover:opacity-20 transition-opacity bg-gradient-to-br',
+              p.accent,
+            ]}
+            aria-hidden="true"
+          ></div>
+          <div class="relative flex flex-col h-full">
+            <div class="flex items-start justify-between mb-8">
+              <div>
+                <h3 class="font-display text-2xl font-bold text-white mb-2">
+                  {p.name}
+                </h3>
+                <p class="text-sm text-gray-500 font-medium">
+                  {p.note}
+                </p>
+              </div>
+              <span
+                class:list={[
+                  'text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full border shadow-sm',
+                  p.status === 'Native'
+                    ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10'
+                    : p.status === 'Private'
+                      ? 'text-blue-400 border-blue-500/20 bg-blue-500/10'
+                      : 'text-purple-400 border-purple-500/20 bg-purple-500/10',
+                ]}
+              >
+                {p.status}
+              </span>
+            </div>
+
+            <div class="flex flex-wrap gap-2 mt-auto">
+              {p.models.map((m) => (
+                <span class="text-xs font-semibold text-gray-400 border border-white/5 bg-white/[0.03] px-3 py-1.5 rounded-xl group-hover:border-blue-500/20 group-hover:text-gray-200 transition-colors">
+                  {m}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

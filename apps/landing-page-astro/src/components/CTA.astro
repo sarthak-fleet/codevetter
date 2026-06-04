@@ -1,0 +1,77 @@
+---
+import Icon from './Icon.astro';
+
+// Port of apps/landing-page/components/organisms/CTA.tsx.
+---
+
+<section id="download" class="py-32 relative overflow-hidden">
+  <div class="absolute inset-0 grid-bg pointer-events-none opacity-40" aria-hidden="true"></div>
+
+  <div class="relative max-w-5xl mx-auto px-6">
+    <div class="relative rounded-[3rem] bg-white/[0.02] border border-white/5 backdrop-blur-3xl p-12 md:p-20 overflow-hidden shadow-2xl">
+      <div
+        class="absolute inset-0 pointer-events-none opacity-40"
+        style="background: radial-gradient(circle at 50% 0%, rgba(96, 165, 250, 0.2), transparent 70%);"
+        aria-hidden="true"
+      ></div>
+      <div class="relative text-center flex flex-col items-center">
+        <div class="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold tracking-widest uppercase mb-8">
+          <span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+          Latest build · Ready to review
+        </div>
+
+        <h2 class="font-display text-[clamp(2.4rem,6vw,4.5rem)] font-bold leading-[1.1] tracking-tight text-white">
+          Stop trusting agents{' '}
+          <span class="text-gradient">blindly.</span>
+        </h2>
+        <p class="mt-8 text-lg text-gray-400 max-w-xl mx-auto leading-relaxed">
+          Install in 30 seconds. First review in under a minute. Your code never
+          leaves your machine.
+        </p>
+
+        <div class="mt-12 flex flex-wrap items-center justify-center gap-4">
+          <a
+            href="https://github.com/sarthak-fleet/CodeVetter/releases/latest"
+            class="group inline-flex items-center gap-2 h-14 px-8 text-sm font-medium bg-white text-black hover:bg-gray-100 shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] transition-all duration-300 rounded-full"
+          >
+            <Icon name="apple" class="w-5 h-5" width={20} height={20} />
+            Download for macOS
+            <Icon name="arrow-right" class="w-4 h-4 transition-transform group-hover:translate-x-1" width={16} height={16} />
+          </a>
+          <a
+            href="https://github.com/sarthak-fleet/CodeVetter/releases/latest"
+            class="group inline-flex items-center gap-2 h-14 px-8 text-sm font-medium bg-white/5 border border-white/10 text-white backdrop-blur-md hover:bg-white/10 hover:border-white/20 shadow-lg transition-all duration-300 rounded-full"
+          >
+            Other Platforms
+          </a>
+        </div>
+
+        <div class="mt-12 w-full max-w-md rounded-2xl bg-black/40 border border-white/5 p-1 overflow-hidden backdrop-blur-md shadow-inner">
+          <div class="flex items-center gap-2 px-4 py-3 border-b border-white/5 bg-white/[0.02]">
+            <Icon name="terminal" class="w-4 h-4 text-blue-400" width={16} height={16} />
+            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Quick Install</span>
+          </div>
+          <div class="px-5 py-4 text-sm font-mono flex items-center gap-3">
+            <span class="text-blue-500/50">❯</span>
+            <span class="text-gray-300">brew install --cask <span class="text-white">codevetter</span></span>
+          </div>
+        </div>
+
+        <div class="mt-12 flex flex-wrap items-center justify-center gap-8 text-xs font-semibold text-gray-500">
+          <span class="flex items-center gap-2">
+            <Icon name="shield-check" class="w-4 h-4 text-emerald-400/70" width={16} height={16} />
+            Signed binaries
+          </span>
+          <span class="flex items-center gap-2">
+            <Icon name="shield-check" class="w-4 h-4 text-emerald-400/70" width={16} height={16} />
+            Auto-updates
+          </span>
+          <span class="flex items-center gap-2">
+            <Icon name="shield-check" class="w-4 h-4 text-emerald-400/70" width={16} height={16} />
+            No account required
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

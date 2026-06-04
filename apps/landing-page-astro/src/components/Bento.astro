@@ -1,0 +1,315 @@
+---
+import Icon from './Icon.astro';
+
+// Port of apps/landing-page/components/organisms/Bento.tsx.
+// All five sub-visuals (Diff, Key, Offline, Git, Severity, Patch) are
+// inlined below as plain markup. No React, no client JS.
+
+const keyProviders = [
+  { p: 'Anthropic', m: 'claude-3.5-sonnet', state: 'ok', env: '$ANTHROPIC_API_KEY' },
+  { p: 'OpenAI', m: 'gpt-4o', state: 'ok', env: '$OPENAI_API_KEY' },
+  { p: 'OpenRouter', m: 'gemini-pro', state: 'idle', env: '—' },
+];
+
+const severities = [
+  { k: 'Critical', v: 4, c: 'bg-red-500', text: 'text-red-400' },
+  { k: 'High', v: 12, c: 'bg-amber-500', text: 'text-amber-400' },
+  { k: 'Medium', v: 29, c: 'bg-blue-500', text: 'text-blue-400' },
+];
+
+const patchFindings = [
+  {
+    sev: 'Critical',
+    color: 'text-red-400',
+    bg: 'bg-red-500/10 border-red-500/20',
+    title: 'SQL Injection Vector',
+    body: 'Unparameterized token concatenated into query. High risk of arbitrary table access.',
+    fix: 'db.query(`...$1`,[token])',
+  },
+  {
+    sev: 'High',
+    color: 'text-amber-400',
+    bg: 'bg-amber-500/10 border-amber-500/20',
+    title: 'PII Leak in Logger',
+    body: 'Authentication token leaks into DataDog via unredacted request payload.',
+    fix: "logger.redact(['token', 'pwd'])",
+  },
+  {
+    sev: 'Medium',
+    color: 'text-blue-400',
+    bg: 'bg-blue-500/10 border-blue-500/20',
+    title: 'Missing Rate Limit',
+    body: 'No throttle applied to /auth/refresh. Potential vector for token exhaustion DoS.',
+    fix: 'rateLimit({ rpm: 60 })',
+  },
+];
+---
+
+<section id="features" class="py-32 relative overflow-hidden">
+  <div
+    class="absolute -top-40 right-0 w-[800px] h-[800px] rounded-full pointer-events-none opacity-40 blur-3xl"
+    style="background: radial-gradient(closest-side, rgba(96,165,250,0.15), transparent 100%);"
+    aria-hidden="true"
+  ></div>
+  <div
+    class="absolute top-1/2 -left-40 w-[600px] h-[600px] rounded-full pointer-events-none opacity-30 blur-3xl"
+    style="background: radial-gradient(closest-side, rgba(192,132,252,0.15), transparent 100%);"
+    aria-hidden="true"
+  ></div>
+
+  <div class="relative max-w-7xl mx-auto px-6">
+    <div class="max-w-3xl flex flex-col items-center mx-auto text-center">
+      <div class="flex items-center gap-3 mb-6 bg-blue-500/10 border border-blue-500/20 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(96,165,250,0.15)]">
+        <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+        <span class="text-xs uppercase tracking-widest text-blue-400 font-semibold">
+          Capability matrix
+        </span>
+      </div>
+      <h2 class="font-display text-[clamp(2.4rem,5vw,4.2rem)] font-bold leading-[1.05] tracking-tight">
+        Built for the way{' '}
+        <span class="text-gradient">agents ship code.</span>
+      </h2>
+      <p class="mt-6 text-[18px] text-gray-400 leading-relaxed max-w-2xl mx-auto">
+        Cursor, Claude Code, Devin — they merge fast and miss things. CodeVetter is the second pair of eyes that runs on your laptop.
+      </p>
+    </div>
+
+    <div class="mt-20 grid grid-cols-1 md:grid-cols-6 grid-rows-[repeat(4,minmax(180px,auto))] gap-6">
+      {/* Card 1 — Diff-aware review engine */}
+      <div class="group bento-card md:col-span-4 md:row-span-2">
+        <div class="absolute inset-0 bg-gradient-to-br from-blue-500/[0.03] via-transparent to-purple-500/[0.03] opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+        <div class="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-blue-400/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" aria-hidden="true"></div>
+        <div class="relative flex flex-col h-full z-10">
+          <div class="flex items-center gap-3 text-blue-400 mb-6">
+            <div class="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 shadow-[0_0_15px_rgba(96,165,250,0.15)]">
+              <Icon name="scan-search" class="w-5 h-5" width={20} height={20} />
+            </div>
+          </div>
+          <h3 class="font-display text-2xl font-bold tracking-tight text-white mb-3">
+            Diff-aware review engine
+          </h3>
+          <p class="text-[15px] text-gray-400 leading-relaxed mb-6">
+            Parses your patch, traces affected call sites, and feeds the LLM a focused context window. No shotgun prompts, no hallucinated files.
+          </p>
+          <div class="mt-auto pt-6 flex-1 flex flex-col justify-end">
+            <div class="relative rounded-xl border border-white/5 bg-[#050505] font-mono text-[12px] leading-relaxed p-5 overflow-hidden shadow-inner">
+              <div class="text-gray-500 mb-3 flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
+                apps/api/src/users.ts
+              </div>
+              <div class="bg-red-500/10 -mx-5 px-5 border-l-2 border-red-500 text-red-400 py-1.5 mb-1">
+                {'- return await db.raw(`SELECT * FROM users WHERE id = ${id}`);'}
+              </div>
+              <div class="bg-emerald-500/10 -mx-5 px-5 border-l-2 border-emerald-500 text-emerald-400 py-1.5">
+                {'+ return await db.query(`SELECT * FROM users WHERE id = $1`, [id]);'}
+              </div>
+              <div class="text-gray-500 mt-5 mb-3 flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
+                apps/api/src/cache.ts
+              </div>
+              <div class="bg-amber-500/10 -mx-5 px-5 border-l-2 border-amber-500 text-amber-400 py-1.5 mb-1">
+                ~ ttl 60s → 86400s · review eviction
+              </div>
+              <div class="bg-amber-500/10 -mx-5 px-5 border-l-2 border-amber-500 text-amber-400 py-1.5">
+                ~ no invalidation on user.update
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Card 2 — Bring your own key */}
+      <div class="group bento-card md:col-span-2 md:row-span-2">
+        <div class="absolute inset-0 bg-gradient-to-br from-blue-500/[0.03] via-transparent to-purple-500/[0.03] opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+        <div class="relative flex flex-col h-full z-10">
+          <div class="flex items-center gap-3 text-blue-400 mb-6">
+            <div class="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 shadow-[0_0_15px_rgba(96,165,250,0.15)]">
+              <Icon name="key-round" class="w-5 h-5" width={20} height={20} />
+            </div>
+          </div>
+          <h3 class="font-display text-2xl font-bold tracking-tight text-white mb-3">
+            Bring your own key
+          </h3>
+          <p class="text-[15px] text-gray-400 leading-relaxed mb-6">
+            Anthropic, OpenAI, OpenRouter. Keys live in your OS keychain. Zero proxying through us.
+          </p>
+          <div class="mt-auto pt-6 flex-1 flex flex-col justify-end">
+            <div class="space-y-3">
+              {keyProviders.map((p) => (
+                <div class="flex flex-col justify-center rounded-xl border border-white/5 bg-[#050505] p-4 hover:border-white/10 transition-colors">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="font-semibold text-gray-200">{p.p}</span>
+                    <span
+                      class:list={[
+                        'flex items-center gap-1.5 text-xs font-medium',
+                        p.state === 'ok' ? 'text-emerald-400' : 'text-gray-500',
+                      ]}
+                    >
+                      <span
+                        class:list={[
+                          'w-1.5 h-1.5 rounded-full',
+                          p.state === 'ok' ? 'bg-emerald-400' : 'bg-gray-500',
+                        ]}
+                      ></span>
+                      {p.state === 'ok' ? 'Live' : 'Ready'}
+                    </span>
+                  </div>
+                  <div class="font-mono text-[11px] text-gray-500 truncate flex items-center gap-2">
+                    <span class="text-gray-400 bg-white/5 px-2 py-0.5 rounded">{p.m}</span>
+                    <span>{p.env}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Card 3 — Runs offline */}
+      <div class="group bento-card md:col-span-2">
+        <div class="relative flex flex-col h-full z-10">
+          <div class="flex items-center gap-3 text-blue-400 mb-6">
+            <div class="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 shadow-[0_0_15px_rgba(96,165,250,0.15)]">
+              <Icon name="cpu" class="w-5 h-5" width={20} height={20} />
+            </div>
+          </div>
+          <h3 class="font-display text-2xl font-bold tracking-tight text-white mb-3">
+            Runs offline
+          </h3>
+          <p class="text-[15px] text-gray-400 leading-relaxed mb-6">
+            Tauri binary. SQLite under the hood. No backend, no signup.
+          </p>
+          <div class="mt-auto pt-6 flex-1 flex flex-col justify-end">
+            <div class="relative h-24 rounded-xl border border-white/5 bg-[#050505] overflow-hidden flex items-center justify-center">
+              <div class="relative z-10 flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl border border-emerald-500/30 bg-emerald-500/10 flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.2)]">
+                  <Icon name="cpu" class="w-6 h-6 text-emerald-400" width={24} height={24} />
+                </div>
+                <div class="flex flex-col gap-1 text-xs font-mono">
+                  <div class="flex items-center gap-2 text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    127.0.0.1
+                  </div>
+                  <div class="flex items-center gap-2 text-gray-600 px-2 py-1">
+                    <span class="line-through">api.external.com</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Card 4 — Git-native */}
+      <div class="group bento-card md:col-span-2">
+        <div class="relative flex flex-col h-full z-10">
+          <div class="flex items-center gap-3 text-blue-400 mb-6">
+            <div class="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 shadow-[0_0_15px_rgba(96,165,250,0.15)]">
+              <Icon name="git-branch" class="w-5 h-5" width={20} height={20} />
+            </div>
+          </div>
+          <h3 class="font-display text-2xl font-bold tracking-tight text-white mb-3">
+            Git-native
+          </h3>
+          <p class="text-[15px] text-gray-400 leading-relaxed mb-6">
+            Staged diffs, ranges, branches. Drop into any repo.
+          </p>
+          <div class="mt-auto pt-6 flex-1 flex flex-col justify-end">
+            <div class="relative h-24 rounded-xl border border-white/5 bg-[#050505] p-4 flex flex-col justify-center">
+              <div class="font-mono text-[12px] leading-relaxed">
+                <div class="text-gray-500 flex items-center gap-2">
+                  <span class="text-purple-400">❯</span> git diff HEAD~1
+                </div>
+                <div class="text-gray-400 ml-4 mb-2">→ 4 files · 87 lines</div>
+                <div class="text-gray-500 flex items-center gap-2">
+                  <span class="text-blue-400">❯</span> codevetter review
+                </div>
+                <div class="text-emerald-400 ml-4 flex items-center gap-2">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Analyzing diff...
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Card 5 — Severity-tiered */}
+      <div class="group bento-card md:col-span-2">
+        <div class="relative flex flex-col h-full z-10">
+          <div class="flex items-center gap-3 text-blue-400 mb-6">
+            <div class="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 shadow-[0_0_15px_rgba(96,165,250,0.15)]">
+              <Icon name="layers" class="w-5 h-5" width={20} height={20} />
+            </div>
+          </div>
+          <h3 class="font-display text-2xl font-bold tracking-tight text-white mb-3">
+            Severity-tiered
+          </h3>
+          <p class="text-[15px] text-gray-400 leading-relaxed mb-6">
+            Critical → high → medium. Mapped to CWE & OWASP.
+          </p>
+          <div class="mt-auto pt-6 flex-1 flex flex-col justify-end">
+            <div class="space-y-3 pt-2">
+              {severities.map((s) => (
+                <div class="flex items-center gap-3 text-sm font-medium">
+                  <span class:list={['w-20', s.text]}>{s.k}</span>
+                  <div class="flex-1 h-2 rounded-full bg-white/5 overflow-hidden">
+                    <div
+                      class:list={['h-full rounded-full shadow-[0_0_10px_rgba(255,255,255,0.2)]', s.c]}
+                      style={`width: ${(s.v / 29) * 100}%;`}
+                    ></div>
+                  </div>
+                  <span class="text-gray-400 font-mono text-xs w-6 text-right">
+                    {String(s.v).padStart(2, '0')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Card 6 — Patch suggestions */}
+      <div class="group bento-card md:col-span-6">
+        <div class="relative flex flex-col h-full z-10">
+          <div class="flex items-center gap-3 text-blue-400 mb-6">
+            <div class="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 shadow-[0_0_15px_rgba(96,165,250,0.15)]">
+              <Icon name="wand-2" class="w-5 h-5" width={20} height={20} />
+            </div>
+          </div>
+          <h3 class="font-display text-2xl font-bold tracking-tight text-white mb-3">
+            Patch suggestions, not pep talks
+          </h3>
+          <p class="text-[15px] text-gray-400 leading-relaxed mb-6">
+            Every finding ships with a concrete code edit you can apply or discard. Reasoning is shown, not narrated.
+          </p>
+          <div class="mt-auto pt-6 flex-1 flex flex-col justify-end">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {patchFindings.map((f) => (
+                <div class="relative rounded-xl border border-white/5 bg-[#050505] p-5 hover:border-white/10 transition-colors">
+                  <div class="flex items-center justify-between mb-4">
+                    <span class:list={['px-2 py-1 rounded text-[10px] uppercase font-bold tracking-wider', f.bg, f.color]}>
+                      {f.sev}
+                    </span>
+                    <span class="font-mono text-[10px] text-gray-500 bg-white/5 px-2 py-1 rounded">
+                      Auto-Fix
+                    </span>
+                  </div>
+                  <div class="font-display text-[16px] font-bold text-gray-200 mb-2">
+                    {f.title}
+                  </div>
+                  <div class="text-[13px] text-gray-400 leading-relaxed mb-4 min-h-[40px]">
+                    {f.body}
+                  </div>
+                  <div class="font-mono text-[11.5px] rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-3 shadow-inner">
+                    + {f.fix}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

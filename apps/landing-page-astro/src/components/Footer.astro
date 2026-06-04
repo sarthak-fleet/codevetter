@@ -1,0 +1,100 @@
+---
+import Icon from './Icon.astro';
+
+// Port of apps/landing-page/components/molecules/Footer.tsx.
+
+const cols = [
+  {
+    label: 'Product',
+    items: [
+      { l: 'Features', h: '#features' },
+      { l: 'How it works', h: '#how' },
+      { l: 'Pricing', h: '#pricing' },
+      { l: 'Changelog', h: 'https://github.com/sarthak-fleet/CodeVetter/releases' },
+    ],
+  },
+  {
+    label: 'Resources',
+    items: [
+      { l: 'Documentation', h: 'https://github.com/sarthak-fleet/CodeVetter#readme' },
+      { l: 'Security Hub', h: '#' },
+      { l: 'Bug Bounty', h: '#' },
+    ],
+  },
+  {
+    label: 'Connect',
+    items: [
+      { l: 'GitHub', h: 'https://github.com/sarthak-fleet/CodeVetter', icon: 'github' },
+      { l: 'Twitter', h: '#', icon: 'twitter' },
+      { l: 'Email', h: 'mailto:hello@codevetter.dev', icon: 'mail' },
+    ],
+  },
+];
+
+const year = new Date().getFullYear();
+---
+
+<footer class="relative border-t border-white/5 bg-[#050505] pt-24 pb-12 overflow-hidden">
+  <div class="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-px bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
+
+  <div class="max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-6 gap-12">
+    <div class="col-span-2 space-y-6">
+      <div class="flex items-center gap-2.5">
+        <div class="flex items-center justify-center w-8 h-8 rounded-full bg-blue-500/10 border border-blue-500/20">
+          <Icon name="search-code" class="w-4 h-4 text-blue-400" width={16} height={16} />
+        </div>
+        <span class="font-display text-lg font-bold tracking-tight text-white">
+          CodeVetter
+        </span>
+      </div>
+      <p class="text-sm text-gray-400 max-w-xs leading-relaxed">
+        Beautiful, desktop-first code review for the agent era. Built by engineers who want to ship AI code with confidence.
+      </p>
+      <div class="flex items-center gap-3 text-emerald-400 text-xs font-mono bg-emerald-500/5 border border-emerald-500/10 w-fit px-3 py-1.5 rounded-full">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        All systems operational
+      </div>
+    </div>
+
+    {cols.map((c) => (
+      <div class="col-span-1">
+        <div class="text-xs font-bold text-white uppercase tracking-widest mb-6">
+          {c.label}
+        </div>
+        <ul class="space-y-4">
+          {c.items.map((it) => (
+            <li>
+              <a
+                href={it.h}
+                class="flex items-center gap-2 text-sm text-gray-500 hover:text-white transition-colors group"
+              >
+                {it.icon && (
+                  <span class="text-gray-600 group-hover:text-blue-400 transition-colors">
+                    <Icon name={it.icon} width={14} height={14} class="w-3.5 h-3.5" />
+                  </span>
+                )}
+                {it.l}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))}
+  </div>
+
+  <div class="max-w-7xl mx-auto px-6 mt-24 pt-8 border-t border-white/5 flex flex-col md:flex-row items-center justify-between gap-6 text-xs text-gray-600 font-medium">
+    <div class="flex items-center gap-6">
+      <span>© {year} CodeVetter · ISC License</span>
+      <a href="/privacy" class="hover:text-white transition-colors">Privacy</a>
+      <a
+        href="https://github.com/sarthak-fleet/CodeVetter"
+        class="hover:text-white transition-colors"
+      >
+        GitHub
+      </a>
+    </div>
+    <div class="flex items-center gap-2">
+      <span>Open-source desktop code review</span>
+    </div>
+  </div>
+</footer>

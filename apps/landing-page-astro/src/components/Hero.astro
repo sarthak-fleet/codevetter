@@ -1,0 +1,396 @@
+---
+import Icon from './Icon.astro';
+
+// Port of apps/landing-page/components/organisms/Hero.tsx.
+// React-only effects dropped per static-port convention:
+//   - framer-motion entrance animations → render end-state.
+//   - ParticleField useMemo seed → compute the same deterministic
+//     particles in frontmatter so they render at build time.
+//   - Animated path stroke under "AI code." → render the full path.
+
+const PARTICLE_COUNT = 30;
+const particles = Array.from({ length: PARTICLE_COUNT }, (_, i) => {
+  // Identical seeded RNG to the React ParticleField so the visual
+  // layout is preserved.
+  const seed = (n: number) => {
+    const x = Math.sin(n * 9301 + 49297) * 233280;
+    return x - Math.floor(x);
+  };
+  return {
+    left: seed(i) * 100,
+    top: seed(i + 1000) * 100,
+    size: seed(i + 2000) * 2 + 1,
+    delay: seed(i + 3000) * 6,
+    duration: seed(i + 4000) * 6 + 6,
+    opacity: seed(i + 5000) * 0.5 + 0.2,
+  };
+});
+---
+
+<section class="relative pt-32 pb-24 overflow-hidden">
+  {/* Aurora — intensity="low" → opacity 0.35 */}
+  <div
+    aria-hidden="true"
+    class="pointer-events-none absolute inset-0 overflow-hidden"
+    style="opacity: 0.35;"
+  >
+    <div
+      class="absolute -top-32 -left-24 w-[640px] h-[640px] rounded-full blur-[120px] animate-drift-a"
+      style="background: radial-gradient(closest-side, rgba(56,189,248,0.55), transparent 70%);"
+    ></div>
+    <div
+      class="absolute top-1/3 right-0 w-[560px] h-[560px] rounded-full blur-[140px] animate-drift-b"
+      style="background: radial-gradient(closest-side, rgba(167,139,250,0.45), transparent 70%);"
+    ></div>
+    <div
+      class="absolute bottom-0 left-1/3 w-[520px] h-[520px] rounded-full blur-[120px] animate-drift-c"
+      style="background: radial-gradient(closest-side, rgba(244,114,182,0.30), transparent 70%);"
+    ></div>
+  </div>
+
+  <div class="absolute inset-0 grid-bg pointer-events-none" aria-hidden="true"></div>
+
+  {/* Particle field */}
+  <div aria-hidden="true" class="pointer-events-none absolute inset-0 overflow-hidden">
+    {particles.map((p) => (
+      <span
+        class="absolute rounded-full bg-[--color-accent] animate-float"
+        style={`left:${p.left}%;top:${p.top}%;width:${p.size}px;height:${p.size}px;opacity:${p.opacity};animation-delay:${p.delay}s;animation-duration:${p.duration}s;box-shadow:0 0 6px currentColor;`}
+      ></span>
+    ))}
+  </div>
+
+  <div class="relative max-w-7xl mx-auto px-6">
+    <div class="flex flex-col items-center text-center">
+      <div class="flex flex-wrap items-center justify-center gap-2 mb-8">
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 border text-xs font-medium rounded-full transition-colors text-blue-400 bg-blue-500/10 border-blue-500/20 shadow-[0_0_10px_rgba(96,165,250,0.15)] font-mono uppercase tracking-[0.16em]">
+          <span class="w-1.5 h-1.5 rounded-full bg-[--color-accent] animate-pulse-soft"></span>
+          macOS build available
+        </span>
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 border text-xs font-medium rounded-full transition-colors text-gray-400 bg-white/5 border-white/10 backdrop-blur-md font-mono uppercase tracking-[0.16em]">
+          <Icon name="sparkles" class="w-3 h-3" width={12} height={12} strokeWidth={1.5} />
+          Built for the agent era
+        </span>
+      </div>
+
+      <h1 class="font-display font-bold text-[clamp(2.8rem,7vw,6.35rem)] leading-[1.02] tracking-tight max-w-5xl">
+        <span class="block text-white">Stop merging</span>
+        <span class="block">
+          <span class="text-gradient">unreviewed</span>{' '}
+          <span class="relative inline-block">
+            <span class="relative z-10 text-white">AI code.</span>
+            <svg
+              class="absolute -bottom-3 left-0 hidden h-4 w-full text-[--color-accent]/70 sm:block"
+              viewBox="0 0 200 12"
+              fill="none"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M2 8 Q 50 2, 100 6 T 198 4"
+                stroke="currentColor"
+                stroke-width="2.5"
+                fill="none"
+                stroke-linecap="round"
+              />
+            </svg>
+          </span>
+        </span>
+      </h1>
+
+      <p class="mt-8 max-w-2xl text-[18px] leading-relaxed text-gray-400">
+        CodeVetter is a desktop review cockpit for the diffs your agent
+        ships. Catch what Cursor, Claude Code, and Devin missed —
+        vulnerabilities, regressions, and silent drift. Runs entirely
+        offline.
+      </p>
+
+      <div class="mt-12 flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a
+          href="#download"
+          class="group inline-flex items-center justify-center gap-2 w-full sm:w-auto px-6 h-12 text-sm font-medium bg-white text-black hover:bg-gray-100 shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] transition-all duration-300 rounded-full"
+        >
+          <Icon name="download" class="w-4 h-4" width={16} height={16} strokeWidth={1.5} />
+          Download for macOS
+          <Icon
+            name="arrow-right"
+            class="w-4 h-4 transition-transform group-hover:translate-x-1"
+            width={16}
+            height={16}
+            strokeWidth={1.5}
+          />
+        </a>
+        <a
+          href="#how"
+          class="group inline-flex items-center justify-center gap-2 w-full sm:w-auto px-6 h-12 text-sm font-medium border border-white/20 text-white hover:border-white/40 hover:bg-white/5 backdrop-blur-md transition-all duration-300 rounded-full"
+        >
+          <Icon name="terminal" class="w-4 h-4 text-gray-400" width={16} height={16} strokeWidth={1.5} />
+          See it in action
+        </a>
+      </div>
+
+      <div class="mt-10 flex flex-wrap items-center justify-center gap-x-7 gap-y-3 font-mono text-[10px] uppercase tracking-[0.18em] text-[--color-text-mute]">
+        <span class="flex items-center gap-2">
+          <span class="w-1 h-1 rounded-full bg-[--color-ok]"></span>
+          No telemetry
+        </span>
+        <span class="flex items-center gap-2">
+          <span class="w-1 h-1 rounded-full bg-[--color-ok]"></span>
+          Bring your own key
+        </span>
+        <span class="flex items-center gap-2">
+          <span class="w-1 h-1 rounded-full bg-[--color-ok]"></span>
+          Open source · ISC
+        </span>
+        <span class="flex items-center gap-2">
+          <span class="w-1 h-1 rounded-full bg-[--color-ok]"></span>
+          Signed binaries
+        </span>
+      </div>
+    </div>
+
+    {/* Hero preview cockpit */}
+    <div class="mt-20">
+      <div class="relative max-w-6xl mx-auto">
+        <div
+          class="absolute -inset-x-12 -inset-y-10 blur-3xl pointer-events-none opacity-70"
+          style="background: radial-gradient(60% 50% at 50% 30%, rgba(56,189,248,0.26), transparent 70%), radial-gradient(40% 40% at 80% 80%, rgba(167,139,250,0.22), transparent 70%);"
+          aria-hidden="true"
+        ></div>
+
+        <div class="corner-frame relative border border-[--color-line] bg-[--color-surface] glow-edge noise overflow-hidden">
+          {/* Header bar */}
+          <div class="flex items-center justify-between border-b border-[--color-line] px-4 h-10 bg-[--color-bg-elev]/70">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-[--color-danger]/40 border border-[--color-danger]/60"></span>
+              <span class="w-2.5 h-2.5 rounded-full bg-[--color-warn]/40 border border-[--color-warn]/60"></span>
+              <span class="w-2.5 h-2.5 rounded-full bg-[--color-ok]/40 border border-[--color-ok]/60"></span>
+            </div>
+            <div class="flex items-center gap-3">
+              <Icon name="git-pull-request-arrow" class="w-3.5 h-3.5 text-[--color-text-mute]" width={14} height={14} strokeWidth={1.5} />
+              <span class="label-mono">codevetter — review · feat/refresh-tokens · #1284</span>
+            </div>
+            <span class="label-mono">⌘ K</span>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 min-h-[540px]">
+            {/* Pipeline + findings */}
+            <aside class="hidden lg:flex lg:col-span-3 flex-col border-r border-white/5 bg-white/[0.01]">
+              <div class="px-5 pt-5 pb-3 label-mono">Pipeline</div>
+              <div class="px-5 space-y-2.5 pb-5 border-b border-[--color-line]">
+                <div class="pipe-row">
+                  <span class="flex items-center gap-2.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-[--color-ok]"></span>
+                    <span class="text-[--color-text]">Diff parsed</span>
+                  </span>
+                  <span class="text-[--color-text-mute]">12ms</span>
+                </div>
+                <div class="pipe-row">
+                  <span class="flex items-center gap-2.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-[--color-ok]"></span>
+                    <span class="text-[--color-text]">AST traced</span>
+                  </span>
+                  <span class="text-[--color-text-mute]">84ms</span>
+                </div>
+                <div class="pipe-row">
+                  <span class="flex items-center gap-2.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-[--color-accent] animate-pulse-soft"></span>
+                    <span class="text-[--color-text]">LLM scoring</span>
+                  </span>
+                  <span class="text-[--color-text-mute]">1.4s</span>
+                </div>
+                <div class="pipe-row">
+                  <span class="flex items-center gap-2.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-[--color-text-mute]/40"></span>
+                    <span class="text-[--color-text-mute]">Severity tag</span>
+                  </span>
+                  <span class="text-[--color-text-mute]">—</span>
+                </div>
+                <div class="pipe-row">
+                  <span class="flex items-center gap-2.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-[--color-text-mute]/40"></span>
+                    <span class="text-[--color-text-mute]">Patch draft</span>
+                  </span>
+                  <span class="text-[--color-text-mute]">—</span>
+                </div>
+              </div>
+              <div class="px-5 pt-5 pb-3 label-mono">Findings</div>
+              <div class="px-5 space-y-2 pb-5 flex-1">
+                <div class="find-row border-[--color-danger] text-[--color-danger]">
+                  <div class="flex justify-between">
+                    <span>V-0821</span>
+                    <span>SQLi</span>
+                  </div>
+                  <div class="text-[--color-text-mute] truncate">session_manager.ts</div>
+                </div>
+                <div class="find-row border-[--color-warn] text-[--color-warn]">
+                  <div class="flex justify-between">
+                    <span>V-0822</span>
+                    <span>PII-leak</span>
+                  </div>
+                  <div class="text-[--color-text-mute] truncate">logger.ts</div>
+                </div>
+                <div class="find-row border-[--color-warn] text-[--color-warn]">
+                  <div class="flex justify-between">
+                    <span>V-0823</span>
+                    <span>Rate-limit</span>
+                  </div>
+                  <div class="text-[--color-text-mute] truncate">auth.ts</div>
+                </div>
+                <div class="find-row border-[--color-accent] text-[--color-accent]">
+                  <div class="flex justify-between">
+                    <span>V-0824</span>
+                    <span>TTL drift</span>
+                  </div>
+                  <div class="text-[--color-text-mute] truncate">cache.ts</div>
+                </div>
+              </div>
+              <div class="border-t border-[--color-line] px-5 py-3 flex items-center justify-between font-mono text-[10px]">
+                <span class="text-[--color-text-mute] uppercase tracking-[0.18em]">Model</span>
+                <span class="text-[--color-accent]">claude-opus-4-7</span>
+              </div>
+            </aside>
+
+            {/* Code editor */}
+            <div class="lg:col-span-6 border-b lg:border-b-0 lg:border-r border-[--color-line] relative overflow-hidden bg-[#050505]">
+              <div class="absolute inset-0 pointer-events-none">
+                <div class="absolute inset-x-0 h-px bg-gradient-to-r from-transparent via-[--color-accent] to-transparent animate-scan"></div>
+              </div>
+              <div class="flex items-center justify-between px-4 py-3 border-b border-[--color-line] text-xs text-gray-400 font-mono">
+                <div class="flex items-center gap-2">
+                  <span class="px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">vuln</span>
+                  <span>apps/api/src/auth/session_manager.ts</span>
+                </div>
+                <span class="label-mono text-[--color-danger]">+2 / -0</span>
+              </div>
+              <div class="p-4 font-mono text-[13px] leading-relaxed text-gray-300">
+                <div class="flex">
+                  <div class="w-8 text-right text-gray-600 select-none mr-4">36</div>
+                  <div>
+                    <span class="text-purple-400">import</span> &lbrace; db &rbrace;{' '}
+                    <span class="text-purple-400">from</span>{' '}
+                    <span class="text-green-400">"@/lib/sql"</span>;
+                  </div>
+                </div>
+                <div class="flex">
+                  <div class="w-8 text-right text-gray-600 select-none mr-4">37</div>
+                  <div></div>
+                </div>
+                <div class="flex">
+                  <div class="w-8 text-right text-gray-600 select-none mr-4">38</div>
+                  <div>
+                    <span class="text-purple-400">async function</span>{' '}
+                    <span class="text-blue-400">validateSession</span>(token:{' '}
+                    <span class="text-yellow-300">string</span>) &lbrace;
+                  </div>
+                </div>
+                <div class="flex">
+                  <div class="w-8 text-right text-gray-600 select-none mr-4">39</div>
+                  <div class="text-gray-500">  // resolve session for the incoming request</div>
+                </div>
+
+                <div class="relative flex bg-red-500/10 border-l-2 border-red-500 -ml-4 pl-4 py-1 mt-1">
+                  <div class="w-8 text-right text-red-500/50 select-none mr-4">40</div>
+                  <div>
+                    <span class="text-purple-400">  const</span> query ={' '}
+                    <span class="text-green-400">{'`SELECT * FROM sessions WHERE token = \'${token}\'`'}</span>;
+                  </div>
+                </div>
+                <div class="relative flex bg-red-500/10 border-l-2 border-red-500 -ml-4 pl-4 py-1 mb-1">
+                  <div class="w-8 text-right text-red-500/50 select-none mr-4">41</div>
+                  <div>
+                    <span class="text-purple-400">  const</span> result ={' '}
+                    <span class="text-purple-400">await</span> db.execute(query);
+                  </div>
+                </div>
+
+                <div class="flex">
+                  <div class="w-8 text-right text-gray-600 select-none mr-4">42</div>
+                  <div>
+                    <span class="text-purple-400">  if</span> (!result.rows[
+                    <span class="text-yellow-400">0</span>])
+                    <span class="text-purple-400"> throw new</span> Error(
+                    <span class="text-green-400">"Invalid session"</span>);
+                  </div>
+                </div>
+                <div class="flex">
+                  <div class="w-8 text-right text-gray-600 select-none mr-4">43</div>
+                  <div>
+                    <span class="text-purple-400">  return</span> result.rows[
+                    <span class="text-yellow-400">0</span>];
+                  </div>
+                </div>
+                <div class="flex">
+                  <div class="w-8 text-right text-gray-600 select-none mr-4">44</div>
+                  <div>&rbrace;</div>
+                </div>
+              </div>
+
+              <div class="absolute top-[170px] right-6 bg-[#1A1A1A] border border-white/10 rounded-xl shadow-2xl p-4 max-w-[280px] z-10 backdrop-blur-xl">
+                <div class="flex items-center gap-2 mb-2">
+                  <Icon name="shield-alert" class="w-4 h-4 text-red-400" width={16} height={16} />
+                  <span class="text-sm font-semibold text-white">SQL Injection Vector</span>
+                </div>
+                <p class="text-xs text-gray-400 leading-relaxed mb-3">
+                  Token concatenated directly into query body. Allows arbitrary read/write against sessions table.
+                </p>
+                <div class="bg-black/50 border border-white/5 rounded-lg p-2.5 font-mono text-[11px]">
+                  <div class="text-emerald-400">+ db.query(`...$1`, [token])</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Verdict sidebar */}
+            <aside class="lg:col-span-3 p-6 bg-white/[0.01] space-y-6">
+              <div>
+                <div class="label-mono mb-4">Verdict</div>
+                <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 font-medium text-sm">
+                  <Icon name="shield-alert" class="w-4 h-4" width={16} height={16} />
+                  CRITICAL
+                </div>
+              </div>
+
+              <div class="space-y-4">
+                <div class="label-mono">Suggested actions</div>
+                <button class="w-full py-2.5 px-4 rounded-lg bg-white text-black font-medium text-sm hover:bg-gray-100 transition-colors shadow-lg shadow-white/10">
+                  Apply Patch
+                </button>
+                <button class="w-full py-2.5 px-4 rounded-lg bg-white/5 border border-white/10 text-white font-medium text-sm hover:bg-white/10 transition-colors">
+                  Dismiss Finding
+                </button>
+              </div>
+
+              <div class="pt-4 border-t border-white/5">
+                <div class="label-mono mb-3">Tags</div>
+                <div class="flex flex-wrap gap-2">
+                  <span class="px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[10px] text-gray-300 font-mono">CWE-89</span>
+                  <span class="px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[10px] text-gray-300 font-mono">OWASP-A03</span>
+                </div>
+              </div>
+            </aside>
+          </div>
+
+          {/* Stat strip */}
+          <div class="border-t border-[--color-line] grid grid-cols-2 lg:grid-cols-4 divide-x divide-[--color-line] font-mono text-[11px]">
+            <div class="hero-stat">
+              <span class="label-mono">Critical</span>
+              <span class="font-display text-2xl font-bold text-[--color-danger]">04</span>
+            </div>
+            <div class="hero-stat">
+              <span class="label-mono">High</span>
+              <span class="font-display text-2xl font-bold text-[--color-warn]">12</span>
+            </div>
+            <div class="hero-stat">
+              <span class="label-mono">Medium</span>
+              <span class="font-display text-2xl font-bold text-[--color-accent]">29</span>
+            </div>
+            <div class="hero-stat">
+              <span class="label-mono">Patches ready</span>
+              <span class="font-display text-2xl font-bold text-[--color-ok]">45</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

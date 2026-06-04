@@ -5,10 +5,9 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/deploy-landing.yml"
-      - "apps/landing-page/**"
+      - "apps/landing-page-astro/**"
       - "package.json"
       - "package-lock.json"
-      - "pnpm-lock.yaml"
   workflow_dispatch:
 
 permissions:
@@ -34,16 +33,16 @@ jobs:
         run: npm install --include=optional
 
       - name: Build static landing page
-        working-directory: apps/landing-page
+        working-directory: apps/landing-page-astro
         run: npm run build
 
       - name: Verify required static routes
         run: |
-          test -f apps/landing-page/out/index.html
-          test -f apps/landing-page/out/privacy/index.html
-          test -f apps/landing-page/out/download/index.html
-          test -f apps/landing-page/out/sitemap.xml
-          test -f apps/landing-page/out/robots.txt
+          test -f apps/landing-page-astro/dist/index.html
+          test -f apps/landing-page-astro/dist/privacy.html
+          test -f apps/landing-page-astro/dist/download.html
+          test -f apps/landing-page-astro/dist/sitemap-index.xml
+          test -f apps/landing-page-astro/dist/robots.txt
 
       - name: Check Cloudflare deploy secrets
         id: cloudflare
@@ -63,7 +62,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy apps/landing-page/out --project-name=codevetter --branch=main
+          command: pages deploy apps/landing-page-astro/dist --project-name=codevetter --branch=main
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Smoke production landing page

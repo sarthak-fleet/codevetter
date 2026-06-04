@@ -1,0 +1,133 @@
+---
+import Icon from './Icon.astro';
+
+// Port of apps/landing-page/components/organisms/Pricing.tsx.
+
+const tiers = [
+  {
+    name: 'Solo',
+    price: '$0',
+    cadence: 'forever',
+    body: 'The full desktop binary. Bring your own LLM key. Use forever, no strings attached.',
+    features: [
+      'Unlimited local reviews',
+      'All LLM providers',
+      'Local SQLite history',
+      'Automatic updates',
+    ],
+    cta: { label: 'Download Now', href: '#download' },
+    highlight: false,
+  },
+  {
+    name: 'Team',
+    price: '$12',
+    cadence: 'per user / month',
+    body: 'Shared review presets and org policy rules. Everything stays on each machine.',
+    features: [
+      'Everything in Solo',
+      'Shared rule packs',
+      'Audit log export',
+      'SSO Authentication',
+      'Priority support',
+    ],
+    cta: { label: 'Get Early Access', href: '#download' },
+    highlight: true,
+  },
+  {
+    name: 'Enterprise',
+    price: 'Custom',
+    cadence: 'tailored for you',
+    body: 'Air-gapped installs, custom model routing, and dedicated security engineering.',
+    features: [
+      'Everything in Team',
+      'Air-gapped deployment',
+      'Custom CWE rulesets',
+      'On-prem audit logs',
+      'SLA guarantee',
+    ],
+    cta: { label: 'Talk to Sales', href: 'mailto:hello@codevetter.dev' },
+    highlight: false,
+  },
+];
+---
+
+<section id="pricing" class="py-32 relative overflow-hidden">
+  <div class="absolute inset-0 grid-bg opacity-30 pointer-events-none" aria-hidden="true"></div>
+  <div class="relative max-w-7xl mx-auto px-6">
+    <div class="max-w-3xl flex flex-col items-center mx-auto text-center">
+      <div class="flex items-center gap-3 mb-6 bg-blue-500/10 border border-blue-500/20 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(96,165,250,0.15)]">
+        <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+        <span class="text-xs uppercase tracking-widest text-blue-400 font-semibold">
+          Pricing
+        </span>
+      </div>
+      <h2 class="font-display text-[clamp(2.4rem,5vw,4.2rem)] font-bold leading-[1.05] tracking-tight">
+        Free for solo. <span class="text-gradient">Honest above it.</span>
+      </h2>
+      <p class="mt-6 text-[18px] text-gray-400 leading-relaxed max-w-2xl mx-auto">
+        No tokens, no per-review fees. We don't see your code, so we can't bill on it.
+      </p>
+    </div>
+
+    <div class="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8">
+      {tiers.map((t) => (
+        <div
+          class:list={[
+            'relative flex flex-col p-10 rounded-[2.5rem] border transition-all duration-500',
+            t.highlight
+              ? 'bg-white/[0.04] border-blue-500/30 shadow-[0_0_80px_rgba(96,165,250,0.1)] backdrop-blur-3xl z-10 scale-105'
+              : 'bg-white/[0.02] border-white/5 hover:border-white/10 hover:bg-white/[0.03]',
+          ]}
+        >
+          {t.highlight && (
+            <div class="absolute -top-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-blue-500 text-white text-[10px] font-bold uppercase tracking-widest shadow-xl shadow-blue-500/20">
+              <Icon name="star" class="w-3 h-3" width={12} height={12} fill="currentColor" />
+              Most Popular
+            </div>
+          )}
+
+          <div class="mb-8">
+            <div class="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4">
+              {t.name}
+            </div>
+            <div class="flex items-baseline gap-2">
+              <span class="text-5xl font-bold text-white tracking-tight">
+                {t.price}
+              </span>
+              <span class="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                {t.cadence}
+              </span>
+            </div>
+          </div>
+
+          <p class="text-[15px] text-gray-400 leading-relaxed mb-8">
+            {t.body}
+          </p>
+
+          <div class="space-y-4 mb-10 flex-1">
+            {t.features.map((f) => (
+              <div class="flex items-start gap-3 text-sm text-gray-300">
+                <div class="mt-1 flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <Icon name="check" class="w-2.5 h-2.5" width={10} height={10} strokeWidth={3} />
+                </div>
+                <span>{f}</span>
+              </div>
+            ))}
+          </div>
+
+          <a
+            href={t.cta.href}
+            class:list={[
+              'group inline-flex items-center justify-center gap-2 w-full h-14 text-sm font-medium transition-all duration-300 rounded-full',
+              t.highlight
+                ? 'bg-white text-black hover:bg-gray-100 shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)]'
+                : 'border border-white/20 text-white hover:border-white/40 hover:bg-white/5 backdrop-blur-md',
+            ]}
+          >
+            {t.cta.label}
+          </a>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

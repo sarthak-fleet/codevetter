@@ -1,0 +1,11 @@
+# Cloudflare Pages config for the codevetter.com landing-astro project.
+#
+# Pure-static deploy (output: "static" in astro.config.mjs).
+# `wrangler pages deploy` and the Cloudflare dashboard both pick this
+# file up to locate the build output. No Workers runtime needed.
+#
+# `name` MUST match the existing CF Pages project so the codevetter.com
+# custom domain stays attached on cutover.
+name = "codevetter"
+compatibility_date = "2026-06-04"
+pages_build_output_dir = "dist"

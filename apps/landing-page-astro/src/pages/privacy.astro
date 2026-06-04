@@ -1,0 +1,78 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import Nav from '@/components/Nav.astro';
+import Footer from '@/components/Footer.astro';
+
+// Port of apps/landing-page/app/privacy/page.tsx.
+---
+
+<Layout
+  title="Privacy — CodeVetter"
+  description="What CodeVetter stores, what it never sends to a server, and how API keys are handled."
+  path="/privacy"
+>
+  <main class="min-h-screen bg-stone-950 text-stone-200">
+    <Nav />
+    <article class="mx-auto max-w-3xl px-4 py-16 leading-7 pt-32">
+      <a href="/" class="text-xs text-stone-500 hover:text-amber-400">
+        ← CodeVetter
+      </a>
+      <h1 class="mt-3 text-3xl font-bold tracking-tight text-white">
+        Privacy
+      </h1>
+      <p class="mt-3 text-xs text-stone-500">Last updated: 2026-05-15.</p>
+
+      <h2 class="mt-8 text-base font-semibold text-white">
+        Local-first by design
+      </h2>
+      <p class="mt-2 text-sm">
+        CodeVetter is a Tauri desktop app. Reviews run on your machine.
+        The repo you point it at, the diff being reviewed, your notes, and
+        the review history all live in a local SQLite database in the app
+        data directory. None of that goes to a CodeVetter-owned server —
+        there isn't one.
+      </p>
+
+      <h2 class="mt-8 text-base font-semibold text-white">
+        What hits third parties
+      </h2>
+      <ul class="mt-2 list-disc space-y-1 pl-5 text-sm marker:text-stone-600">
+        <li>
+          <strong>The LLM provider you configure.</strong> When you run a
+          review, CodeVetter sends your code + the review prompt to whichever
+          provider (Anthropic, OpenAI, Cerebras, your own gateway) you've
+          picked. Their privacy policy applies.
+        </li>
+        <li>
+          <strong>Auto-updater.</strong> The app checks GitHub Releases for
+          new versions. That request includes your platform string and the
+          current version. Disable in settings if you prefer.
+        </li>
+      </ul>
+
+      <h2 class="mt-8 text-base font-semibold text-white">API keys</h2>
+      <p class="mt-2 text-sm">
+        Provider keys are stored in your OS keychain (macOS Keychain, Windows
+        Credential Manager, libsecret on Linux). They never leave your machine
+        except when included in the Authorization header of a request you
+        initiate to your chosen provider.
+      </p>
+
+      <h2 class="mt-8 text-base font-semibold text-white">
+        Crash + usage telemetry
+      </h2>
+      <p class="mt-2 text-sm">
+        None by default. The first launch does not phone home; there is no
+        anonymous usage analytics endpoint baked into the app.
+      </p>
+
+      <h2 class="mt-8 text-base font-semibold text-white">Deletion</h2>
+      <p class="mt-2 text-sm">
+        Uninstall the app and delete the data directory
+        (<code class="text-amber-400">~/Library/Application Support/CodeVetter</code>
+        on macOS) to remove all local state.
+      </p>
+    </article>
+    <Footer />
+  </main>
+</Layout>

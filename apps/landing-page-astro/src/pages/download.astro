@@ -1,0 +1,104 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import Nav from '@/components/Nav.astro';
+import Footer from '@/components/Footer.astro';
+
+// Port of apps/landing-page/app/download/page.tsx.
+
+interface Platform {
+  name: string;
+  arch: string;
+  asset: string;
+  command?: string;
+}
+
+const PLATFORMS: Platform[] = [
+  {
+    name: 'macOS — Apple Silicon',
+    arch: 'arm64',
+    asset: 'CodeVetter_*_aarch64.dmg',
+    command: 'Open the .dmg, drag CodeVetter to Applications.',
+  },
+  {
+    name: 'macOS — Intel',
+    arch: 'x86_64',
+    asset: 'CodeVetter_*_x64.dmg',
+    command: 'Open the .dmg, drag CodeVetter to Applications.',
+  },
+  {
+    name: 'Windows',
+    arch: 'x86_64',
+    asset: 'CodeVetter_*_x64-setup.exe',
+    command: 'Run the installer.',
+  },
+  {
+    name: 'Linux — .deb',
+    arch: 'x86_64',
+    asset: 'code-vetter_*_amd64.deb',
+    command: 'sudo dpkg -i code-vetter_*_amd64.deb',
+  },
+  {
+    name: 'Linux — AppImage',
+    arch: 'x86_64',
+    asset: 'code-vetter_*_amd64.AppImage',
+    command: 'chmod +x code-vetter_*_amd64.AppImage && ./code-vetter_*_amd64.AppImage',
+  },
+];
+---
+
+<Layout
+  title="Download — CodeVetter"
+  description="Install CodeVetter for macOS, Windows, or Linux."
+  path="/download"
+>
+  <main class="min-h-screen bg-stone-950 text-stone-200">
+    <Nav />
+    <article class="mx-auto max-w-3xl px-4 py-16 pt-32">
+      <a href="/" class="text-xs text-stone-500 hover:text-amber-400">
+        ← CodeVetter
+      </a>
+      <h1 class="mt-3 text-3xl font-bold tracking-tight text-white">
+        Download
+      </h1>
+      <p class="mt-3 text-sm leading-7 text-stone-400">
+        Native desktop binaries. Local-first; no signup. Auto-updates from
+        GitHub Releases — disable in settings if you prefer manual control.
+      </p>
+
+      <a
+        href="https://github.com/sarthak-fleet/CodeVetter/releases/latest"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="mt-6 inline-block rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-stone-950 hover:bg-amber-400"
+      >
+        Latest release →
+      </a>
+
+      <section class="mt-10 space-y-3">
+        {PLATFORMS.map((p) => (
+          <div class="rounded-md border border-stone-800 bg-stone-900/40 p-4">
+            <p class="text-sm font-medium text-white">{p.name}</p>
+            <p class="mt-1 font-mono text-xs text-stone-500">{p.asset}</p>
+            {p.command && (
+              <p class="mt-2 text-xs text-stone-400">{p.command}</p>
+            )}
+          </div>
+        ))}
+      </section>
+
+      <p class="mt-10 text-xs text-stone-500">
+        Building from source? See the{' '}
+        <a
+          href="https://github.com/sarthak-fleet/CodeVetter"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="underline hover:text-amber-400"
+        >
+          repo README
+        </a>{' '}
+        — Tauri 2 + React 19 + Rust, npm workspaces.
+      </p>
+    </article>
+    <Footer />
+  </main>
+</Layout>

@@ -1,0 +1,35 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import Nav from '@/components/Nav.astro';
+import Hero from '@/components/Hero.astro';
+import CatchStrip from '@/components/CatchStrip.astro';
+import Stats from '@/components/Stats.astro';
+import Bento from '@/components/Bento.astro';
+import HowItWorks from '@/components/HowItWorks.astro';
+import Providers from '@/components/Providers.astro';
+import Pricing from '@/components/Pricing.astro';
+import CTA from '@/components/CTA.astro';
+import Footer from '@/components/Footer.astro';
+
+// CodeVetter landing — Astro static port of apps/landing-page/app/page.tsx.
+// Composition mirrors the React page 1:1.
+---
+
+<Layout
+  title="CodeVetter — Vet AI-generated code before it ships"
+  description="Desktop-first code review for agent-generated code. Runs offline. Multi-LLM. Catches what your agent misses."
+  path="/"
+>
+  <main>
+    <Nav />
+    <Hero />
+    <CatchStrip />
+    <Stats />
+    <Bento />
+    <HowItWorks />
+    <Providers />
+    <Pricing />
+    <CTA />
+    <Footer />
+  </main>
+</Layout>
