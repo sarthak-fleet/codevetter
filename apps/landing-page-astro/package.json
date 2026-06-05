@@ -19,5 +19,8 @@
   "devDependencies": {
     "lightningcss": "^1.32.0",
     "wrangler": "^4.98.0"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.60.2"
   }
 }
