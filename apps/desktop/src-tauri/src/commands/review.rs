@@ -1114,11 +1114,7 @@ pub async fn run_cli_review(
 /// Create a git worktree for running fixes in isolation.
 /// Returns `(worktree_path, branch_name)` on success, or `None` to fall back to the main repo.
 fn create_fix_worktree(repo_path: &str) -> Option<(String, String)> {
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let branch_name = format!("codevetter/fix-{timestamp}");
+    let branch_name = format!("codevetter/fix-{}", uuid::Uuid::new_v4().simple());
     let worktree_dir = format!("{repo_path}/.codevetter-worktrees/{branch_name}");
 
     // Ensure the parent directory exists
