@@ -80,11 +80,13 @@ fn split_shell_like_command(command: &str) -> Result<Vec<String>, String> {
     let mut chars = command.chars().peekable();
     let mut quote: Option<char> = None;
     let mut escaped = false;
+    let mut token_started = false;
 
     while let Some(ch) = chars.next() {
         if escaped {
             current.push(ch);
             escaped = false;
+            token_started = true;
             continue;
         }
 
@@ -101,17 +103,22 @@ fn split_shell_like_command(command: &str) -> Result<Vec<String>, String> {
                     }
                 } else {
                     quote = Some(ch);
+                    token_started = true;
                 }
             }
             c if c.is_whitespace() && quote.is_none() => {
-                if !current.is_empty() {
+                if token_started {
                     args.push(std::mem::take(&mut current));
                 }
+                token_started = false;
                 while matches!(chars.peek(), Some(next) if next.is_whitespace()) {
                     chars.next();
                 }
             }
-            c => current.push(c),
+            c => {
+                current.push(c);
+                token_started = true;
+            }
         }
     }
 
@@ -121,7 +128,7 @@ fn split_shell_like_command(command: &str) -> Result<Vec<String>, String> {
     if quote.is_some() {
         return Err("external_command has an unterminated quote".into());
     }
-    if !current.is_empty() {
+    if token_started {
         args.push(current);
     }
     if args.is_empty() {
@@ -928,6 +935,20 @@ mod tests {
                 "print('hello world')".to_string(),
                 "--flag".to_string(),
                 "a b".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn split_shell_like_command_preserves_empty_quoted_args() {
+        let args = split_shell_like_command(r#"tool --flag "" tail"#).expect("split should work");
+        assert_eq!(
+            args,
+            vec![
+                "tool".to_string(),
+                "--flag".to_string(),
+                "".to_string(),
+                "tail".to_string(),
             ]
         );
     }
