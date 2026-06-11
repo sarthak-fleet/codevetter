@@ -74,6 +74,62 @@ fn resolve_repo_playwright_binary(repo_path: &str) -> String {
     "npx".to_string()
 }
 
+fn split_shell_like_command(command: &str) -> Result<Vec<String>, String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut chars = command.chars().peekable();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+
+    while let Some(ch) = chars.next() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if quote != Some('\'') => {
+                escaped = true;
+            }
+            '\'' | '"' => {
+                if let Some(q) = quote {
+                    if q == ch {
+                        quote = None;
+                    } else {
+                        current.push(ch);
+                    }
+                } else {
+                    quote = Some(ch);
+                }
+            }
+            c if c.is_whitespace() && quote.is_none() => {
+                if !current.is_empty() {
+                    args.push(std::mem::take(&mut current));
+                }
+                while matches!(chars.peek(), Some(next) if next.is_whitespace()) {
+                    chars.next();
+                }
+            }
+            c => current.push(c),
+        }
+    }
+
+    if escaped {
+        return Err("external_command ends with an incomplete escape".into());
+    }
+    if quote.is_some() {
+        return Err("external_command has an unterminated quote".into());
+    }
+    if !current.is_empty() {
+        args.push(current);
+    }
+    if args.is_empty() {
+        return Err("external_command is empty".into());
+    }
+    Ok(args)
+}
+
 fn should_skip_scan_dir(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
         return false;
@@ -502,17 +558,14 @@ pub async fn run_synthetic_qa(
                 .ok_or_else(|| {
                     "external_command is required for external_skill runner".to_string()
                 })?;
-            let mut parts = command.split_whitespace();
-            let program = parts
-                .next()
-                .ok_or_else(|| "external_command is empty".to_string())?;
-            let args: Vec<&str> = parts.collect();
+            let mut parts = split_shell_like_command(command)?;
+            let program = parts.remove(0);
             let goal = goal.unwrap_or_else(|| {
                 "Exercise the changed user workflow and return CodeVetter SyntheticQaRunResult JSON.".to_string()
             });
 
             StdCommand::new(program)
-                .args(args)
+                .args(parts)
                 .arg("--base-url")
                 .arg(&base_url)
                 .arg("--loop-id")
@@ -861,5 +914,21 @@ mod tests {
     #[test]
     fn parse_repo_playwright_json_returns_none_for_raw_logs() {
         assert!(parse_repo_playwright_summary("Running 1 test\n1 passed", None).is_none());
+    }
+
+    #[test]
+    fn split_shell_like_command_preserves_quoted_args() {
+        let args = split_shell_like_command(r#"python -c "print('hello world')" --flag 'a b'"#)
+            .expect("split should work");
+        assert_eq!(
+            args,
+            vec![
+                "python".to_string(),
+                "-c".to_string(),
+                "print('hello world')".to_string(),
+                "--flag".to_string(),
+                "a b".to_string(),
+            ]
+        );
     }
 }
