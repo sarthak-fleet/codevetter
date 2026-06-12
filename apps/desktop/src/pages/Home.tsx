@@ -971,12 +971,12 @@ function scoreTone(score: number): string {
   return "text-red-300";
 }
 
-const ROADMAP_RELEASE_VERSION = "1.1.42";
+const ROADMAP_RELEASE_VERSION = "1.1.43";
 
 const ROADMAP_RELEASE_ITEMS = [
   {
     label: "AI session adapters",
-    detail: "Home now shows production source-health runs and parse warnings.",
+    detail: "Home now shows source-health trends and recent-run drilldowns.",
     href: "/review",
   },
   {
@@ -1223,24 +1223,46 @@ function SessionScorecardPanel({ scorecard }: { scorecard: SessionScorecard | nu
   );
 }
 
-function latestRunsByAdapter(runs: SessionAdapterRun[]): SessionAdapterRun[] {
-  const byAdapter = new Map<string, SessionAdapterRun>();
+function formatSignedDelta(value: number): string {
+  if (value > 0) return `+${formatTokens(value)}`;
+  if (value < 0) return `-${formatTokens(Math.abs(value))}`;
+  return "0";
+}
+
+function adapterRunTimestamp(run: SessionAdapterRun): string {
+  return run.last_indexed_at ?? run.created_at;
+}
+
+function adapterRunHistories(runs: SessionAdapterRun[]): Array<{
+  adapterId: string;
+  latest: SessionAdapterRun;
+  history: SessionAdapterRun[];
+}> {
+  const byAdapter = new Map<string, SessionAdapterRun[]>();
   for (const run of runs) {
-    const current = byAdapter.get(run.adapter_id);
-    if (!current || run.created_at > current.created_at) {
-      byAdapter.set(run.adapter_id, run);
-    }
+    byAdapter.set(run.adapter_id, [...(byAdapter.get(run.adapter_id) ?? []), run]);
   }
-  return [...byAdapter.values()].sort((a, b) => a.adapter_id.localeCompare(b.adapter_id));
+  return [...byAdapter.entries()]
+    .flatMap(([adapterId, history]) => {
+      const sorted = [...history].sort((a, b) =>
+        adapterRunTimestamp(b).localeCompare(adapterRunTimestamp(a)),
+      );
+      const latest = sorted[0];
+      if (!latest) return [];
+      return [{ adapterId, latest, history: sorted }];
+    })
+    .sort((a, b) => a.adapterId.localeCompare(b.adapterId));
 }
 
 function AdapterSourceHealthPanel({ runs }: { runs: SessionAdapterRun[] }) {
-  const latestRuns = latestRunsByAdapter(runs);
-  if (latestRuns.length === 0) return null;
+  const histories = adapterRunHistories(runs);
+  if (histories.length === 0) return null;
 
+  const latestRuns = histories.map((entry) => entry.latest);
   const totalWarnings = latestRuns.reduce((sum, run) => sum + run.parse_warnings.length, 0);
   const totalSessions = latestRuns.reduce((sum, run) => sum + run.sessions_indexed, 0);
   const totalMessages = latestRuns.reduce((sum, run) => sum + run.messages_indexed, 0);
+  const trackedRuns = histories.reduce((sum, entry) => sum + entry.history.length, 0);
 
   return (
     <div className="cv-panel overflow-hidden">
@@ -1264,6 +1286,9 @@ function AdapterSourceHealthPanel({ runs }: { runs: SessionAdapterRun[] }) {
               <div className="text-[10px] text-slate-600">messages</div>
             </div>
           </div>
+          <div className="mt-2 text-[10px] text-slate-600">
+            {trackedRuns} recent run{trackedRuns === 1 ? "" : "s"} tracked for trend checks
+          </div>
           {totalWarnings > 0 && (
             <div className="mt-2 text-[10px] text-amber-300/80">
               {totalWarnings} parse warning{totalWarnings === 1 ? "" : "s"}
@@ -1272,18 +1297,34 @@ function AdapterSourceHealthPanel({ runs }: { runs: SessionAdapterRun[] }) {
         </div>
 
         <div className="grid gap-px bg-[#151515] md:grid-cols-3">
-          {latestRuns.map((run) => {
-            const firstWarning = run.parse_warnings[0];
-            const samplePath = run.sample_source_paths[0] ?? run.source_roots[0] ?? "";
+          {histories.map(({ adapterId, latest, history }) => {
+            const previous = history[1];
+            const firstWarning = latest.parse_warnings[0];
+            const samplePath = latest.sample_source_paths[0] ?? latest.source_roots[0] ?? "";
+            const recentRuns = history.slice(0, 4);
+            const maxMessages = Math.max(1, ...recentRuns.map((run) => run.messages_indexed));
+            const warningDelta = previous
+              ? latest.parse_warnings.length - previous.parse_warnings.length
+              : latest.parse_warnings.length;
+            const sessionsDelta = previous
+              ? latest.sessions_indexed - previous.sessions_indexed
+              : latest.sessions_indexed;
+            const messagesDelta = previous
+              ? latest.messages_indexed - previous.messages_indexed
+              : latest.messages_indexed;
+            let healthLabel = "ok";
+            if (firstWarning) {
+              healthLabel = warningDelta > 0 ? "watch" : "warn";
+            }
             return (
-              <div key={run.id} className="min-w-0 bg-[#08090a] px-3 py-3">
+              <div key={latest.id} className="min-w-0 bg-[#08090a] px-3 py-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-slate-200">
-                      {run.adapter_id}
+                      {adapterId}
                     </div>
                     <div className="mt-0.5 truncate text-[10px] text-slate-600">
-                      {formatShortDateTime(run.last_indexed_at ?? run.created_at)}
+                      {formatShortDateTime(adapterRunTimestamp(latest))}
                     </div>
                   </div>
                   <Badge
@@ -1294,13 +1335,40 @@ function AdapterSourceHealthPanel({ runs }: { runs: SessionAdapterRun[] }) {
                         : "border-emerald-500/25 text-emerald-300/80"
                     }`}
                   >
-                    {firstWarning ? "watch" : "ok"}
+                    {healthLabel}
                   </Badge>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] text-slate-500">
-                  <span>{run.sessions_indexed} sessions</span>
-                  <span>{formatTokens(run.messages_indexed)} messages</span>
-                  <span>{run.supports_incremental ? "incremental" : "full scan"}</span>
+                  <span>{latest.sessions_indexed} sessions</span>
+                  <span>{formatTokens(latest.messages_indexed)} messages</span>
+                  <span>{latest.supports_incremental ? "incremental" : "full scan"}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-slate-600">
+                  <span title="Latest run compared with the previous adapter run">
+                    {formatSignedDelta(sessionsDelta)} sessions
+                  </span>
+                  <span>{formatSignedDelta(messagesDelta)} messages</span>
+                  <span
+                    className={warningDelta > 0 ? "text-amber-300/80" : "text-emerald-300/70"}
+                  >
+                    {formatSignedDelta(warningDelta)} warnings
+                  </span>
+                </div>
+                <div className="mt-3 flex h-10 items-end gap-1" aria-label={`${adapterId} recent runs`}>
+                  {recentRuns.map((run) => {
+                    const height = 10 + Math.round((run.messages_indexed / maxMessages) * 30);
+                    const hasWarnings = run.parse_warnings.length > 0;
+                    return (
+                      <div
+                        key={run.id}
+                        className={`min-w-0 flex-1 rounded-sm ${
+                          hasWarnings ? "bg-amber-300/45" : "bg-emerald-300/45"
+                        }`}
+                        style={{ height }}
+                        title={`${formatShortDateTime(adapterRunTimestamp(run))}: ${run.sessions_indexed} sessions, ${formatTokens(run.messages_indexed)} messages, ${run.parse_warnings.length} warnings`}
+                      />
+                    );
+                  })}
                 </div>
                 {samplePath && (
                   <div className="mt-2 truncate font-mono text-[10px] text-slate-600" title={samplePath}>
@@ -1312,6 +1380,45 @@ function AdapterSourceHealthPanel({ runs }: { runs: SessionAdapterRun[] }) {
                     {firstWarning}
                   </div>
                 )}
+                <details className="mt-2 border-t border-[#171717] pt-2">
+                  <summary className="cursor-pointer list-none text-[10px] uppercase text-slate-500 hover:text-slate-300">
+                    recent runs
+                  </summary>
+                  <div className="mt-2 space-y-1.5">
+                    {history.slice(0, 3).map((run) => {
+                      const detailPath = run.sample_source_paths[0] ?? run.source_roots[0] ?? "";
+                      return (
+                        <div
+                          key={run.id}
+                          className="min-w-0 rounded border border-[#171717] bg-[#050505] px-2 py-1.5"
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[10px]">
+                            <span className="truncate text-slate-400">
+                              {formatShortDateTime(adapterRunTimestamp(run))}
+                            </span>
+                            <span className="shrink-0 text-slate-600">
+                              {run.parse_warnings.length} warn
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-slate-600">
+                            <span>{run.sessions_indexed} sessions</span>
+                            <span>{formatTokens(run.messages_indexed)} messages</span>
+                            {run.sample_session_ids[0] && (
+                              <span className="max-w-full truncate font-mono">
+                                {run.sample_session_ids[0]}
+                              </span>
+                            )}
+                          </div>
+                          {detailPath && (
+                            <div className="mt-1 truncate font-mono text-[9px] text-slate-700" title={detailPath}>
+                              {detailPath}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </details>
               </div>
             );
           })}
