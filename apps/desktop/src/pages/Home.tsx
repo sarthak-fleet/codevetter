@@ -956,12 +956,12 @@ function scoreTone(score: number): string {
   return "text-red-300";
 }
 
-const ROADMAP_RELEASE_VERSION = "1.1.30";
+const ROADMAP_RELEASE_VERSION = "1.1.31";
 
 const ROADMAP_RELEASE_ITEMS = [
   {
     label: "Agent timeline",
-    detail: "Jump targets, command anchors, edit origins, and timeline fix packets.",
+    detail: "Jump targets, command anchors, claim checks, edit origins, and timeline fix packets.",
     href: "/review",
   },
   {
@@ -1376,7 +1376,10 @@ export default function Home() {
       // Cache is fresh, no fetch needed
       return;
     }
-    loadDashboard();
+    const timeout = setTimeout(() => {
+      void loadDashboard();
+    }, 0);
+    return () => clearTimeout(timeout);
   }, [loadDashboard]);
 
   // ─── Periodic background sync every 60s ───────────────────────────────
@@ -1421,14 +1424,19 @@ export default function Home() {
     if (accounts.length === 0) return;
 
     // Fetch immediately on first load
-    refreshLiveUsage(accounts);
+    const initialTimeout = setTimeout(() => {
+      void refreshLiveUsage(accounts);
+    }, 0);
 
     // Then every 60 seconds
     const interval = setInterval(() => {
-      refreshLiveUsage(accounts);
+      void refreshLiveUsage(accounts);
     }, 60_000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
   }, [accounts, refreshLiveUsage]);
 
   // Tray title + menu are managed globally by `useTrayMonitor` in App so they

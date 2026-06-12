@@ -101,7 +101,7 @@ Acceptance:
 - Unverified edits or skipped checks are called out.
 - Good verification loops can be recognized and reused.
 
-Status: partially implemented. Timeline evidence rows now carry bounded command anchors from history command signals, including source, status, source path/line, event ID, session ID, artifact, and jump target where available. Worktree rows carry bounded edit-origin anchors for files changed by fix attempts, including stable event IDs, session IDs, source paths, and file jumps. These anchors render in the Review sidebar, are clickable in-app, and are copied into reviewer proof.
+Status: partially implemented. Timeline evidence rows now carry bounded command anchors from history command signals, including source, status, source path/line, event ID, session ID, artifact, and jump target where available. A dedicated Claim check row now flags failed/stale command claims, findings without verification evidence, unresolved post-fix QA comparisons, and successful fixes that lack same-flow QA reruns. Worktree rows carry bounded edit-origin anchors for files changed by fix attempts, including stable event IDs, session IDs, source paths, and file jumps. These anchors render in the Review sidebar, are clickable in-app, and are copied into reviewer proof.
 
 ### Phase 3: Fix Loop Linkage
 

@@ -290,6 +290,11 @@ describe("buildReviewerProofMarkdown", () => {
     assert.equal(evidenceStep?.anchors?.[0]?.jump?.kind, "command_source");
     assert.equal(evidenceStep?.anchors?.[0]?.jump?.path, "/tmp/session.jsonl");
     assert.equal(evidenceStep?.jump?.kind, "command_source");
+    const claimCheckStep = timeline.find((item) => item.id === "claim-check");
+    assert.equal(claimCheckStep?.status, "blocked");
+    assert.match(claimCheckStep?.detail ?? "", /1 blocking, 0 need proof/);
+    assert.equal(claimCheckStep?.anchors?.[0]?.label, "Claim/test mismatch: npm run test:review-proof");
+    assert.equal(claimCheckStep?.anchors?.[0]?.jump?.kind, "command_source");
     assert.equal(timeline.find((item) => item.id === "fix-packet")?.jump?.findingIndex, 0);
     const worktreeStep = timeline.find((item) => item.id === "worktree");
     assert.equal(worktreeStep?.status, "done");
@@ -303,6 +308,29 @@ describe("buildReviewerProofMarkdown", () => {
       worktreeStep?.anchors?.[0]?.jump?.path,
       "/tmp/codevetter/fix-worktree/src/review.ts",
     );
+  });
+
+  it("flags unchecked findings as claim-check proof gaps", () => {
+    const timeline = buildVerificationTimeline({
+      runId: "review-456",
+      review: {
+        findingsCount: 3,
+      },
+      evidenceCounts: {
+        fixed: 0,
+        reproduced: 1,
+        notReproduced: 0,
+      },
+    });
+
+    const claimCheckStep = timeline.find((item) => item.id === "claim-check");
+    assert.equal(claimCheckStep?.status, "active");
+    assert.match(claimCheckStep?.detail ?? "", /0 blocking, 1 need proof/);
+    assert.equal(
+      claimCheckStep?.anchors?.[0]?.label,
+      "2 findings without verification evidence",
+    );
+    assert.equal(claimCheckStep?.anchors?.[0]?.source, "review:evidence");
   });
 
   it("copies concrete command evidence into finding handoff proof", () => {

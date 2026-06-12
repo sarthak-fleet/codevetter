@@ -432,6 +432,97 @@ function buildQaComparisonTimelineAnchors(
   });
 }
 
+function statusRank(status: VerificationTimelineAnchor["status"]): number {
+  if (status === "failed") return 0;
+  if (status === "stale" || status === "unknown") return 1;
+  return 2;
+}
+
+function buildClaimCheckTimelineAnchors(
+  input: VerificationTimelineInput,
+  commandAnchors: VerificationTimelineAnchor[],
+  qaComparison: QaPostFixComparison | null | undefined,
+  evidenceTotal: number,
+): VerificationTimelineAnchor[] {
+  const anchors: VerificationTimelineAnchor[] = [];
+  const runId = input.runId?.trim() || "active-review";
+  const findingsCount = Math.max(0, input.review?.findingsCount ?? 0);
+  const uncheckedCount = Math.max(0, findingsCount - evidenceTotal);
+
+  commandAnchors
+    .filter((anchor) => anchor.status === "failed" || anchor.status === "stale")
+    .forEach((anchor) => {
+      anchors.push({
+        ...anchor,
+        id: `claim:${anchor.id}`,
+        label:
+          anchor.status === "failed"
+            ? `Claim/test mismatch: ${anchor.label}`
+            : `Stale verification evidence: ${anchor.label}`,
+      });
+    });
+
+  if (uncheckedCount > 0) {
+    anchors.push({
+      id: `${runId}:claim:unchecked-evidence`,
+      label: `${uncheckedCount} finding${uncheckedCount === 1 ? "" : "s"} without verification evidence`,
+      source: "review:evidence",
+      status: "unknown",
+      eventId: `${runId}:claim:unchecked-evidence`,
+      sessionId: runId,
+    });
+  }
+
+  if (qaComparison) {
+    const status = qaComparisonStatusToTimelineStatus(qaComparison.status);
+    if (status !== "done") {
+      const afterArtifact = qaComparison.after ? qaRunAnchorArtifact(qaComparison.after) : null;
+      const beforeArtifact = qaRunAnchorArtifact(qaComparison.before);
+      const artifact = afterArtifact ?? beforeArtifact;
+      anchors.push({
+        id: `${qaComparison.flowKey}:claim:${qaComparison.status}`,
+        label: `Post-fix QA ${qaComparison.status.replace("_", " ")}: ${qaComparison.summary}`,
+        source: `qa:${qaComparison.after?.runnerType ?? qaComparison.before.runnerType}`,
+        status: status === "blocked" ? "failed" : "unknown",
+        sourcePath: artifact,
+        eventId: `${qaComparison.flowKey}:claim:${qaComparison.status}`,
+        sessionId: qaComparison.flowKey,
+        artifact,
+        jump: artifact
+          ? {
+            kind: "artifact",
+            label: "Open QA comparison artifact",
+            path: artifact,
+          }
+          : null,
+      });
+    }
+  } else if (input.fixResult?.success === true) {
+    const source = input.fixResult.agent ? `fix:${input.fixResult.agent}` : "fix";
+    anchors.push({
+      id: `${runId}:claim:post-fix-qa-missing`,
+      label: "Fix completed without same-flow post-fix QA comparison",
+      source,
+      status: "unknown",
+      sourcePath: input.fixResult.worktreePath ?? null,
+      eventId: `${runId}:claim:post-fix-qa-missing`,
+      sessionId: runId,
+      artifact: input.fixResult.worktreePath ?? null,
+      jump: input.fixResult.worktreePath
+        ? {
+          kind: "artifact",
+          label: "Open fix worktree",
+          path: input.fixResult.worktreePath,
+        }
+        : null,
+    });
+  }
+
+  return anchors
+    .sort((a, b) => statusRank(a.status) - statusRank(b.status))
+    .slice(0, 4);
+}
+
 function boundedUniqueIndexes(indexes: Array<number | null | undefined>, count: number): number[] {
   const seen = new Set<number>();
   const out: number[] = [];
@@ -584,6 +675,12 @@ export function buildVerificationTimeline(
   const commandAnchors = buildCommandTimelineAnchors(input.history?.command_signals);
   const editOriginAnchors = buildEditOriginTimelineAnchors(input);
   const qaComparisonAnchors = buildQaComparisonTimelineAnchors(qaComparison);
+  const claimCheckAnchors = buildClaimCheckTimelineAnchors(
+    input,
+    commandAnchors,
+    qaComparison,
+    evidenceTotal,
+  );
   const failedCommandCount = commandAnchors.filter((anchor) => anchor.status === "failed").length;
   const selectedFindingIndex = input.review?.selectedFindingIndex ?? null;
   const firstFindingPath = input.review?.firstFindingPath?.trim();
@@ -647,6 +744,21 @@ export function buildVerificationTimeline(
     : input.fixResult
       ? `${input.fixResult.findingsFixed ?? 0} fixed across ${changedFilesCount} file${changedFilesCount === 1 ? "" : "s"}${editOriginAnchors.length > 0 ? ` · ${editOriginAnchors.length} edit origin${editOriginAnchors.length === 1 ? "" : "s"}` : ""}${worktreePath ? ` · ${worktreePath}` : ""}`
       : "No fix run yet";
+  const blockedClaimCount = claimCheckAnchors.filter((anchor) => anchor.status === "failed").length;
+  const pendingClaimCount = claimCheckAnchors.filter((anchor) => anchor.status !== "failed").length;
+  const claimCheckStatus: VerificationTimelineStatus = blockedClaimCount > 0
+    ? "blocked"
+    : pendingClaimCount > 0
+      ? "active"
+      : input.review || commandAnchors.length > 0 || qaComparison || input.fixResult
+        ? "done"
+        : "idle";
+  const claimCheckDetail = claimCheckAnchors.length > 0
+    ? `${blockedClaimCount} blocking, ${pendingClaimCount} need proof`
+    : claimCheckStatus === "done"
+      ? "No claim/evidence gaps detected"
+      : "No claims checked yet";
+  const claimCheckJump = claimCheckAnchors.find((anchor) => anchor.jump)?.jump ?? null;
 
   return [
     {
@@ -683,6 +795,15 @@ export function buildVerificationTimeline(
       status: input.qa?.running ? "active" : evidenceTotal > 0 ? "done" : "idle",
       anchors: commandAnchors,
       jump: evidenceJump,
+    },
+    {
+      id: "claim-check",
+      phase: "evidence",
+      label: "Claim check",
+      detail: claimCheckDetail,
+      status: claimCheckStatus,
+      anchors: claimCheckAnchors,
+      jump: claimCheckJump,
     },
     {
       id: "fix-packet",
