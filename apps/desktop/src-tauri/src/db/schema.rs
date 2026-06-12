@@ -275,6 +275,19 @@ CREATE INDEX IF NOT EXISTS idx_session_message_archive_adapter_created
 CREATE INDEX IF NOT EXISTS idx_session_message_archive_kind
     ON session_message_archive(kind);
 
+CREATE VIRTUAL TABLE IF NOT EXISTS session_message_archive_fts USING fts5(
+    archive_id UNINDEXED,
+    session_id UNINDEXED,
+    adapter_id UNINDEXED,
+    agent_type UNINDEXED,
+    role UNINDEXED,
+    kind UNINDEXED,
+    content_text,
+    tool_name,
+    source_ref UNINDEXED,
+    tokenize = 'unicode61'
+);
+
 -- Per-session per-day message counts. Replaces per-message rows: the UI
 -- only needs token totals attributed across days, which only requires the
 -- count of messages per (session, day). Cuts the message-row footprint

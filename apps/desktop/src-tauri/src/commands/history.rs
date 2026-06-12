@@ -3,9 +3,13 @@ use crate::commands::session_adapters::{
 };
 use crate::db::queries;
 use crate::DbState;
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::io::BufRead;
-use tauri::State;
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, State};
+
+static FULL_INDEX_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone)]
 struct IndexedAdapterSession {
@@ -26,6 +30,15 @@ struct ProductionAdapterRunStats {
     sessions_indexed: i64,
     messages_indexed: i64,
     supports_incremental: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SessionArchiveUpdatedPayload {
+    indexed_sessions: u64,
+    indexed_messages: u64,
+    skipped_sessions: u64,
+    archive_search_rows_indexed: i64,
+    indexed_at: String,
 }
 
 impl ProductionAdapterRunStats {
@@ -120,6 +133,9 @@ fn persist_production_adapter_run(
 /// Run the full index directly with a connection reference.
 /// Used by the startup background thread.
 pub fn run_full_index_with_conn(conn: &rusqlite::Connection) -> Result<String, String> {
+    let _index_guard = FULL_INDEX_LOCK
+        .lock()
+        .map_err(|e| format!("full index lock poisoned: {e}"))?;
     let (indexed_sessions, indexed_messages, skipped_sessions) = full_index_impl(conn)?;
 
     // Store the last indexed timestamp
@@ -132,19 +148,35 @@ pub fn run_full_index_with_conn(conn: &rusqlite::Connection) -> Result<String, S
 }
 
 #[tauri::command]
-pub async fn trigger_index(db: State<'_, DbState>) -> Result<Value, String> {
+pub async fn trigger_index(app: AppHandle, db: State<'_, DbState>) -> Result<Value, String> {
     let conn = conn_lock(&db)?;
+    let _index_guard = FULL_INDEX_LOCK
+        .lock()
+        .map_err(|e| format!("full index lock poisoned: {e}"))?;
     let (indexed_sessions, indexed_messages, skipped_sessions) =
         full_index_impl(&conn).map_err(|e| e.to_string())?;
+    let archive_search_rows_indexed =
+        queries::sync_session_message_archive_fts(&conn).map_err(|e| e.to_string())?;
 
     // Store the last indexed timestamp
     let now = chrono::Utc::now().to_rfc3339();
     let _ = queries::set_preference(&conn, "last_indexed_at", &now);
+    let payload = SessionArchiveUpdatedPayload {
+        indexed_sessions,
+        indexed_messages,
+        skipped_sessions,
+        archive_search_rows_indexed,
+        indexed_at: now.clone(),
+    };
+    if let Err(error) = app.emit("session_archive_updated", payload) {
+        log::warn!("Failed to emit session_archive_updated: {error}");
+    }
 
     Ok(json!({
         "indexed_sessions": indexed_sessions,
         "indexed_messages": indexed_messages,
         "skipped_sessions": skipped_sessions,
+        "archive_search_rows_indexed": archive_search_rows_indexed,
         "projects_scanned": 0,
     }))
 }

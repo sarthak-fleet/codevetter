@@ -309,6 +309,26 @@ pub struct SessionMessageArchiveRow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionMessageArchiveSearchRow {
+    pub id: String,
+    pub session_id: String,
+    pub adapter_id: String,
+    pub agent_type: String,
+    pub source_ref: String,
+    pub source_line: Option<i64>,
+    pub message_index: i64,
+    pub role: Option<String>,
+    pub kind: String,
+    pub timestamp: Option<String>,
+    pub content_text: Option<String>,
+    pub tool_name: Option<String>,
+    pub tool_call_id: Option<String>,
+    pub raw_type: Option<String>,
+    pub created_at: String,
+    pub rank: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActivityInput {
     pub agent_id: Option<String>,
     pub event_type: Option<String>,
@@ -660,6 +680,10 @@ pub fn replace_session_message_archive(
     messages: &[SessionMessageArchiveInput],
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
+        "DELETE FROM session_message_archive_fts WHERE session_id = ?1",
+        params![session_id],
+    )?;
+    conn.execute(
         "DELETE FROM session_message_archive WHERE session_id = ?1",
         params![session_id],
     )?;
@@ -671,9 +695,16 @@ pub fn replace_session_message_archive(
             tool_call_id, raw_type, created_at
          ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
     )?;
+    let mut fts_stmt = conn.prepare(
+        "INSERT INTO session_message_archive_fts (
+            archive_id, session_id, adapter_id, agent_type, role, kind,
+            content_text, tool_name, source_ref
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+    )?;
     for message in messages {
+        let archive_id = uuid::Uuid::new_v4().to_string();
         stmt.execute(params![
-            uuid::Uuid::new_v4().to_string(),
+            archive_id.as_str(),
             session_id,
             message.adapter_id.as_str(),
             message.agent_type.as_str(),
@@ -689,8 +720,47 @@ pub fn replace_session_message_archive(
             message.raw_type.as_deref(),
             now.as_str(),
         ])?;
+        fts_stmt.execute(params![
+            archive_id.as_str(),
+            session_id,
+            message.adapter_id.as_str(),
+            message.agent_type.as_str(),
+            message.role.as_deref(),
+            message.kind.as_str(),
+            message.content_text.as_deref(),
+            message.tool_name.as_deref(),
+            message.source_ref.as_str(),
+        ])?;
     }
     Ok(())
+}
+
+pub fn sync_session_message_archive_fts(conn: &Connection) -> Result<i64, rusqlite::Error> {
+    let archive_count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM session_message_archive", [], |row| {
+            row.get(0)
+        })?;
+    let fts_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM session_message_archive_fts",
+        [],
+        |row| row.get(0),
+    )?;
+    if archive_count == fts_count {
+        return Ok(0);
+    }
+
+    conn.execute("DELETE FROM session_message_archive_fts", [])?;
+    conn.execute(
+        "INSERT INTO session_message_archive_fts (
+            archive_id, session_id, adapter_id, agent_type, role, kind,
+            content_text, tool_name, source_ref
+         )
+         SELECT a.id, a.session_id, a.adapter_id, a.agent_type, a.role, a.kind,
+                a.content_text, a.tool_name, a.source_ref
+         FROM session_message_archive a",
+        [],
+    )
+    .map(|rows| rows as i64)
 }
 
 fn session_message_archive_from_row(
@@ -731,6 +801,78 @@ pub fn list_session_message_archive(
          LIMIT ?2",
     )?;
     let rows = stmt.query_map(params![session_id, limit], session_message_archive_from_row)?;
+    rows.collect()
+}
+
+fn build_archive_fts_query(query: &str) -> Option<String> {
+    let terms: Vec<String> = query
+        .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
+        .map(str::trim)
+        .filter(|term| term.len() >= 2)
+        .take(8)
+        .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
+        .collect();
+    if terms.is_empty() {
+        None
+    } else {
+        Some(terms.join(" AND "))
+    }
+}
+
+fn session_message_archive_search_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<SessionMessageArchiveSearchRow> {
+    Ok(SessionMessageArchiveSearchRow {
+        id: row.get(0)?,
+        session_id: row.get(1)?,
+        adapter_id: row.get(2)?,
+        agent_type: row.get(3)?,
+        source_ref: row.get(4)?,
+        source_line: row.get(5)?,
+        message_index: row.get(6)?,
+        role: row.get(7)?,
+        kind: row.get(8)?,
+        timestamp: row.get(9)?,
+        content_text: row.get(10)?,
+        tool_name: row.get(11)?,
+        tool_call_id: row.get(12)?,
+        raw_type: row.get(13)?,
+        created_at: row.get(14)?,
+        rank: row.get(15)?,
+    })
+}
+
+pub fn search_session_message_archive(
+    conn: &Connection,
+    query: &str,
+    adapter_id: Option<&str>,
+    kind: Option<&str>,
+    limit: i64,
+) -> Result<Vec<SessionMessageArchiveSearchRow>, rusqlite::Error> {
+    let Some(fts_query) = build_archive_fts_query(query) else {
+        return Ok(Vec::new());
+    };
+    let limit = limit.clamp(1, 100);
+    let adapter_id = adapter_id.filter(|value| !value.trim().is_empty());
+    let kind = kind.filter(|value| !value.trim().is_empty());
+
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.session_id, a.adapter_id, a.agent_type, a.source_ref, a.source_line,
+                a.message_index, a.role, a.kind, a.timestamp, a.content_text, a.tool_name,
+                a.tool_call_id, a.raw_type, a.created_at,
+                bm25(session_message_archive_fts) AS rank
+         FROM session_message_archive_fts
+         JOIN session_message_archive a ON a.id = session_message_archive_fts.archive_id
+         WHERE session_message_archive_fts MATCH ?1
+           AND (?2 IS NULL OR a.adapter_id = ?2)
+           AND (?3 IS NULL OR a.kind = ?3)
+         ORDER BY rank ASC, datetime(a.timestamp) DESC NULLS LAST, a.message_index ASC
+         LIMIT ?4",
+    )?;
+    let rows = stmt.query_map(
+        params![fts_query, adapter_id, kind, limit],
+        session_message_archive_search_from_row,
+    )?;
     rows.collect()
 }
 
@@ -1835,5 +1977,116 @@ mod tests {
         assert_eq!(rows[0].id, inserted.id);
         assert_eq!(rows[0].sample_session_ids, vec!["s1", "s2"]);
         assert_eq!(rows[0].source_roots, vec!["/Users/me/.codex/sessions"]);
+    }
+
+    #[test]
+    fn session_message_archive_search_indexes_text_and_filters() {
+        let conn = Connection::open_in_memory().expect("memory db");
+        schema::run_migrations(&conn).expect("schema");
+
+        upsert_project(
+            &conn,
+            &ProjectInput {
+                id: "project".to_string(),
+                display_name: "Project".to_string(),
+                dir_path: "/tmp/project".to_string(),
+                session_count: Some(1),
+                last_activity: Some("2026-06-12T12:00:00Z".to_string()),
+                created_at: "2026-06-12T12:00:00Z".to_string(),
+            },
+        )
+        .expect("project");
+        upsert_session(
+            &conn,
+            &SessionInput {
+                id: "codex-session".to_string(),
+                project_id: "project".to_string(),
+                agent_type: Some("codex".to_string()),
+                jsonl_path: Some("/tmp/codex.jsonl".to_string()),
+                git_branch: None,
+                cwd: Some("/tmp/project".to_string()),
+                cli_version: None,
+                first_message: None,
+                last_message: Some("2026-06-12T12:03:00Z".to_string()),
+                message_count: Some(2),
+                total_input_tokens: Some(20),
+                total_output_tokens: Some(30),
+                model_used: Some("o3".to_string()),
+                slug: None,
+                file_size_bytes: Some(100),
+                indexed_at: Some("2026-06-12T12:04:00Z".to_string()),
+                file_mtime: Some("2026-06-12T12:04:00Z".to_string()),
+                cache_read_tokens: Some(0),
+                cache_creation_tokens: Some(0),
+                compaction_count: Some(0),
+                estimated_cost_usd: Some(0.0),
+            },
+        )
+        .expect("session");
+        replace_session_message_archive(
+            &conn,
+            "codex-session",
+            &[
+                SessionMessageArchiveInput {
+                    adapter_id: "codex".to_string(),
+                    agent_type: "codex".to_string(),
+                    source_ref: "/tmp/codex.jsonl".to_string(),
+                    source_line: Some(4),
+                    message_index: 0,
+                    role: Some("user".to_string()),
+                    kind: "message".to_string(),
+                    timestamp: Some("2026-06-12T12:01:00Z".to_string()),
+                    content_text: Some("Investigate checkout flake in local mode".to_string()),
+                    tool_name: None,
+                    tool_call_id: None,
+                    raw_type: Some("turn_context".to_string()),
+                },
+                SessionMessageArchiveInput {
+                    adapter_id: "codex".to_string(),
+                    agent_type: "codex".to_string(),
+                    source_ref: "/tmp/codex.jsonl".to_string(),
+                    source_line: Some(8),
+                    message_index: 1,
+                    role: Some("assistant".to_string()),
+                    kind: "tool_call".to_string(),
+                    timestamp: Some("2026-06-12T12:02:00Z".to_string()),
+                    content_text: Some("npm run test checkout".to_string()),
+                    tool_name: Some("exec_command".to_string()),
+                    tool_call_id: Some("call-1".to_string()),
+                    raw_type: Some("function_call".to_string()),
+                },
+            ],
+        )
+        .expect("archive");
+
+        let rows = search_session_message_archive(&conn, "checkout local", Some("codex"), None, 10)
+            .expect("search text");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].kind, "message");
+
+        let tool_rows = search_session_message_archive(
+            &conn,
+            "exec_command",
+            Some("codex"),
+            Some("tool_call"),
+            10,
+        )
+        .expect("search tool");
+        assert_eq!(tool_rows.len(), 1);
+        assert_eq!(tool_rows[0].tool_name.as_deref(), Some("exec_command"));
+
+        let filtered =
+            search_session_message_archive(&conn, "checkout", Some("claude-code"), None, 10)
+                .expect("filtered");
+        assert!(filtered.is_empty());
+
+        conn.execute("DELETE FROM session_message_archive_fts", [])
+            .expect("clear fts");
+        let rebuilt = sync_session_message_archive_fts(&conn).expect("rebuild fts");
+        assert_eq!(rebuilt, 2);
+        let rebuilt_rows =
+            search_session_message_archive(&conn, "checkout local", Some("codex"), None, 10)
+                .expect("search rebuilt");
+        assert_eq!(rebuilt_rows.len(), 1);
     }
 }

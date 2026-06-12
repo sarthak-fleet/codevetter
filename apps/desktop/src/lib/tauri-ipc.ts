@@ -177,6 +177,10 @@ export interface SessionMessageArchiveRow {
   created_at: string;
 }
 
+export interface SessionMessageArchiveSearchRow extends SessionMessageArchiveRow {
+  rank: number;
+}
+
 export interface SessionScorecard {
   schema_version: number;
   project?: string | null;
@@ -235,7 +239,17 @@ export interface IndexStats {
 export interface TriggerIndexResult {
   indexed_sessions: number;
   indexed_messages: number;
+  skipped_sessions?: number;
+  archive_search_rows_indexed?: number;
   projects_scanned: number;
+}
+
+export interface SessionArchiveUpdatedEvent {
+  indexed_sessions: number;
+  indexed_messages: number;
+  skipped_sessions: number;
+  archive_search_rows_indexed: number;
+  indexed_at: string;
 }
 
 export interface DayBucket {
@@ -272,6 +286,10 @@ interface SessionDetailResponse {
 
 interface SessionMessageArchiveResponse {
   messages: SessionMessageArchiveRow[];
+}
+
+interface SessionMessageArchiveSearchResponse {
+  results: SessionMessageArchiveSearchRow[];
 }
 
 interface ReviewsResponse {
@@ -840,6 +858,32 @@ export async function listSessionMessageArchive(
     },
   );
   return resp.messages;
+}
+
+export async function searchSessionMessageArchive(
+  query: string,
+  adapterId?: string,
+  kind?: string,
+  limit?: number,
+): Promise<SessionMessageArchiveSearchRow[]> {
+  const resp = await safeInvoke<SessionMessageArchiveSearchResponse>(
+    "search_session_message_archive",
+    {
+      query,
+      adapterId: adapterId ?? null,
+      kind: kind ?? null,
+      limit: limit ?? 50,
+    },
+  );
+  return resp.results;
+}
+
+export async function listenToSessionArchiveUpdates(
+  handler: (event: SessionArchiveUpdatedEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<SessionArchiveUpdatedEvent>("session_archive_updated", (event) => {
+    handler(event.payload);
+  });
 }
 
 export async function getSession(

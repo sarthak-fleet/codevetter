@@ -964,22 +964,22 @@ function scoreTone(score: number): string {
   return "text-red-300";
 }
 
-const ROADMAP_RELEASE_VERSION = "1.1.45";
+const ROADMAP_RELEASE_VERSION = "1.1.46";
 
 const ROADMAP_RELEASE_ITEMS = [
   {
-    label: "AI session adapters",
-    detail: "Local archive backfills normalized adapter messages and tool calls.",
-    href: "/review",
+    label: "Archive search",
+    detail: "Search normalized local agent messages and tool calls from Roadmap.",
+    href: "/roadmap",
   },
   {
-    label: "Post-fix QA",
-    detail: "Same-flow reruns now show fixed, regressed, still broken, or needs rerun.",
-    href: "/review",
+    label: "Live archive refresh",
+    detail: "Manual re-index emits archive update events and refreshes active search results.",
+    href: "/roadmap",
   },
   {
-    label: "Workbench entry points",
-    detail: "Evidence, timeline, QA, memory graph, history brief, and session scorecard are visible from Home.",
+    label: "Usage-first Home",
+    detail: "Roadmap owns verification surfaces so launch stays focused on usage telemetry.",
     href: "/",
   },
 ];
@@ -1002,7 +1002,7 @@ export function RoadmapReleaseBanner() {
             Verification work is now visible from launch.
           </h2>
           <p className="mt-2 max-w-xl text-xs leading-5 text-slate-500">
-            The recent roadmap slices are no longer only buried inside Review state. Home now exposes the shipped verification spine and routes directly into the live surfaces.
+            The recent roadmap slices are no longer only buried inside Review state. Roadmap exposes the shipped verification spine, archive search, and live source-health surfaces while Home stays usage-first.
           </p>
         </div>
         <div className="grid gap-px bg-[#18130b] md:grid-cols-3">
