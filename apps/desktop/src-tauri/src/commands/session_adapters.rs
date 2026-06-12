@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RawSessionAdapterSummary {
@@ -21,6 +22,7 @@ pub struct RawSessionAdapterSummary {
     pub cache_read_tokens: i64,
     pub cache_creation_tokens: i64,
     pub compaction_count: i64,
+    pub day_counts: BTreeMap<String, i64>,
     pub parse_warnings: Vec<String>,
 }
 
@@ -52,6 +54,7 @@ fn empty_summary(adapter_id: &str, agent_type: &str, source_ref: &str) -> RawSes
         cache_read_tokens: 0,
         cache_creation_tokens: 0,
         compaction_count: 0,
+        day_counts: BTreeMap::new(),
         parse_warnings: Vec::new(),
     }
 }
@@ -62,6 +65,18 @@ fn update_timestamp(summary: &mut RawSessionAdapterSummary, timestamp: Option<St
     }
     if timestamp.is_some() {
         summary.last_timestamp = timestamp;
+    }
+}
+
+fn record_day(summary: &mut RawSessionAdapterSummary, timestamp: Option<&str>) {
+    if let Some(timestamp) = timestamp {
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(timestamp) {
+            let day = dt
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d")
+                .to_string();
+            *summary.day_counts.entry(day).or_insert(0) += 1;
+        }
     }
 }
 
@@ -150,6 +165,7 @@ impl SessionSourceAdapter for ClaudeCodeAdapter {
             }
 
             let timestamp = value_string(Some(&parsed), "timestamp");
+            record_day(&mut summary, timestamp.as_deref());
             update_timestamp(&mut summary, timestamp);
 
             let usage = parsed
@@ -280,6 +296,7 @@ impl SessionSourceAdapter for CodexAdapter {
 
             if msg_type == "response_item" {
                 let timestamp = value_string(Some(&parsed), "timestamp");
+                record_day(&mut summary, timestamp.as_deref());
                 update_timestamp(&mut summary, timestamp);
                 if let Some(usage) = payload.and_then(|p| p.get("usage")) {
                     if !has_cumulative_token_count {
@@ -378,6 +395,7 @@ impl SessionSourceAdapter for CursorAdapter {
                             .map(|dt| dt.to_rfc3339())
                     })
                 });
+                record_day(&mut summary, timestamp.as_deref());
                 update_timestamp(&mut summary, timestamp);
                 summary.message_count += 1;
             }
@@ -421,6 +439,7 @@ mod tests {
         assert_eq!(summary.cache_read_tokens, 25);
         assert_eq!(summary.cache_creation_tokens, 10);
         assert_eq!(summary.compaction_count, 1);
+        assert_eq!(summary.day_counts.get("2026-06-12"), Some(&3));
         assert!(summary.parse_warnings.is_empty());
     }
 
@@ -438,6 +457,7 @@ mod tests {
         assert_eq!(summary.total_input_tokens, 500);
         assert_eq!(summary.total_output_tokens, 150);
         assert_eq!(summary.cache_read_tokens, 100);
+        assert_eq!(summary.day_counts.get("2026-06-12"), Some(&2));
         assert!(summary.parse_warnings.is_empty());
     }
 
@@ -459,6 +479,7 @@ mod tests {
             summary.last_timestamp.as_deref(),
             Some("2026-06-12T16:02:00+00:00")
         );
+        assert_eq!(summary.day_counts.get("2026-06-12"), Some(&2));
         assert!(summary.parse_warnings.is_empty());
     }
 

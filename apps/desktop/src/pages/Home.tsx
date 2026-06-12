@@ -956,12 +956,12 @@ function scoreTone(score: number): string {
   return "text-red-300";
 }
 
-const ROADMAP_RELEASE_VERSION = "1.1.38";
+const ROADMAP_RELEASE_VERSION = "1.1.39";
 
 const ROADMAP_RELEASE_ITEMS = [
   {
     label: "AI session adapters",
-    detail: "Claude, Codex, and Cursor raw parser fixtures now share one adapter contract.",
+    detail: "Codex production indexing now runs through the shared raw adapter contract.",
     href: "/review",
   },
   {

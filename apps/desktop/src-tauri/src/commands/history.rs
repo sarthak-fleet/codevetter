@@ -1,3 +1,4 @@
+use crate::commands::session_adapters::{CodexAdapter, SessionSourceAdapter};
 use crate::db::queries;
 use crate::DbState;
 use serde_json::{json, Value};
@@ -878,203 +879,65 @@ fn parse_codex_session(
         .and_then(|m| m.modified().ok())
         .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
 
-    let file = std::fs::File::open(jsonl_path).map_err(|e| e.to_string())?;
-    let reader = std::io::BufReader::new(file);
-
-    let mut session_id: Option<String> = None;
-    let mut session_cwd: Option<String> = None;
-    let mut session_version: Option<String> = None;
-    let mut session_git_branch: Option<String> = None;
-    let mut model_used: Option<String> = None;
-
-    let mut msg_count: i64 = 0;
-    let mut total_input: i64 = 0;
-    let mut total_output: i64 = 0;
-    let mut total_cache_read: i64 = 0;
-    let total_cache_creation: i64 = 0;
-    let mut first_message: Option<String> = None;
-    let mut last_message: Option<String> = None;
-    let mut new_messages: u64 = 0;
-    let mut line_number: i64 = 0;
-    let mut day_counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
-
-    for line_result in reader.lines() {
-        let line = match line_result {
-            Ok(l) => l,
-            Err(_) => break,
-        };
-        let line = line.trim().to_string();
-        if line.is_empty() {
-            line_number += 1;
-            continue;
-        }
-
-        let parsed: Value = match serde_json::from_str(&line) {
-            Ok(v) => v,
-            Err(_) => {
-                line_number += 1;
-                continue;
-            }
-        };
-
-        let msg_type = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        let payload = parsed.get("payload");
-
-        if msg_type == "session_meta" {
-            if let Some(p) = payload {
-                session_id = p.get("id").and_then(|v| v.as_str()).map(String::from);
-                session_cwd = p.get("cwd").and_then(|v| v.as_str()).map(String::from);
-                session_version = p
-                    .get("cli_version")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                session_git_branch = p
-                    .get("git")
-                    .and_then(|g| g.get("branch"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                if let Some(m) = p.get("model").and_then(|v| v.as_str()) {
-                    model_used = Some(m.to_string());
-                } else if let Some(mp) = p.get("model_provider").and_then(|v| v.as_str()) {
-                    // Codex doesn't specify a model name; use a reasonable default
-                    model_used = Some(if mp == "openai" {
-                        "o3".to_string()
-                    } else {
-                        mp.to_string()
-                    });
-                }
-            }
-            line_number += 1;
-            continue;
-        }
-
-        // ── Extract token counts from event_msg.token_count ──────────
-        // Codex stores cumulative token usage in event_msg with type "token_count"
-        // under payload.info.total_token_usage. We take the last one seen.
-        if msg_type == "event_msg" {
-            if let Some(p) = payload {
-                let sub_type = p.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                if sub_type == "token_count" {
-                    if let Some(info) = p.get("info") {
-                        if let Some(total_usage) = info.get("total_token_usage") {
-                            // These are cumulative — always take the latest value
-                            let input_t = total_usage
-                                .get("input_tokens")
-                                .and_then(|v| v.as_i64())
-                                .unwrap_or(0);
-                            let output_t = total_usage
-                                .get("output_tokens")
-                                .and_then(|v| v.as_i64())
-                                .unwrap_or(0);
-                            let cached = total_usage
-                                .get("cached_input_tokens")
-                                .and_then(|v| v.as_i64())
-                                .unwrap_or(0);
-                            total_input = input_t;
-                            total_output = output_t;
-                            total_cache_read = cached;
-                        }
-                    }
-                }
-            }
-        }
-
-        if msg_type == "response_item" {
-            if let Some(p) = payload {
-                let role = p.get("role").and_then(|v| v.as_str()).map(String::from);
-
-                // Extract token usage from response_item.payload.usage (if present)
-                if let Some(usage) = p.get("usage") {
-                    let input_t = usage
-                        .get("input_tokens")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
-                    let output_t = usage
-                        .get("output_tokens")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
-                    // Only use additive if no token_count events are providing cumulative totals
-                    if total_input == 0 && total_output == 0 {
-                        total_input += input_t;
-                        total_output += output_t;
-                    }
-                }
-
-                // Timestamp
-                let ts = parsed
-                    .get("timestamp")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                if first_message.is_none() {
-                    first_message = ts.clone();
-                }
-                last_message = ts.clone();
-
-                let _ = role;
-                if let Some(ts_str) = ts.as_deref() {
-                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts_str) {
-                        let day = dt
-                            .with_timezone(&chrono::Local)
-                            .format("%Y-%m-%d")
-                            .to_string();
-                        *day_counts.entry(day).or_insert(0) += 1;
-                    }
-                }
-
-                msg_count += 1;
-                new_messages += 1;
-            }
-        }
-
-        line_number += 1;
-    }
-
-    if let Some(ref sid) = session_id {
-        for (day, n) in &day_counts {
-            let _ = queries::bump_session_day(conn, sid, day, *n);
-        }
-    }
+    let raw = std::fs::read_to_string(jsonl_path).map_err(|e| e.to_string())?;
+    let summary = CodexAdapter.parse_raw(&jsonl_path_str, &raw);
 
     // If we didn't get a session_id from the file, generate one
-    let sid = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let sid = summary
+        .stable_id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let day_counts = summary.day_counts.clone();
+
+    for warning in &summary.parse_warnings {
+        log::warn!(
+            "Codex session adapter warning for {}: {}",
+            jsonl_path_str,
+            warning
+        );
+    }
 
     let estimated_cost = estimate_cost(
-        model_used.as_deref().unwrap_or(""),
-        total_input,
-        total_output,
-        total_cache_read,
-        total_cache_creation,
+        summary.model_used.as_deref().unwrap_or(""),
+        summary.total_input_tokens,
+        summary.total_output_tokens,
+        summary.cache_read_tokens,
+        summary.cache_creation_tokens,
     );
 
     queries::upsert_session(
         conn,
         &queries::SessionInput {
-            id: sid,
+            id: sid.clone(),
             project_id: project_id.to_string(),
-            agent_type: Some("codex".to_string()),
+            agent_type: Some(summary.agent_type),
             jsonl_path: Some(jsonl_path_str),
-            git_branch: session_git_branch,
-            cwd: session_cwd,
-            cli_version: session_version,
-            first_message,
-            last_message,
-            message_count: Some(msg_count),
-            total_input_tokens: Some(total_input),
-            total_output_tokens: Some(total_output),
-            model_used,
+            git_branch: summary.git_branch,
+            cwd: summary.cwd,
+            cli_version: summary.cli_version,
+            first_message: summary.first_timestamp,
+            last_message: summary.last_timestamp,
+            message_count: Some(summary.message_count),
+            total_input_tokens: Some(summary.total_input_tokens),
+            total_output_tokens: Some(summary.total_output_tokens),
+            model_used: summary.model_used,
             slug: None,
             file_size_bytes: Some(file_size),
             indexed_at: Some(now.to_string()),
             file_mtime: file_mtime_str,
-            cache_read_tokens: Some(total_cache_read),
-            cache_creation_tokens: Some(total_cache_creation),
-            compaction_count: Some(0),
+            cache_read_tokens: Some(summary.cache_read_tokens),
+            cache_creation_tokens: Some(summary.cache_creation_tokens),
+            compaction_count: Some(summary.compaction_count),
             estimated_cost_usd: Some(estimated_cost),
         },
     )
     .map_err(|e| e.to_string())?;
 
-    Ok((1, new_messages))
+    for (day, n) in &day_counts {
+        let _ = queries::bump_session_day(conn, &sid, day, *n);
+    }
+
+    Ok((1, summary.message_count.max(0) as u64))
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1510,4 +1373,80 @@ fn walkdir(dir: &std::path::Path, ext: &str) -> Vec<std::path::PathBuf> {
         }
     }
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::schema;
+    use rusqlite::{params, Connection};
+
+    #[test]
+    fn codex_indexer_uses_adapter_summary_for_session_upsert() {
+        let conn = Connection::open_in_memory().expect("memory db");
+        schema::run_migrations(&conn).expect("schema");
+        queries::upsert_project(
+            &conn,
+            &queries::ProjectInput {
+                id: "project".to_string(),
+                display_name: "CodeVetter".to_string(),
+                dir_path: "/repo/codevetter".to_string(),
+                session_count: None,
+                last_activity: Some("2026-06-12T16:00:00Z".to_string()),
+                created_at: "2026-06-12T16:00:00Z".to_string(),
+            },
+        )
+        .expect("project");
+
+        let fixture = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/session_adapters/codex.jsonl"
+        ));
+        let (sessions, messages) =
+            parse_codex_session(fixture, &conn, "project", "2026-06-12T16:03:00Z")
+                .expect("codex session");
+
+        assert_eq!(sessions, 1);
+        assert_eq!(messages, 2);
+        let session = conn
+            .query_row(
+                "SELECT id, agent_type, cwd, git_branch, model_used, message_count,
+                        total_input_tokens, total_output_tokens, cache_read_tokens
+                 FROM cc_sessions
+                 WHERE jsonl_path = ?1",
+                params![fixture.to_string_lossy().as_ref()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, i64>(8)?,
+                    ))
+                },
+            )
+            .expect("session row");
+        assert_eq!(session.0, "codex-session-1");
+        assert_eq!(session.1, "codex");
+        assert_eq!(session.2.as_deref(), Some("/repo/codevetter"));
+        assert_eq!(session.3.as_deref(), Some("feature/adapter"));
+        assert_eq!(session.4.as_deref(), Some("o3"));
+        assert_eq!(session.5, 2);
+        assert_eq!(session.6, 500);
+        assert_eq!(session.7, 150);
+        assert_eq!(session.8, 100);
+
+        let day_count: i64 = conn
+            .query_row(
+                "SELECT msg_count FROM cc_session_days WHERE session_id = ?1 AND day = ?2",
+                params!["codex-session-1", "2026-06-12"],
+                |row| row.get(0),
+            )
+            .expect("session day bucket");
+        assert_eq!(day_count, 2);
+    }
 }

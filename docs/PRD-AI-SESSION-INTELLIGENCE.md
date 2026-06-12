@@ -228,14 +228,14 @@ Create a small adapter interface for local agent session sources.
 Acceptance:
 
 - Claude, Codex, and Cursor indexed sessions are normalized into a shared adapter summary contract in the scorecard API. Implemented for `SessionSourceAdapterSummary`.
-- Adapter output feeds one local SQLite evidence archive. Implemented for adapter run metadata through `session_adapter_runs`, while full message/tool-call archive normalization is still pending.
-- Adapter output includes source paths, stable IDs, agent name, timestamps, message totals, evidence archive name, incremental support, and parse warnings. Implemented for scorecard adapter summaries, persisted adapter run rows, and the shared raw parser adapter contract; project/cwd hints, tool calls, command events, and token/cost fields remain on existing session/evidence records until production DB writes are migrated to the parser contract.
+- Adapter output feeds one local SQLite evidence archive. Implemented for adapter run metadata through `session_adapter_runs` and Codex session upserts through the raw adapter contract, while full message/tool-call archive normalization is still pending.
+- Adapter output includes source paths, stable IDs, agent name, timestamps, message totals, evidence archive name, incremental support, and parse warnings. Implemented for scorecard adapter summaries, persisted adapter run rows, the shared raw parser adapter contract, and Codex production DB writes; project/cwd hints, tool calls, command events, and token/cost fields remain on existing session/evidence records until Claude/Cursor production DB writes are migrated to the parser contract.
 - Tests cover at least one fixture per adapter. Implemented for raw Claude Code JSONL, Codex JSONL, and Cursor composer/bubble JSON fixtures.
 - Unsupported or malformed sessions degrade to parse warnings, not crashes. Implemented for missing transcript paths, zero-message rows in adapter summary tests, and malformed raw adapter input.
 
 Remaining:
 
-- Wire Claude/Codex/Cursor production DB indexers through the explicit raw adapter trait instead of keeping parser logic inline.
+- Wire the remaining Claude/Cursor production DB indexers through the explicit raw adapter trait instead of keeping parser logic inline. Codex production indexing now uses `CodexAdapter`.
 - Persist adapter run metadata and parse warnings separately from session rows. Implemented for scorecard adapter runs in `session_adapter_runs`.
 
 ### Phase 2: Usage And Stats Contracts
