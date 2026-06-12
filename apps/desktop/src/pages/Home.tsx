@@ -1,10 +1,18 @@
 import {
   Activity,
+  ArrowRight,
   BarChart3,
+  BrainCircuit,
+  FileClock,
+  GitBranch,
+  MonitorPlay,
+  Network,
   RefreshCw,
+  SearchCheck,
   Terminal,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -947,6 +955,96 @@ function scoreTone(score: number): string {
   return "text-red-300";
 }
 
+function VerificationWorkbenchPanel({
+  scorecard,
+}: {
+  scorecard: SessionScorecard | null;
+}) {
+  const sessionCount = scorecard?.sessions_analyzed ?? 0;
+  const tools = [
+    {
+      id: "evidence",
+      label: "Evidence search",
+      surface: "Review",
+      href: "/review",
+      Icon: SearchCheck,
+      status: "Risk candidates",
+    },
+    {
+      id: "timeline",
+      label: "Agent timeline",
+      surface: "Review",
+      href: "/review",
+      Icon: GitBranch,
+      status: "Command anchors",
+    },
+    {
+      id: "qa",
+      label: "Synthetic QA",
+      surface: "Review",
+      href: "/review",
+      Icon: MonitorPlay,
+      status: "Post-fix compare",
+    },
+    {
+      id: "graph",
+      label: "Memory graph",
+      surface: "Repo Unpacked",
+      href: "/unpack",
+      Icon: Network,
+      status: "JSON + sidecar",
+    },
+    {
+      id: "history",
+      label: "History brief",
+      surface: "Repo Unpacked",
+      href: "/unpack",
+      Icon: FileClock,
+      status: "Cited local context",
+    },
+    {
+      id: "sessions",
+      label: "AI sessions",
+      surface: "Home",
+      href: "/",
+      Icon: BrainCircuit,
+      status: sessionCount > 0 ? `${sessionCount} indexed` : "Index ready",
+    },
+  ];
+
+  return (
+    <div className="cv-panel overflow-hidden">
+      <div className="grid gap-px bg-[#151515] md:grid-cols-3 xl:grid-cols-6">
+        {tools.map(({ id, label, surface, href, Icon, status }) => (
+          <Link
+            key={id}
+            to={href}
+            className="group min-h-28 bg-[#08090a] px-3 py-3 transition-colors hover:bg-[#0d1012]"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <Icon size={15} className="text-[var(--cv-accent)]" />
+              <ArrowRight
+                size={13}
+                className="text-slate-700 transition-colors group-hover:text-[var(--cv-accent)]"
+              />
+            </div>
+            <div className="mt-4 text-sm font-medium text-slate-200">{label}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <Badge
+                variant="outline"
+                className="rounded-full border-[#252525] px-1.5 py-0 text-[9px] uppercase text-slate-500"
+              >
+                {surface}
+              </Badge>
+              <span className="min-w-0 truncate text-[10px] text-slate-500">{status}</span>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SessionScorecardPanel({ scorecard }: { scorecard: SessionScorecard | null }) {
   if (!scorecard || scorecard.sessions_analyzed === 0) return null;
   const adapters = scorecard.adapters ?? [];
@@ -1334,6 +1432,8 @@ export default function Home() {
           </button>
         </div>
       )}
+
+      <VerificationWorkbenchPanel scorecard={sessionScorecard} />
 
       <SessionScorecardPanel scorecard={sessionScorecard} />
 
