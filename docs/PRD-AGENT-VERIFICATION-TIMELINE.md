@@ -88,7 +88,7 @@ Render the run spine in a compact vertical timeline.
 Acceptance:
 
 - The current step and next evidence are easy to see. Implemented in the Review sidebar through the shared verification timeline contract.
-- A user can jump from timeline step to file or finding. Partially implemented through existing finding selection, artifact open actions, and displayed raw-session command anchors; timeline-specific click targets are pending.
+- A user can jump from timeline step to file or finding. Implemented through first-class timeline jump targets for findings, files, QA artifacts, fix worktrees, and command source anchors.
 - Long runs remain readable with collapsing.
 
 ### Phase 2: Claim vs Evidence
@@ -101,7 +101,7 @@ Acceptance:
 - Unverified edits or skipped checks are called out.
 - Good verification loops can be recognized and reused.
 
-Status: partially implemented. Timeline evidence rows now carry bounded command anchors from history command signals, including source, status, source path/line, event ID, session ID, and artifact where available. These anchors render in the Review sidebar and copied reviewer proof.
+Status: partially implemented. Timeline evidence rows now carry bounded command anchors from history command signals, including source, status, source path/line, event ID, session ID, artifact, and jump target where available. These anchors render in the Review sidebar, are clickable in-app, and are copied into reviewer proof.
 
 ### Phase 3: Fix Loop Linkage
 
@@ -111,7 +111,7 @@ Acceptance:
 
 - A fix packet can be generated from a timeline segment. Not yet implemented; existing fix packets are finding-selection based.
 - The timeline shows whether the recheck actually improved evidence. Partially implemented through QA/evidence/fix/worktree rows; before/after comparison is pending.
-- Review findings can reference earlier agent actions. Partially implemented through history command/claim summaries and proof export; direct timeline step references are pending.
+- Review findings can reference earlier agent actions. Partially implemented through history command/claim summaries, first-class timeline jump metadata, and proof export; deeper edit-origin IDs are still pending.
 
 ## UX Requirements
 

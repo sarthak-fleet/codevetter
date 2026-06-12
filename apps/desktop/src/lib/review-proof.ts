@@ -51,6 +51,21 @@ export interface ProcedureExecutionEvent {
 
 export type VerificationTimelineStatus = "done" | "active" | "blocked" | "idle";
 
+export type VerificationTimelineJumpKind =
+  | "finding"
+  | "file"
+  | "artifact"
+  | "command_source";
+
+export interface VerificationTimelineJumpTarget {
+  kind: VerificationTimelineJumpKind;
+  label: string;
+  findingIndex?: number | null;
+  path?: string | null;
+  line?: number | null;
+  source?: string | null;
+}
+
 export interface VerificationTimelineItem {
   id: string;
   phase: "task" | "review" | "qa" | "evidence" | "fix" | "worktree";
@@ -58,6 +73,7 @@ export interface VerificationTimelineItem {
   detail: string;
   status: VerificationTimelineStatus;
   anchors?: VerificationTimelineAnchor[];
+  jump?: VerificationTimelineJumpTarget | null;
 }
 
 export interface VerificationTimelineAnchor {
@@ -70,6 +86,7 @@ export interface VerificationTimelineAnchor {
   eventId?: string | null;
   sessionId?: string | null;
   artifact?: string | null;
+  jump?: VerificationTimelineJumpTarget | null;
 }
 
 export interface VerificationTimelineInput {
@@ -78,6 +95,9 @@ export interface VerificationTimelineInput {
     findingsCount: number;
     mode?: string;
     riskTier?: string;
+    selectedFindingIndex?: number | null;
+    firstFindingPath?: string | null;
+    firstFindingLine?: number | null;
   } | null;
   isReviewing?: boolean;
   qa?: {
@@ -88,12 +108,15 @@ export interface VerificationTimelineInput {
       route?: string;
       goal: string;
       durationMs: number;
+      screenshotPath?: string | null;
+      artifacts?: string[];
     } | null;
   };
   evidenceCounts: EvidenceCounts;
   fixPacket?: {
     selectedFindings: number;
     routeAdvice: string;
+    selectedFindingIndex?: number | null;
   } | null;
   isFixing?: boolean;
   fixResult?: {
@@ -266,17 +289,39 @@ export function formatHistoryCommandEvidence(
 function buildCommandTimelineAnchors(
   signals: NonNullable<RepoHistoryContext["command_signals"]> | undefined,
 ): VerificationTimelineAnchor[] {
-  return (signals ?? []).slice(0, 4).map((signal, idx) => ({
-    id: signal.event_id ?? signal.talk_id ?? signal.session_id ?? `command-${idx}`,
-    label: signal.command,
-    source: signal.source,
-    status: signal.status ?? "unknown",
-    sourcePath: signal.source_path ?? null,
-    sourceLine: signal.source_line ?? null,
-    eventId: signal.event_id ?? null,
-    sessionId: signal.session_id ?? null,
-    artifact: signal.artifacts?.[0] ?? null,
-  }));
+  return (signals ?? []).slice(0, 4).map((signal, idx) => {
+    const sourcePath = signal.source_path ?? null;
+    const artifact = signal.artifacts?.[0] ?? null;
+    const jump: VerificationTimelineJumpTarget | null = sourcePath
+      ? {
+        kind: "command_source",
+        label: "Preview command source",
+        path: sourcePath,
+        line: signal.source_line ?? null,
+        source: signal.source,
+      }
+      : artifact
+        ? {
+          kind: "artifact",
+          label: "Open command artifact",
+          path: artifact,
+          source: signal.source,
+        }
+        : null;
+
+    return {
+      id: signal.event_id ?? signal.talk_id ?? signal.session_id ?? `command-${idx}`,
+      label: signal.command,
+      source: signal.source,
+      status: signal.status ?? "unknown",
+      sourcePath,
+      sourceLine: signal.source_line ?? null,
+      eventId: signal.event_id ?? null,
+      sessionId: signal.session_id ?? null,
+      artifact,
+      jump,
+    };
+  });
 }
 
 function qaRunTimestamp(run: QaComparisonRun): number {
@@ -382,6 +427,49 @@ export function buildVerificationTimeline(
   const worktreePath = input.fixResult?.worktreePath?.trim();
   const commandAnchors = buildCommandTimelineAnchors(input.history?.command_signals);
   const failedCommandCount = commandAnchors.filter((anchor) => anchor.status === "failed").length;
+  const selectedFindingIndex = input.review?.selectedFindingIndex ?? null;
+  const firstFindingPath = input.review?.firstFindingPath?.trim();
+  const firstFindingLine = input.review?.firstFindingLine ?? null;
+  const firstQaArtifact = latestQa?.screenshotPath ?? latestQa?.artifacts?.[0] ?? null;
+  const fixFindingIndex = input.fixPacket?.selectedFindingIndex ?? selectedFindingIndex;
+  const reviewJump: VerificationTimelineJumpTarget | null =
+    selectedFindingIndex != null
+      ? {
+        kind: "finding",
+        label: `Open finding ${selectedFindingIndex + 1}`,
+        findingIndex: selectedFindingIndex,
+      }
+      : firstFindingPath
+        ? {
+          kind: "file",
+          label: "Open first finding file",
+          path: firstFindingPath,
+          line: firstFindingLine,
+        }
+        : null;
+  const qaJump: VerificationTimelineJumpTarget | null = firstQaArtifact
+    ? {
+      kind: "artifact",
+      label: "Open QA artifact",
+      path: firstQaArtifact,
+    }
+    : null;
+  const evidenceJump = commandAnchors.find((anchor) => anchor.jump)?.jump ?? null;
+  const fixPacketJump: VerificationTimelineJumpTarget | null =
+    fixFindingIndex != null
+      ? {
+        kind: "finding",
+        label: `Open selected finding ${fixFindingIndex + 1}`,
+        findingIndex: fixFindingIndex,
+      }
+      : null;
+  const worktreeJump: VerificationTimelineJumpTarget | null = worktreePath
+    ? {
+      kind: "artifact",
+      label: "Open fix worktree",
+      path: worktreePath,
+    }
+    : null;
 
   return [
     {
@@ -399,6 +487,7 @@ export function buildVerificationTimeline(
         ? `${input.review.findingsCount} finding${input.review.findingsCount === 1 ? "" : "s"} · ${input.review.mode ?? "standard"} · ${input.review.riskTier ?? "unclassified"}`
         : "No review loaded",
       status: input.isReviewing ? "active" : input.review ? "done" : "idle",
+      jump: reviewJump,
     },
     {
       id: "qa",
@@ -408,6 +497,7 @@ export function buildVerificationTimeline(
         ? `${latestQa.runnerType} ${latestQa.pass ? "passed" : "failed"} ${latestQa.route ?? latestQa.goal} in ${latestQa.durationMs}ms`
         : "No user-flow run attached",
       status: input.qa?.running ? "active" : latestQa ? (latestQa.pass ? "done" : "blocked") : "idle",
+      jump: qaJump,
     },
     {
       id: "evidence",
@@ -416,6 +506,7 @@ export function buildVerificationTimeline(
       detail: `${input.evidenceCounts.reproduced} reproduced, ${input.evidenceCounts.fixed} fixed, ${input.evidenceCounts.notReproduced} not reproduced${commandAnchors.length > 0 ? ` · ${commandAnchors.length} command anchor${commandAnchors.length === 1 ? "" : "s"}${failedCommandCount > 0 ? `, ${failedCommandCount} failed` : ""}` : ""}`,
       status: input.qa?.running ? "active" : evidenceTotal > 0 ? "done" : "idle",
       anchors: commandAnchors,
+      jump: evidenceJump,
     },
     {
       id: "fix-packet",
@@ -423,6 +514,7 @@ export function buildVerificationTimeline(
       label: "Fix packet",
       detail: `${fixSelected} selected${input.fixPacket?.routeAdvice ? ` - ${input.fixPacket.routeAdvice}` : ""}`,
       status: input.isFixing ? "active" : fixSelected > 0 ? "done" : "idle",
+      jump: fixPacketJump,
     },
     {
       id: "worktree",
@@ -436,6 +528,7 @@ export function buildVerificationTimeline(
             ? `${input.fixResult.findingsFixed ?? 0} fixed across ${input.fixResult.changedFiles ?? 0} files`
             : "No fix run yet",
       status: worktreeFallback ? "blocked" : worktreePath || input.fixResult ? "done" : "idle",
+      jump: worktreeJump,
     },
   ];
 }
@@ -646,7 +739,17 @@ export function buildReviewerProofMarkdown(input: ReviewerProofInput): string {
   if (input.verificationTimeline && input.verificationTimeline.length > 0) {
     lines.push("", "### Verification timeline");
     input.verificationTimeline.forEach((item) => {
-      lines.push(`- **${item.label}** — ${item.status}: ${item.detail}`);
+      const itemJump = item.jump
+        ? [
+          `jump=${item.jump.kind}`,
+          item.jump.findingIndex != null ? `finding=${item.jump.findingIndex + 1}` : null,
+          item.jump.path ? `path=${item.jump.path}` : null,
+          item.jump.line != null ? `line=${item.jump.line}` : null,
+        ].filter(Boolean)
+        : [];
+      lines.push(
+        `- **${item.label}** — ${item.status}: ${item.detail}${itemJump.length > 0 ? ` (${itemJump.join(" · ")})` : ""}`,
+      );
       item.anchors?.slice(0, 4).forEach((anchor) => {
         const loc = [
           anchor.source,
@@ -655,6 +758,8 @@ export function buildReviewerProofMarkdown(input: ReviewerProofInput): string {
           anchor.eventId ? `event=${anchor.eventId}` : null,
           anchor.sessionId ? `session=${anchor.sessionId}` : null,
           anchor.artifact ? `artifact=${anchor.artifact}` : null,
+          anchor.jump?.kind ? `jump=${anchor.jump.kind}` : null,
+          anchor.jump?.path ? `jumpPath=${anchor.jump.path}` : null,
         ].filter(Boolean);
         lines.push(
           `  - ${anchor.status ?? "unknown"} command: ${anchor.label}${loc.length > 0 ? ` (${loc.join(" · ")})` : ""}`,

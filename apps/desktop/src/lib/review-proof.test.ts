@@ -140,6 +140,9 @@ describe("buildReviewerProofMarkdown", () => {
         findingsCount: 2,
         mode: "specialist-lite",
         riskTier: "lite-product",
+        selectedFindingIndex: 0,
+        firstFindingPath: "src/review.ts",
+        firstFindingLine: 12,
       },
       qa: {
         latest: {
@@ -148,6 +151,8 @@ describe("buildReviewerProofMarkdown", () => {
           route: "/checkout",
           goal: "Complete checkout",
           durationMs: 814,
+          screenshotPath: "artifacts/checkout-fail.png",
+          artifacts: ["artifacts/checkout-fail.txt"],
         },
       },
       evidenceCounts: {
@@ -158,6 +163,7 @@ describe("buildReviewerProofMarkdown", () => {
       fixPacket: {
         selectedFindings: 1,
         routeAdvice: "Use local model",
+        selectedFindingIndex: 0,
       },
       fixResult: {
         usingWorktree: false,
@@ -183,12 +189,19 @@ describe("buildReviewerProofMarkdown", () => {
     });
 
     assert.equal(timeline[0].id, "task");
+    assert.equal(timeline.find((item) => item.id === "review")?.jump?.kind, "finding");
+    assert.equal(timeline.find((item) => item.id === "review")?.jump?.findingIndex, 0);
     assert.equal(timeline.find((item) => item.id === "qa")?.status, "blocked");
+    assert.equal(timeline.find((item) => item.id === "qa")?.jump?.path, "artifacts/checkout-fail.png");
     const evidenceStep = timeline.find((item) => item.id === "evidence");
     assert.equal(evidenceStep?.status, "done");
     assert.match(evidenceStep?.detail ?? "", /1 command anchor, 1 failed/);
     assert.equal(evidenceStep?.anchors?.[0]?.eventId, "session:raw_session:42");
     assert.equal(evidenceStep?.anchors?.[0]?.artifact, "artifacts/review-proof.log");
+    assert.equal(evidenceStep?.anchors?.[0]?.jump?.kind, "command_source");
+    assert.equal(evidenceStep?.anchors?.[0]?.jump?.path, "/tmp/session.jsonl");
+    assert.equal(evidenceStep?.jump?.kind, "command_source");
+    assert.equal(timeline.find((item) => item.id === "fix-packet")?.jump?.findingIndex, 0);
     assert.equal(timeline.find((item) => item.id === "worktree")?.status, "blocked");
   });
 
@@ -242,6 +255,11 @@ describe("buildReviewerProofMarkdown", () => {
           label: "Synthetic QA",
           detail: "repo_playwright failed /review in 814ms",
           status: "blocked",
+          jump: {
+            kind: "artifact",
+            label: "Open QA artifact",
+            path: "artifacts/failure.png",
+          },
           anchors: [
             {
               id: "cmd-1",
@@ -253,6 +271,13 @@ describe("buildReviewerProofMarkdown", () => {
               eventId: "session:raw_session:42",
               sessionId: "session-1",
               artifact: "artifacts/review-proof.log",
+              jump: {
+                kind: "command_source",
+                label: "Preview command source",
+                path: "/tmp/session.jsonl",
+                line: 42,
+                source: "raw_session",
+              },
             },
           ],
         },
@@ -316,6 +341,9 @@ describe("buildReviewerProofMarkdown", () => {
     assert.match(markdown, /failed command: npm run test:review-proof/);
     assert.match(markdown, /event=session:raw_session:42/);
     assert.match(markdown, /artifact=artifacts\/review-proof\.log/);
+    assert.match(markdown, /jump=artifact/);
+    assert.match(markdown, /jump=command_source/);
+    assert.match(markdown, /jumpPath=\/tmp\/session\.jsonl/);
     assert.match(markdown, /### Codebase history explanations/);
     assert.match(markdown, /inline-marker:src\/review\.ts:2/);
     assert.match(markdown, /History context: 1 commit, 1 command/);

@@ -58,6 +58,7 @@ import {
   formatHistoryCommandEvidence,
   type HistoryFindingSummary,
   type ProcedureExecutionEvent,
+  type VerificationTimelineJumpTarget,
 } from "@/lib/review-proof";
 import {
   syntheticQaFailureFinding,
@@ -1465,6 +1466,9 @@ export default function QuickReview() {
           findingsCount: sortedFindings.length,
           mode: result.review_mode,
           riskTier: result.risk_tier,
+          selectedFindingIndex: selectedFindingIdx,
+          firstFindingPath: sortedFindings[0]?.filePath ?? null,
+          firstFindingLine: sortedFindings[0]?.line ?? null,
         }
         : null,
       isReviewing,
@@ -1476,14 +1480,13 @@ export default function QuickReview() {
       fixPacket: {
         selectedFindings: fixPacket.findings.length,
         routeAdvice: fixPacket.routeAdvice,
+        selectedFindingIndex: selectedFindingIndexes[0] ?? null,
       },
       isFixing: Boolean(isFixing),
       fixResult: fixResult
         ? {
           usingWorktree: fixResult.using_worktree,
-          worktreePath: fixResult.worktree_path
-            ? shortenPath(fixResult.worktree_path)
-            : null,
+          worktreePath: fixResult.worktree_path ?? null,
           changedFiles: fixResult.changed_files.length,
           findingsFixed: fixResult.findings_fixed,
         }
@@ -1501,6 +1504,9 @@ export default function QuickReview() {
     qaRunning,
     result,
     historyContext,
+    selectedFindingIdx,
+    selectedFindingIndexes,
+    sortedFindings,
     sortedFindings.length,
     taskGoal,
   ]);
@@ -2940,6 +2946,90 @@ export default function QuickReview() {
       }
     },
     [repoPath],
+  );
+
+  const handleTimelineJump = useCallback(
+    async (jump: VerificationTimelineJumpTarget) => {
+      if (jump.kind === "finding") {
+        if (jump.findingIndex == null) return;
+        await handleFindingClick(jump.findingIndex);
+        return;
+      }
+
+      if (jump.kind === "file") {
+        if (!jump.path) return;
+        setSelectedFindingIdx(null);
+        const targetPath = jump.path.startsWith("/") || !repoPath
+          ? jump.path
+          : `${repoPath}/${jump.path}`;
+        try {
+          const res = await readFileAroundLine(targetPath, Math.max(1, jump.line ?? 1), 15, 15);
+          setCodeLines(res.lines);
+          setCodeFilePath(res.file_path);
+          setCodeLanguage(res.language);
+        } catch (e) {
+          console.error("[Review] failed to load timeline file:", e);
+          setCodeLines([]);
+          setCodeFilePath(jump.path);
+          setCodeLanguage("");
+        }
+        return;
+      }
+
+      if (jump.kind === "artifact") {
+        if (!jump.path) return;
+        if (canPreviewQaArtifact(jump.path)) {
+          await handlePreviewQaArtifact(jump.path);
+        } else {
+          await handleOpenQaArtifact(jump.path);
+        }
+        return;
+      }
+
+      if (jump.kind === "command_source") {
+        if (!jump.path) return;
+        if (!isTauriAvailable()) {
+          setError("Previewing command sources requires the CodeVetter desktop app (Tauri).");
+          return;
+        }
+        const key = `timeline:${jump.path}:${jump.line ?? 1}`;
+        const line = Math.max(1, jump.line ?? 1);
+        setCommandSourcePreviewLoading(key);
+        setError(null);
+        try {
+          if (jump.source === "raw_session") {
+            const preview = await readRawSessionContext(jump.path, line, 8, 12);
+            setCommandSourcePreview({
+              key,
+              path: preview.file_path,
+              line: preview.target_line,
+              language: "transcript",
+              items: preview.items,
+            });
+          } else {
+            const preview = await readFileAroundLine(jump.path, line, 2, 2);
+            setCommandSourcePreview({
+              key,
+              path: preview.file_path,
+              line: preview.target_line,
+              language: preview.language,
+              lines: preview.lines,
+            });
+          }
+        } catch (err) {
+          setCommandSourcePreview(null);
+          setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setCommandSourcePreviewLoading(null);
+        }
+      }
+    },
+    [
+      handleFindingClick,
+      handleOpenQaArtifact,
+      handlePreviewQaArtifact,
+      repoPath,
+    ],
   );
 
   // ─── Render ─────────────────────────────────────────────────────────────
@@ -4439,8 +4529,22 @@ export default function QuickReview() {
                       )}
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[10px] text-slate-300">
-                        {item.label}
+                      <span className="flex min-w-0 items-center gap-1">
+                        <span className="block min-w-0 flex-1 truncate text-[10px] text-slate-300">
+                          {item.label}
+                        </span>
+                        {item.jump && (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-5 w-5 shrink-0 text-slate-500 hover:text-slate-200"
+                            title={item.jump.label}
+                            onClick={() => void handleTimelineJump(item.jump!)}
+                          >
+                            <ExternalLink size={10} />
+                          </Button>
+                        )}
                       </span>
                       <span className="block truncate text-[10px] text-slate-600">
                         {item.detail}
@@ -4448,9 +4552,15 @@ export default function QuickReview() {
                       {item.anchors && item.anchors.length > 0 && (
                         <span className="mt-1 block space-y-0.5">
                           {item.anchors.slice(0, 2).map((anchor) => (
-                            <span
+                            <button
                               key={anchor.id}
-                              className="block truncate font-mono text-[9px] text-slate-500"
+                              type="button"
+                              disabled={!anchor.jump}
+                              className={cn(
+                                "block w-full truncate text-left font-mono text-[9px] text-slate-500",
+                                anchor.jump && "hover:text-slate-200",
+                                !anchor.jump && "cursor-default",
+                              )}
                               title={[
                                 anchor.source,
                                 anchor.sourcePath,
@@ -4459,9 +4569,12 @@ export default function QuickReview() {
                               ]
                                 .filter(Boolean)
                                 .join(" · ")}
+                              onClick={() => {
+                                if (anchor.jump) void handleTimelineJump(anchor.jump);
+                              }}
                             >
                               {anchor.status ?? "unknown"} · {anchor.label}
-                            </span>
+                            </button>
                           ))}
                         </span>
                       )}
