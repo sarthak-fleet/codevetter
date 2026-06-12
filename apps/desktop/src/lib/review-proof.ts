@@ -112,6 +112,7 @@ export interface VerificationTimelineInput {
       screenshotPath?: string | null;
       artifacts?: string[];
     } | null;
+    comparison?: QaPostFixComparison | null;
   };
   evidenceCounts: EvidenceCounts;
   fixPacket?: {
@@ -385,6 +386,52 @@ function buildEditOriginTimelineAnchors(
     });
 }
 
+function qaComparisonStatusToTimelineStatus(
+  status: QaPostFixComparisonStatus,
+): VerificationTimelineStatus {
+  if (status === "fixed" || status === "still_passing") return "done";
+  if (status === "needs_rerun") return "active";
+  return "blocked";
+}
+
+function qaRunAnchorArtifact(run: QaComparisonRun): string | null {
+  return run.artifacts?.find((artifact) => artifact.trim().length > 0) ?? null;
+}
+
+function buildQaComparisonTimelineAnchors(
+  comparison: QaPostFixComparison | null | undefined,
+): VerificationTimelineAnchor[] {
+  if (!comparison) return [];
+
+  const runs = [
+    { id: "before", label: "Before fix", run: comparison.before },
+    comparison.after ? { id: "after", label: "After fix", run: comparison.after } : null,
+  ].filter((item): item is { id: string; label: string; run: QaComparisonRun } => Boolean(item));
+
+  return runs.map(({ id, label, run }) => {
+    const artifact = qaRunAnchorArtifact(run);
+    const eventId = `${comparison.flowKey}:${id}:${run.createdAt}`;
+    return {
+      id: eventId,
+      label: `${label}: ${run.pass ? "PASS" : "FAIL"} ${run.route ?? run.loopId} (${run.durationMs}ms)`,
+      source: `qa:${run.runnerType}`,
+      status: run.pass ? "passed" : "failed",
+      sourcePath: artifact,
+      sourceLine: null,
+      eventId,
+      sessionId: comparison.flowKey,
+      artifact,
+      jump: artifact
+        ? {
+          kind: "artifact",
+          label: `Open ${label.toLowerCase()} artifact`,
+          path: artifact,
+        }
+        : null,
+    };
+  });
+}
+
 function boundedUniqueIndexes(indexes: Array<number | null | undefined>, count: number): number[] {
   const seen = new Set<number>();
   const out: number[] = [];
@@ -526,6 +573,7 @@ export function buildVerificationTimeline(
 ): VerificationTimelineItem[] {
   const taskGoal = input.taskGoal?.trim() ?? "";
   const latestQa = input.qa?.latest ?? null;
+  const qaComparison = input.qa?.comparison ?? null;
   const evidenceTotal =
     input.evidenceCounts.reproduced +
     input.evidenceCounts.fixed +
@@ -535,6 +583,7 @@ export function buildVerificationTimeline(
   const worktreePath = input.fixResult?.worktreePath?.trim();
   const commandAnchors = buildCommandTimelineAnchors(input.history?.command_signals);
   const editOriginAnchors = buildEditOriginTimelineAnchors(input);
+  const qaComparisonAnchors = buildQaComparisonTimelineAnchors(qaComparison);
   const failedCommandCount = commandAnchors.filter((anchor) => anchor.status === "failed").length;
   const selectedFindingIndex = input.review?.selectedFindingIndex ?? null;
   const firstFindingPath = input.review?.firstFindingPath?.trim();
@@ -562,7 +611,19 @@ export function buildVerificationTimeline(
       label: "Open QA artifact",
       path: firstQaArtifact,
     }
-    : null;
+    : qaComparisonAnchors.find((anchor) => anchor.jump)?.jump ?? null;
+  const qaStatus: VerificationTimelineStatus = input.qa?.running
+    ? "active"
+    : qaComparison
+      ? qaComparisonStatusToTimelineStatus(qaComparison.status)
+      : latestQa
+        ? (latestQa.pass ? "done" : "blocked")
+        : "idle";
+  const qaDetail = qaComparison
+    ? `${qaComparison.status.replace("_", " ")} · ${qaComparison.summary}`
+    : latestQa
+      ? `${latestQa.runnerType} ${latestQa.pass ? "passed" : "failed"} ${latestQa.route ?? latestQa.goal} in ${latestQa.durationMs}ms`
+      : "No user-flow run attached";
   const evidenceJump = commandAnchors.find((anchor) => anchor.jump)?.jump ?? null;
   const fixPacketJump: VerificationTimelineJumpTarget | null =
     fixFindingIndex != null
@@ -609,10 +670,9 @@ export function buildVerificationTimeline(
       id: "qa",
       phase: "qa",
       label: "Synthetic QA",
-      detail: latestQa
-        ? `${latestQa.runnerType} ${latestQa.pass ? "passed" : "failed"} ${latestQa.route ?? latestQa.goal} in ${latestQa.durationMs}ms`
-        : "No user-flow run attached",
-      status: input.qa?.running ? "active" : latestQa ? (latestQa.pass ? "done" : "blocked") : "idle",
+      detail: qaDetail,
+      status: qaStatus,
+      anchors: qaComparisonAnchors,
       jump: qaJump,
     },
     {

@@ -198,6 +198,37 @@ describe("buildReviewerProofMarkdown", () => {
           screenshotPath: "artifacts/checkout-fail.png",
           artifacts: ["artifacts/checkout-fail.txt"],
         },
+        comparison: {
+          status: "fixed",
+          summary: "Post-fix QA passed /checkout; prior run failed, rerun passed (-100ms).",
+          flowKey: "repo_playwright\u0000http://localhost:1420\u0000checkout\u0000/checkout\u0000Complete checkout",
+          before: {
+            createdAt: "2026-06-12T10:00:00.000Z",
+            loopId: "checkout",
+            runnerType: "repo_playwright",
+            baseUrl: "http://localhost:1420",
+            goal: "Complete checkout",
+            route: "/checkout",
+            pass: false,
+            durationMs: 814,
+            notes: "Failed",
+            artifacts: ["artifacts/checkout-before.png"],
+            consoleErrors: 1,
+          },
+          after: {
+            createdAt: "2026-06-12T10:10:00.000Z",
+            loopId: "checkout",
+            runnerType: "repo_playwright",
+            baseUrl: "http://localhost:1420",
+            goal: "Complete checkout",
+            route: "/checkout",
+            pass: true,
+            durationMs: 714,
+            notes: "Passed",
+            artifacts: ["artifacts/checkout-after.png"],
+            consoleErrors: 0,
+          },
+        },
       },
       evidenceCounts: {
         fixed: 1,
@@ -242,8 +273,15 @@ describe("buildReviewerProofMarkdown", () => {
     assert.equal(timeline[0].id, "task");
     assert.equal(timeline.find((item) => item.id === "review")?.jump?.kind, "finding");
     assert.equal(timeline.find((item) => item.id === "review")?.jump?.findingIndex, 0);
-    assert.equal(timeline.find((item) => item.id === "qa")?.status, "blocked");
-    assert.equal(timeline.find((item) => item.id === "qa")?.jump?.path, "artifacts/checkout-fail.png");
+    const qaStep = timeline.find((item) => item.id === "qa");
+    assert.equal(qaStep?.status, "done");
+    assert.match(qaStep?.detail ?? "", /fixed.*Post-fix QA passed/);
+    assert.equal(qaStep?.jump?.path, "artifacts/checkout-fail.png");
+    assert.equal(qaStep?.anchors?.length, 2);
+    assert.equal(qaStep?.anchors?.[0]?.label, "Before fix: FAIL /checkout (814ms)");
+    assert.equal(qaStep?.anchors?.[0]?.jump?.path, "artifacts/checkout-before.png");
+    assert.equal(qaStep?.anchors?.[1]?.label, "After fix: PASS /checkout (714ms)");
+    assert.equal(qaStep?.anchors?.[1]?.jump?.path, "artifacts/checkout-after.png");
     const evidenceStep = timeline.find((item) => item.id === "evidence");
     assert.equal(evidenceStep?.status, "done");
     assert.match(evidenceStep?.detail ?? "", /1 command anchor, 1 failed/);

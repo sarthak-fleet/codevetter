@@ -1487,6 +1487,11 @@ export default function QuickReview() {
     ],
   );
 
+  const qaPostFixComparison = useMemo(
+    () => buildQaPostFixComparison(qaRunHistory, fixCompletedAt),
+    [fixCompletedAt, qaRunHistory],
+  );
+
   const reviewTimeline = useMemo(() => {
     return buildVerificationTimeline({
       runId: reviewId || result?.review_id || null,
@@ -1505,6 +1510,7 @@ export default function QuickReview() {
       qa: {
         running: qaRunning || postFixQaRunning,
         latest: qaRunHistory[0] ?? null,
+        comparison: qaPostFixComparison,
       },
       evidenceCounts,
       fixPacket: {
@@ -1533,6 +1539,7 @@ export default function QuickReview() {
     isFixing,
     isReviewing,
     postFixQaRunning,
+    qaPostFixComparison,
     qaRunHistory,
     qaRunning,
     result,
@@ -1544,11 +1551,6 @@ export default function QuickReview() {
     sortedFindings.length,
     taskGoal,
   ]);
-
-  const qaPostFixComparison = useMemo(
-    () => buildQaPostFixComparison(qaRunHistory, fixCompletedAt),
-    [fixCompletedAt, qaRunHistory],
-  );
 
   const uncheckedFindings = useMemo(
     () =>
