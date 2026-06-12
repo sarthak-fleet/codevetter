@@ -187,6 +187,7 @@ describe("buildReviewerProofMarkdown", () => {
         selectedFindingIndex: 0,
         firstFindingPath: "src/review.ts",
         firstFindingLine: 12,
+        findingPaths: ["src/review.ts", "src/checkout.ts"],
       },
       qa: {
         latest: {
@@ -570,6 +571,120 @@ describe("buildReviewerProofMarkdown", () => {
       /No claim\/evidence gaps detected · 1 passed verification command/,
     );
     assert.equal(claimCheckStep?.anchors?.length, 0);
+  });
+
+  it("flags fix edits outside reviewed finding files as scope drift", () => {
+    const timeline = buildVerificationTimeline({
+      runId: "review-scope-drift",
+      review: {
+        findingsCount: 1,
+        firstFindingPath: "src/checkout.ts",
+        findingPaths: ["src/checkout.ts"],
+      },
+      evidenceCounts: {
+        fixed: 1,
+        reproduced: 0,
+        notReproduced: 0,
+      },
+      fixResult: {
+        success: true,
+        agent: "codex",
+        usingWorktree: true,
+        worktreePath: "/tmp/codevetter/scope-drift",
+        changedFiles: 2,
+        changedFileOrigins: [
+          { path: "src/checkout.ts", status: "modified" },
+          { path: "src/settings.ts", status: "modified" },
+        ],
+        findingsFixed: 1,
+      },
+      qa: {
+        comparison: {
+          status: "fixed",
+          summary: "Post-fix QA passed /checkout.",
+          flowKey: "repo_playwright\u0000http://localhost:1420\u0000checkout\u0000/checkout\u0000Complete checkout",
+          before: {
+            createdAt: "2026-06-12T10:00:00.000Z",
+            loopId: "checkout",
+            runnerType: "repo_playwright",
+            baseUrl: "http://localhost:1420",
+            goal: "Complete checkout",
+            route: "/checkout",
+            pass: false,
+            durationMs: 814,
+            notes: "Failed",
+            consoleErrors: 1,
+          },
+          after: {
+            createdAt: "2026-06-12T10:05:00.000Z",
+            loopId: "checkout",
+            runnerType: "repo_playwright",
+            baseUrl: "http://localhost:1420",
+            goal: "Complete checkout",
+            route: "/checkout",
+            pass: true,
+            durationMs: 700,
+            notes: "Passed",
+            consoleErrors: 0,
+          },
+        },
+      },
+    });
+
+    const claimCheckStep = timeline.find((item) => item.id === "claim-check");
+    const driftAnchor = claimCheckStep?.anchors?.find((anchor) =>
+      anchor.id === "review-scope-drift:claim:scope-drift"
+    );
+    assert.equal(claimCheckStep?.status, "active");
+    assert.match(claimCheckStep?.detail ?? "", /0 blocking, 1 need proof/);
+    assert.equal(
+      driftAnchor?.label,
+      "Possible scope drift: 1 edited file outside reviewed findings",
+    );
+    assert.equal(driftAnchor?.source, "fix:codex");
+    assert.equal(driftAnchor?.jump?.kind, "file");
+    assert.equal(driftAnchor?.jump?.path, "/tmp/codevetter/scope-drift/src/settings.ts");
+    assert.match(driftAnchor?.contextExcerpt?.join("\n") ?? "", /reviewed finding files: src\/checkout\.ts/);
+  });
+
+  it("flags broad repeated edits that have no evidence progress", () => {
+    const timeline = buildVerificationTimeline({
+      runId: "review-edits-no-progress",
+      review: {
+        findingsCount: 2,
+        findingPaths: ["src/a.ts", "src/b.ts", "src/c.ts"],
+      },
+      evidenceCounts: {
+        fixed: 0,
+        reproduced: 0,
+        notReproduced: 0,
+      },
+      fixResult: {
+        success: true,
+        agent: "codex",
+        usingWorktree: true,
+        worktreePath: "/tmp/codevetter/no-progress",
+        changedFiles: 3,
+        changedFileOrigins: [
+          { path: "src/a.ts", status: "modified" },
+          { path: "src/b.ts", status: "modified" },
+          { path: "src/c.ts", status: "modified" },
+        ],
+        findingsFixed: 0,
+      },
+    });
+
+    const claimCheckStep = timeline.find((item) => item.id === "claim-check");
+    const editAnchor = claimCheckStep?.anchors?.find((anchor) =>
+      anchor.id === "review-edits-no-progress:claim:edits-without-evidence-progress"
+    );
+    assert.equal(claimCheckStep?.status, "active");
+    assert.match(
+      editAnchor?.label ?? "",
+      /Repeated edits without evidence progress: 3 files changed, 0 verified findings/,
+    );
+    assert.equal(editAnchor?.jump?.kind, "artifact");
+    assert.equal(editAnchor?.jump?.path, "/tmp/codevetter/no-progress");
   });
 
   it("copies concrete command evidence into finding handoff proof", () => {

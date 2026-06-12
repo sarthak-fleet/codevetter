@@ -100,6 +100,7 @@ export interface VerificationTimelineInput {
     selectedFindingIndex?: number | null;
     firstFindingPath?: string | null;
     firstFindingLine?: number | null;
+    findingPaths?: string[];
   } | null;
   isReviewing?: boolean;
   qa?: {
@@ -463,6 +464,20 @@ function latestQaArtifact(run: NonNullable<VerificationTimelineInput["qa"]>["lat
   return run.screenshotPath ?? run.artifacts?.[0] ?? null;
 }
 
+function normalizeTimelineRelativePath(path: string | null | undefined): string {
+  return (path ?? "").trim().replace(/^\.\/+/, "").replace(/\/+$/, "");
+}
+
+function buildReviewedPathSet(review: VerificationTimelineInput["review"]): Set<string> {
+  const paths = [
+    ...(review?.findingPaths ?? []),
+    review?.firstFindingPath ?? null,
+  ]
+    .map(normalizeTimelineRelativePath)
+    .filter((path) => path.length > 0);
+  return new Set(paths);
+}
+
 function buildClaimCheckTimelineAnchors(
   input: VerificationTimelineInput,
   commandAnchors: VerificationTimelineAnchor[],
@@ -473,6 +488,13 @@ function buildClaimCheckTimelineAnchors(
   const runId = input.runId?.trim() || "active-review";
   const findingsCount = Math.max(0, input.review?.findingsCount ?? 0);
   const uncheckedCount = Math.max(0, findingsCount - evidenceTotal);
+  const changedFileOrigins = (input.fixResult?.changedFileOrigins ?? [])
+    .map((file) => ({
+      path: normalizeTimelineRelativePath(file.path),
+      status: file.status ?? "modified",
+    }))
+    .filter((file) => file.path.length > 0);
+  const changedFileCount = input.fixResult?.changedFiles ?? changedFileOrigins.length;
   const passedVerificationCommandCount = commandAnchors.filter(
     (anchor) => anchor.status === "passed" && isVerificationCommandLabel(anchor.label),
   ).length;
@@ -564,6 +586,65 @@ function buildClaimCheckTimelineAnchors(
           kind: "artifact",
           label: "Open latest QA artifact",
           path: artifact,
+        }
+        : null,
+    });
+  }
+
+  const reviewedPaths = buildReviewedPathSet(input.review ?? null);
+  if (input.fixResult && reviewedPaths.size > 0 && changedFileOrigins.length > 0) {
+    const outsideReviewedPaths = changedFileOrigins.filter((file) => !reviewedPaths.has(file.path));
+    if (outsideReviewedPaths.length > 0) {
+      const source = input.fixResult.agent ? `fix:${input.fixResult.agent}` : "fix";
+      anchors.push({
+        id: `${runId}:claim:scope-drift`,
+        label: `Possible scope drift: ${outsideReviewedPaths.length} edited file${outsideReviewedPaths.length === 1 ? "" : "s"} outside reviewed findings`,
+        source,
+        status: "unknown",
+        contextExcerpt: [
+          `outside reviewed findings: ${outsideReviewedPaths.slice(0, 3).map((file) => file.path).join(", ")}`,
+          `reviewed finding files: ${Array.from(reviewedPaths).slice(0, 3).join(", ")}`,
+        ],
+        sourcePath: input.fixResult.worktreePath ?? null,
+        eventId: `${runId}:claim:scope-drift`,
+        sessionId: runId,
+        artifact: outsideReviewedPaths[0]?.path ?? null,
+        jump: input.fixResult.worktreePath && outsideReviewedPaths[0]
+          ? {
+            kind: "file",
+            label: "Open first out-of-scope edit",
+            path: joinTimelinePath(input.fixResult.worktreePath, outsideReviewedPaths[0].path),
+          }
+          : null,
+      });
+    }
+  }
+
+  if (
+    input.fixResult &&
+    changedFileCount >= 3 &&
+    evidenceTotal === 0 &&
+    passedVerificationCommandCount + successfulQaProofCount === 0
+  ) {
+    const source = input.fixResult.agent ? `fix:${input.fixResult.agent}` : "fix";
+    anchors.push({
+      id: `${runId}:claim:edits-without-evidence-progress`,
+      label: `Repeated edits without evidence progress: ${changedFileCount} files changed, 0 verified findings`,
+      source,
+      status: "unknown",
+      contextExcerpt: [
+        `${input.evidenceCounts.reproduced} reproduced, ${input.evidenceCounts.fixed} fixed, ${input.evidenceCounts.notReproduced} not reproduced`,
+        `${passedVerificationCommandCount} passed verification commands, ${successfulQaProofCount} QA proofs`,
+      ],
+      sourcePath: input.fixResult.worktreePath ?? null,
+      eventId: `${runId}:claim:edits-without-evidence-progress`,
+      sessionId: runId,
+      artifact: input.fixResult.worktreePath ?? null,
+      jump: input.fixResult.worktreePath
+        ? {
+          kind: "artifact",
+          label: "Open fix worktree",
+          path: input.fixResult.worktreePath,
         }
         : null,
     });

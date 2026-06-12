@@ -1504,6 +1504,9 @@ export default function QuickReview() {
           selectedFindingIndex: selectedFindingIdx,
           firstFindingPath: sortedFindings[0]?.filePath ?? null,
           firstFindingLine: sortedFindings[0]?.line ?? null,
+          findingPaths: sortedFindings.flatMap((finding) =>
+            finding.filePath ? [finding.filePath] : []
+          ),
         }
         : null,
       isReviewing,
