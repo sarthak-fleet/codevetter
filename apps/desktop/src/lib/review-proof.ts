@@ -90,6 +90,7 @@ export interface VerificationTimelineAnchor {
 }
 
 export interface VerificationTimelineInput {
+  runId?: string | null;
   taskGoal?: string;
   review?: {
     findingsCount: number;
@@ -120,9 +121,15 @@ export interface VerificationTimelineInput {
   } | null;
   isFixing?: boolean;
   fixResult?: {
+    success?: boolean;
+    agent?: string;
     usingWorktree?: boolean;
     worktreePath?: string | null;
     changedFiles?: number;
+    changedFileOrigins?: {
+      path: string;
+      status?: string | null;
+    }[];
     findingsFixed?: number;
   } | null;
   history?: Pick<RepoHistoryContext, "command_signals"> | null;
@@ -324,6 +331,52 @@ function buildCommandTimelineAnchors(
   });
 }
 
+function joinTimelinePath(base: string | null | undefined, path: string): string {
+  if (!base || path.startsWith("/")) return path;
+  return `${base.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+}
+
+function buildEditOriginTimelineAnchors(
+  input: VerificationTimelineInput,
+): VerificationTimelineAnchor[] {
+  const changedFiles = input.fixResult?.changedFileOrigins ?? [];
+  const runId = input.runId?.trim() || "active-review";
+  const worktreePath = input.fixResult?.worktreePath?.trim() || null;
+  const source = input.fixResult?.agent ? `fix:${input.fixResult.agent}` : "fix";
+  const status: VerificationTimelineAnchor["status"] = input.fixResult?.success === false
+    ? "failed"
+    : input.fixResult?.success === true
+      ? "passed"
+      : "unknown";
+
+  return changedFiles
+    .filter((file) => file.path.trim().length > 0)
+    .slice(0, 4)
+    .map((file, idx) => {
+      const filePath = file.path.trim();
+      const jumpPath = joinTimelinePath(worktreePath, filePath);
+      const eventId = `${runId}:edit:${idx}:${filePath}`;
+      const label = `${file.status ?? "modified"} ${filePath}`;
+
+      return {
+        id: eventId,
+        label,
+        source,
+        status,
+        sourcePath: jumpPath,
+        sourceLine: null,
+        eventId,
+        sessionId: runId,
+        artifact: filePath,
+        jump: {
+          kind: "file",
+          label: "Open edited file",
+          path: jumpPath,
+        },
+      };
+    });
+}
+
 function qaRunTimestamp(run: QaComparisonRun): number {
   const time = new Date(run.createdAt).getTime();
   return Number.isFinite(time) ? time : 0;
@@ -426,6 +479,7 @@ export function buildVerificationTimeline(
   const worktreeFallback = input.fixResult?.usingWorktree === false;
   const worktreePath = input.fixResult?.worktreePath?.trim();
   const commandAnchors = buildCommandTimelineAnchors(input.history?.command_signals);
+  const editOriginAnchors = buildEditOriginTimelineAnchors(input);
   const failedCommandCount = commandAnchors.filter((anchor) => anchor.status === "failed").length;
   const selectedFindingIndex = input.review?.selectedFindingIndex ?? null;
   const firstFindingPath = input.review?.firstFindingPath?.trim();
@@ -469,7 +523,14 @@ export function buildVerificationTimeline(
       label: "Open fix worktree",
       path: worktreePath,
     }
-    : null;
+    : editOriginAnchors[0]?.jump ?? null;
+  const changedFilesCount =
+    input.fixResult?.changedFiles ?? input.fixResult?.changedFileOrigins?.length ?? 0;
+  const worktreeDetail = worktreeFallback
+    ? "Agent fell back to primary repo"
+    : input.fixResult
+      ? `${input.fixResult.findingsFixed ?? 0} fixed across ${changedFilesCount} file${changedFilesCount === 1 ? "" : "s"}${editOriginAnchors.length > 0 ? ` · ${editOriginAnchors.length} edit origin${editOriginAnchors.length === 1 ? "" : "s"}` : ""}${worktreePath ? ` · ${worktreePath}` : ""}`
+      : "No fix run yet";
 
   return [
     {
@@ -520,14 +581,9 @@ export function buildVerificationTimeline(
       id: "worktree",
       phase: "worktree",
       label: "Worktree",
-      detail: worktreeFallback
-        ? "Agent fell back to primary repo"
-        : worktreePath
-          ? worktreePath
-          : input.fixResult
-            ? `${input.fixResult.findingsFixed ?? 0} fixed across ${input.fixResult.changedFiles ?? 0} files`
-            : "No fix run yet",
+      detail: worktreeDetail,
       status: worktreeFallback ? "blocked" : worktreePath || input.fixResult ? "done" : "idle",
+      anchors: editOriginAnchors,
       jump: worktreeJump,
     },
   ];

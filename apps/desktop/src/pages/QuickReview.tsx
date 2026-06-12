@@ -1460,6 +1460,7 @@ export default function QuickReview() {
 
   const reviewTimeline = useMemo(() => {
     return buildVerificationTimeline({
+      runId: reviewId || result?.review_id || null,
       taskGoal,
       review: result
         ? {
@@ -1485,9 +1486,12 @@ export default function QuickReview() {
       isFixing: Boolean(isFixing),
       fixResult: fixResult
         ? {
+          success: fixResult.success,
+          agent: fixResult.agent,
           usingWorktree: fixResult.using_worktree,
           worktreePath: fixResult.worktree_path ?? null,
           changedFiles: fixResult.changed_files.length,
+          changedFileOrigins: fixResult.changed_files,
           findingsFixed: fixResult.findings_fixed,
         }
         : null,
@@ -1504,6 +1508,7 @@ export default function QuickReview() {
     qaRunning,
     result,
     historyContext,
+    reviewId,
     selectedFindingIdx,
     selectedFindingIndexes,
     sortedFindings,

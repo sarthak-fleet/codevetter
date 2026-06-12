@@ -135,6 +135,7 @@ describe("buildReviewerProofMarkdown", () => {
 
   it("builds a normalized verification timeline from review signals", () => {
     const timeline = buildVerificationTimeline({
+      runId: "review-123",
       taskGoal: "Fix checkout",
       review: {
         findingsCount: 2,
@@ -166,8 +167,15 @@ describe("buildReviewerProofMarkdown", () => {
         selectedFindingIndex: 0,
       },
       fixResult: {
-        usingWorktree: false,
+        success: true,
+        agent: "codex",
+        usingWorktree: true,
+        worktreePath: "/tmp/codevetter/fix-worktree",
         changedFiles: 2,
+        changedFileOrigins: [
+          { path: "src/review.ts", status: "modified" },
+          { path: "src/checkout.ts", status: "added" },
+        ],
         findingsFixed: 1,
       },
       history: {
@@ -202,7 +210,18 @@ describe("buildReviewerProofMarkdown", () => {
     assert.equal(evidenceStep?.anchors?.[0]?.jump?.path, "/tmp/session.jsonl");
     assert.equal(evidenceStep?.jump?.kind, "command_source");
     assert.equal(timeline.find((item) => item.id === "fix-packet")?.jump?.findingIndex, 0);
-    assert.equal(timeline.find((item) => item.id === "worktree")?.status, "blocked");
+    const worktreeStep = timeline.find((item) => item.id === "worktree");
+    assert.equal(worktreeStep?.status, "done");
+    assert.match(worktreeStep?.detail ?? "", /2 files/);
+    assert.match(worktreeStep?.detail ?? "", /2 edit origins/);
+    assert.equal(worktreeStep?.anchors?.[0]?.eventId, "review-123:edit:0:src/review.ts");
+    assert.equal(worktreeStep?.anchors?.[0]?.source, "fix:codex");
+    assert.equal(worktreeStep?.anchors?.[0]?.sessionId, "review-123");
+    assert.equal(worktreeStep?.anchors?.[0]?.jump?.kind, "file");
+    assert.equal(
+      worktreeStep?.anchors?.[0]?.jump?.path,
+      "/tmp/codevetter/fix-worktree/src/review.ts",
+    );
   });
 
   it("copies concrete command evidence into finding handoff proof", () => {
@@ -281,6 +300,31 @@ describe("buildReviewerProofMarkdown", () => {
             },
           ],
         },
+        {
+          id: "worktree",
+          phase: "worktree",
+          label: "Worktree",
+          detail: "1 fixed across 1 file · 1 edit origin",
+          status: "done",
+          anchors: [
+            {
+              id: "review-1:edit:0:src/review.ts",
+              label: "modified src/review.ts",
+              source: "fix:codex",
+              status: "passed",
+              sourcePath: "/tmp/worktree/src/review.ts",
+              sourceLine: null,
+              eventId: "review-1:edit:0:src/review.ts",
+              sessionId: "review-1",
+              artifact: "src/review.ts",
+              jump: {
+                kind: "file",
+                label: "Open edited file",
+                path: "/tmp/worktree/src/review.ts",
+              },
+            },
+          ],
+        },
       ],
       qaPostFixComparison: {
         status: "fixed",
@@ -344,6 +388,9 @@ describe("buildReviewerProofMarkdown", () => {
     assert.match(markdown, /jump=artifact/);
     assert.match(markdown, /jump=command_source/);
     assert.match(markdown, /jumpPath=\/tmp\/session\.jsonl/);
+    assert.match(markdown, /modified src\/review\.ts/);
+    assert.match(markdown, /event=review-1:edit:0:src\/review\.ts/);
+    assert.match(markdown, /jumpPath=\/tmp\/worktree\/src\/review\.ts/);
     assert.match(markdown, /### Codebase history explanations/);
     assert.match(markdown, /inline-marker:src\/review\.ts:2/);
     assert.match(markdown, /History context: 1 commit, 1 command/);

@@ -77,7 +77,7 @@ Build a normalized event spine over existing session and review evidence.
 
 Acceptance:
 
-- Prompts, commands, edits, and test outcomes share a common run identifier. Partially implemented through review IDs, procedure events, QA run history, fix results, and raw-session command anchors on timeline evidence rows; edit-origin IDs still need first-class timeline linkage.
+- Prompts, commands, edits, and test outcomes share a common run identifier. Partially implemented through review IDs, procedure events, QA run history, fix results, raw-session command anchors on timeline evidence rows, and edit-origin IDs for fix changed files on worktree rows.
 - The spine can be built from existing local data. Implemented for `buildVerificationTimeline`, which normalizes task, review, QA, evidence, fix packet, and worktree states.
 - Missing events are represented explicitly. Implemented with `idle` timeline rows for missing task, QA, evidence, fix, and worktree stages.
 
@@ -101,7 +101,7 @@ Acceptance:
 - Unverified edits or skipped checks are called out.
 - Good verification loops can be recognized and reused.
 
-Status: partially implemented. Timeline evidence rows now carry bounded command anchors from history command signals, including source, status, source path/line, event ID, session ID, artifact, and jump target where available. These anchors render in the Review sidebar, are clickable in-app, and are copied into reviewer proof.
+Status: partially implemented. Timeline evidence rows now carry bounded command anchors from history command signals, including source, status, source path/line, event ID, session ID, artifact, and jump target where available. Worktree rows carry bounded edit-origin anchors for files changed by fix attempts, including stable event IDs, session IDs, source paths, and file jumps. These anchors render in the Review sidebar, are clickable in-app, and are copied into reviewer proof.
 
 ### Phase 3: Fix Loop Linkage
 
@@ -111,7 +111,7 @@ Acceptance:
 
 - A fix packet can be generated from a timeline segment. Not yet implemented; existing fix packets are finding-selection based.
 - The timeline shows whether the recheck actually improved evidence. Partially implemented through QA/evidence/fix/worktree rows; before/after comparison is pending.
-- Review findings can reference earlier agent actions. Partially implemented through history command/claim summaries, first-class timeline jump metadata, and proof export; deeper edit-origin IDs are still pending.
+- Review findings can reference earlier agent actions. Partially implemented through history command/claim summaries, first-class timeline jump metadata, edit-origin anchors for fix changed files, and proof export; generating fix packets directly from timeline segments is still pending.
 
 ## UX Requirements
 
