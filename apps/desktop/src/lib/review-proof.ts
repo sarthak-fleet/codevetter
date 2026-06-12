@@ -135,6 +135,14 @@ export interface VerificationTimelineInput {
   history?: Pick<RepoHistoryContext, "command_signals"> | null;
 }
 
+export interface TimelineSegmentFindingSelectionInput {
+  segmentId: string;
+  findingsCount: number;
+  selectedFindingIndexes?: number[];
+  activeFindingIndex?: number | null;
+  evidenceStatuses?: Array<FindingEvidence["status"] | null | undefined>;
+}
+
 export interface QaComparisonRun {
   createdAt: string;
   loopId: string;
@@ -375,6 +383,53 @@ function buildEditOriginTimelineAnchors(
         },
       };
     });
+}
+
+function boundedUniqueIndexes(indexes: Array<number | null | undefined>, count: number): number[] {
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const idx of indexes) {
+    if (idx == null || idx < 0 || idx >= count || seen.has(idx)) continue;
+    seen.add(idx);
+    out.push(idx);
+  }
+  return out;
+}
+
+export function selectTimelineSegmentFindingIndexes(
+  input: TimelineSegmentFindingSelectionInput,
+): number[] {
+  const count = Math.max(0, input.findingsCount);
+  if (count === 0) return [];
+
+  const selected = boundedUniqueIndexes(input.selectedFindingIndexes ?? [], count);
+  const active = boundedUniqueIndexes([input.activeFindingIndex], count);
+  const all = Array.from({ length: count }, (_, idx) => idx);
+  const statuses = input.evidenceStatuses ?? [];
+  const indexesWithStatus = (wanted: FindingEvidence["status"][]) =>
+    all.filter((idx) => wanted.includes(statuses[idx] ?? "not_checked"));
+
+  switch (input.segmentId) {
+    case "review":
+      return all;
+    case "evidence": {
+      const reproduced = indexesWithStatus(["reproduced"]);
+      if (reproduced.length > 0) return reproduced;
+      const unchecked = indexesWithStatus(["not_checked"]);
+      return unchecked.length > 0 ? unchecked : selected;
+    }
+    case "qa":
+      return indexesWithStatus(["reproduced"]);
+    case "fix-packet":
+      return selected.length > 0 ? selected : active;
+    case "worktree": {
+      const fixed = indexesWithStatus(["fixed", "not_reproduced"]);
+      if (fixed.length > 0) return fixed;
+      return selected.length > 0 ? selected : active;
+    }
+    default:
+      return [];
+  }
 }
 
 function qaRunTimestamp(run: QaComparisonRun): number {

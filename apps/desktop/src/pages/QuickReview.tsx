@@ -58,6 +58,8 @@ import {
   formatHistoryCommandEvidence,
   type HistoryFindingSummary,
   type ProcedureExecutionEvent,
+  selectTimelineSegmentFindingIndexes,
+  type VerificationTimelineItem,
   type VerificationTimelineJumpTarget,
 } from "@/lib/review-proof";
 import {
@@ -947,6 +949,7 @@ export default function QuickReview() {
   >({});
   const [storedProcedureEvents, setStoredProcedureEvents] = useState<ReviewProcedureEvent[]>([]);
   const [packetCopied, setPacketCopied] = useState(false);
+  const [timelinePacketCopiedId, setTimelinePacketCopiedId] = useState<string | null>(null);
   const reviewId = result?.review_id ?? "";
   const activeProcedureSteps = useMemo(
     () => result?.evidence_procedure_steps ?? [],
@@ -1394,6 +1397,32 @@ export default function QuickReview() {
           : emptyBrowserEvidence();
       }),
     [browserEvidenceByFinding, selectedFindingIndexes, sortedFindings],
+  );
+
+  const timelineEvidenceStatuses = useMemo(
+    () =>
+      sortedFindings.map((finding, idx) => ({
+        ...defaultFindingEvidence,
+        ...evidenceByFinding[findingEvidenceKey(finding, idx)],
+      }).status),
+    [evidenceByFinding, sortedFindings],
+  );
+
+  const timelineSegmentFindingIndexes = useCallback(
+    (segmentId: string) =>
+      selectTimelineSegmentFindingIndexes({
+        segmentId,
+        findingsCount: sortedFindings.length,
+        selectedFindingIndexes,
+        activeFindingIndex: selectedFindingIdx,
+        evidenceStatuses: timelineEvidenceStatuses,
+      }),
+    [
+      selectedFindingIdx,
+      selectedFindingIndexes,
+      sortedFindings.length,
+      timelineEvidenceStatuses,
+    ],
   );
 
   const fixPacket = useMemo(
@@ -2856,6 +2885,72 @@ export default function QuickReview() {
       // clipboard unavailable — fail silently
     }
   }, [fixPacket]);
+
+  const handleCopyTimelineSegmentPacket = useCallback(
+    async (item: VerificationTimelineItem) => {
+      const indexes = timelineSegmentFindingIndexes(item.id);
+      if (indexes.length === 0) return;
+
+      const findings = indexes
+        .map((idx) => sortedFindings[idx])
+        .filter((finding): finding is CliReviewFinding => Boolean(finding));
+      const evidence = indexes.map((idx) => {
+        const finding = sortedFindings[idx];
+        return finding
+          ? {
+            ...defaultFindingEvidence,
+            ...evidenceByFinding[findingEvidenceKey(finding, idx)],
+          }
+          : defaultFindingEvidence;
+      });
+      const browserEvidence = indexes.map((idx) => {
+        const finding = sortedFindings[idx];
+        return finding
+          ? {
+            ...emptyBrowserEvidence(),
+            ...browserEvidenceByFinding[findingEvidenceKey(finding, idx)],
+          }
+          : emptyBrowserEvidence();
+      });
+
+      const sourceLabel = [
+        currentTaskContext.sourceLabel,
+        `Timeline segment: ${item.label} (${item.status})`,
+      ].filter(Boolean).join(" · ");
+      const packet = buildAgentFixPacket({
+        repoPath,
+        diffRange: result?.diff_range || diffRange,
+        agent: result?.agent ?? "claude",
+        task: {
+          ...currentTaskContext,
+          sourceLabel,
+        },
+        findings,
+        evidence,
+        browserEvidence,
+      });
+
+      try {
+        await navigator.clipboard.writeText(renderAgentFixPacketMarkdown(packet));
+        setSelectedFindings(new Set(indexes));
+        setTimelinePacketCopiedId(item.id);
+        setTimeout(() => setTimelinePacketCopiedId(null), 2000);
+      } catch {
+        // clipboard unavailable — fail silently
+      }
+    },
+    [
+      browserEvidenceByFinding,
+      currentTaskContext,
+      diffRange,
+      evidenceByFinding,
+      repoPath,
+      result?.agent,
+      result?.diff_range,
+      sortedFindings,
+      timelineSegmentFindingIndexes,
+    ],
+  );
 
   // Track which diff files are expanded
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
@@ -4519,11 +4614,13 @@ export default function QuickReview() {
                 <span className="cv-label text-slate-300">Agent status timeline</span>
               </div>
               <div className="grid grid-cols-1 gap-1.5">
-                {reviewTimeline.map((item) => (
-                  <div
-                    key={item.label}
-                    className="flex items-start gap-2 rounded-lg border border-[var(--cv-line)] bg-[#050505] px-2 py-1.5"
-                  >
+                {reviewTimeline.map((item) => {
+                  const segmentPacketCount = timelineSegmentFindingIndexes(item.id).length;
+                  return (
+                    <div
+                      key={item.label}
+                      className="flex items-start gap-2 rounded-lg border border-[var(--cv-line)] bg-[#050505] px-2 py-1.5"
+                    >
                     <span
                       className={cn(
                         "mt-1 h-1.5 w-1.5 shrink-0 rounded-full",
@@ -4538,6 +4635,22 @@ export default function QuickReview() {
                         <span className="block min-w-0 flex-1 truncate text-[10px] text-slate-300">
                           {item.label}
                         </span>
+                        {segmentPacketCount > 0 && (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-5 w-5 shrink-0 text-slate-500 hover:text-slate-200"
+                            title={`Copy fix packet from ${item.label} (${segmentPacketCount})`}
+                            onClick={() => void handleCopyTimelineSegmentPacket(item)}
+                          >
+                            {timelinePacketCopiedId === item.id ? (
+                              <CheckCircle size={10} className="text-emerald-400" />
+                            ) : (
+                              <ClipboardCheck size={10} />
+                            )}
+                          </Button>
+                        )}
                         {item.jump && (
                           <Button
                             type="button"
@@ -4585,7 +4698,8 @@ export default function QuickReview() {
                       )}
                     </span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

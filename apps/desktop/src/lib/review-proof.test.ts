@@ -10,6 +10,7 @@ import {
   buildVerificationTimeline,
   formatHistoryCommandEvidence,
   type HistoryFindingSummary,
+  selectTimelineSegmentFindingIndexes,
 } from "./review-proof";
 
 const qaRun = (
@@ -87,6 +88,48 @@ describe("buildQaPostFixComparison", () => {
 });
 
 describe("buildReviewerProofMarkdown", () => {
+  it("selects timeline segment findings for fix packets", () => {
+    assert.deepEqual(
+      selectTimelineSegmentFindingIndexes({
+        segmentId: "review",
+        findingsCount: 3,
+        selectedFindingIndexes: [1],
+      }),
+      [0, 1, 2],
+    );
+
+    assert.deepEqual(
+      selectTimelineSegmentFindingIndexes({
+        segmentId: "evidence",
+        findingsCount: 4,
+        selectedFindingIndexes: [3],
+        evidenceStatuses: ["not_checked", "reproduced", "fixed", "reproduced"],
+      }),
+      [1, 3],
+    );
+
+    assert.deepEqual(
+      selectTimelineSegmentFindingIndexes({
+        segmentId: "fix-packet",
+        findingsCount: 4,
+        selectedFindingIndexes: [3, 1, 3],
+        activeFindingIndex: 2,
+      }),
+      [3, 1],
+    );
+
+    assert.deepEqual(
+      selectTimelineSegmentFindingIndexes({
+        segmentId: "worktree",
+        findingsCount: 4,
+        selectedFindingIndexes: [0],
+        activeFindingIndex: 2,
+        evidenceStatuses: ["not_checked", "fixed", "not_reproduced", "reproduced"],
+      }),
+      [1, 2],
+    );
+  });
+
   it("builds cited file-level history explanations", () => {
     const explanations = buildCodebaseHistoryExplanations({
       repo_path: "/repo",

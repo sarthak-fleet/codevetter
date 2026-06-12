@@ -109,9 +109,9 @@ Tie the timeline to the existing fix and re-review loop.
 
 Acceptance:
 
-- A fix packet can be generated from a timeline segment. Not yet implemented; existing fix packets are finding-selection based.
+- A fix packet can be generated from a timeline segment. Implemented for Review, Evidence, QA, Fix packet, and Worktree timeline segments by deriving the relevant findings, selecting them in the patch queue, and copying a segment-scoped agent fix packet.
 - The timeline shows whether the recheck actually improved evidence. Partially implemented through QA/evidence/fix/worktree rows; before/after comparison is pending.
-- Review findings can reference earlier agent actions. Partially implemented through history command/claim summaries, first-class timeline jump metadata, edit-origin anchors for fix changed files, and proof export; generating fix packets directly from timeline segments is still pending.
+- Review findings can reference earlier agent actions. Partially implemented through history command/claim summaries, first-class timeline jump metadata, edit-origin anchors for fix changed files, timeline-segment fix packets, and proof export; deeper segment replay remains pending.
 
 ## UX Requirements
 
