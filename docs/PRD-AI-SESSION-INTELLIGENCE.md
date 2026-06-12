@@ -228,14 +228,14 @@ Create a small adapter interface for local agent session sources.
 Acceptance:
 
 - Claude, Codex, and Cursor indexed sessions are normalized into a shared adapter summary contract in the scorecard API. Implemented for `SessionSourceAdapterSummary`.
-- Adapter output feeds one local SQLite evidence archive. Implemented for adapter run metadata through `session_adapter_runs` and Claude/Codex/Cursor session upserts through the raw adapter contract, while full message/tool-call archive normalization is still pending.
-- Adapter output includes source paths, stable IDs, agent name, timestamps, message totals, evidence archive name, incremental support, and parse warnings. Implemented for scorecard adapter summaries, persisted adapter run rows, the shared raw parser adapter contract, and Claude/Codex/Cursor production DB writes; project/cwd hints, tool calls, and command events remain on existing session/evidence records until full message archive normalization lands.
+- Adapter output feeds one local SQLite evidence archive. Implemented for production and scorecard adapter run metadata through `session_adapter_runs` and Claude/Codex/Cursor session upserts through the raw adapter contract, while full message/tool-call archive normalization is still pending.
+- Adapter output includes source paths, stable IDs, agent name, timestamps, message totals, evidence archive name, incremental support, and parse warnings. Implemented for scorecard adapter summaries, production adapter run rows, the shared raw parser adapter contract, and Claude/Codex/Cursor production DB writes; project/cwd hints, tool calls, and command events remain on existing session/evidence records until full message archive normalization lands.
 - Tests cover at least one fixture per adapter. Implemented for raw Claude Code JSONL, Codex JSONL, and Cursor composer/bubble JSON fixtures.
 - Unsupported or malformed sessions degrade to parse warnings, not crashes. Implemented for missing transcript paths, zero-message rows in adapter summary tests, and malformed raw adapter input.
 
 Remaining:
 
-- Persist adapter run metadata and parse warnings from the production index pass. Implemented for scorecard adapter runs in `session_adapter_runs`; production parser warnings are currently logged while session rows are written through the raw adapter contract.
+- Use production adapter run metadata to drive source-health UI and trend views. Production index passes now persist adapter roots, sample paths/session IDs, counts, incremental support, and bounded parse warnings into `session_adapter_runs`.
 
 ### Phase 2: Usage And Stats Contracts
 

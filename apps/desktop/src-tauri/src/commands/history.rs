@@ -7,6 +7,102 @@ use serde_json::{json, Value};
 use std::io::BufRead;
 use tauri::State;
 
+#[derive(Debug, Clone)]
+struct IndexedAdapterSession {
+    session_id: String,
+    source_ref: String,
+    messages_indexed: u64,
+    parse_warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ProductionAdapterRunStats {
+    adapter_id: String,
+    agent_type: String,
+    source_roots: Vec<String>,
+    sample_source_paths: Vec<String>,
+    sample_session_ids: Vec<String>,
+    parse_warnings: Vec<String>,
+    sessions_indexed: i64,
+    messages_indexed: i64,
+    supports_incremental: bool,
+}
+
+impl ProductionAdapterRunStats {
+    fn new(
+        adapter_id: &str,
+        agent_type: &str,
+        source_roots: Vec<String>,
+        supports_incremental: bool,
+    ) -> Self {
+        Self {
+            adapter_id: adapter_id.to_string(),
+            agent_type: agent_type.to_string(),
+            source_roots,
+            sample_source_paths: Vec::new(),
+            sample_session_ids: Vec::new(),
+            parse_warnings: Vec::new(),
+            sessions_indexed: 0,
+            messages_indexed: 0,
+            supports_incremental,
+        }
+    }
+
+    fn record_session(&mut self, session: &IndexedAdapterSession) {
+        self.sessions_indexed += 1;
+        self.messages_indexed += session.messages_indexed as i64;
+        push_unique_limited(&mut self.sample_source_paths, session.source_ref.clone(), 3);
+        push_unique_limited(&mut self.sample_session_ids, session.session_id.clone(), 3);
+        for warning in &session.parse_warnings {
+            self.record_warning(&session.source_ref, warning);
+        }
+    }
+
+    fn record_warning(&mut self, source_ref: &str, warning: &str) {
+        push_unique_limited(
+            &mut self.parse_warnings,
+            format!("{source_ref}: {warning}"),
+            8,
+        );
+    }
+}
+
+fn push_unique_limited(values: &mut Vec<String>, value: impl Into<String>, limit: usize) {
+    if values.len() >= limit {
+        return;
+    }
+    let value = value.into();
+    if !value.trim().is_empty() && !values.contains(&value) {
+        values.push(value);
+    }
+}
+
+fn persist_production_adapter_run(
+    conn: &rusqlite::Connection,
+    run: &ProductionAdapterRunStats,
+    last_indexed_at: &str,
+) -> Result<String, String> {
+    queries::insert_session_adapter_run(
+        conn,
+        &queries::SessionAdapterRunInput {
+            project: None,
+            adapter_id: run.adapter_id.clone(),
+            agent_type: Some(run.agent_type.clone()),
+            source_roots: run.source_roots.clone(),
+            sample_source_paths: run.sample_source_paths.clone(),
+            evidence_archive: "sqlite:cc_sessions".to_string(),
+            sessions_indexed: run.sessions_indexed,
+            messages_indexed: run.messages_indexed,
+            last_indexed_at: Some(last_indexed_at.to_string()),
+            sample_session_ids: run.sample_session_ids.clone(),
+            parse_warnings: run.parse_warnings.clone(),
+            supports_incremental: run.supports_incremental,
+        },
+    )
+    .map(|row| row.id)
+    .map_err(|e| e.to_string())
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Public Tauri commands
 // ─────────────────────────────────────────────────────────────────
@@ -56,6 +152,16 @@ pub async fn trigger_index(db: State<'_, DbState>) -> Result<Value, String> {
 /// Shared implementation for the full indexer.
 fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), String> {
     let all_bases = resolve_all_claude_projects_dirs();
+    let index_started_at = chrono::Utc::now().to_rfc3339();
+    let mut claude_run = ProductionAdapterRunStats::new(
+        "claude-code",
+        "claude-code",
+        all_bases
+            .iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect(),
+        true,
+    );
 
     let mut indexed_sessions = 0u64;
     let mut indexed_messages = 0u64;
@@ -139,11 +245,15 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
                 }
 
                 match parse_claude_session(jsonl_path, &conn, &project_id, &now) {
-                    Ok((sess, msgs)) => {
-                        indexed_sessions += sess;
-                        indexed_messages += msgs;
+                    Ok(session) => {
+                        indexed_sessions += 1;
+                        indexed_messages += session.messages_indexed;
+                        claude_run.record_session(&session);
                     }
-                    Err(_) => continue,
+                    Err(error) => {
+                        claude_run.record_warning(&jsonl_path_str, &error);
+                        continue;
+                    }
                 }
             }
 
@@ -179,12 +289,20 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
             Ok(())
         })();
         if let Err(e) = project_result {
+            claude_run.record_warning(&project_path.to_string_lossy(), &e);
             log::error!("Skipping project {project_path:?}: {e}");
         }
     }
+    persist_production_adapter_run(conn, &claude_run, &index_started_at)?;
 
     // ── Phase 2: Scan Codex sessions ─────────────────────────
     let codex_base = resolve_codex_sessions_dir();
+    let mut codex_run = ProductionAdapterRunStats::new(
+        "codex",
+        "codex",
+        vec![codex_base.to_string_lossy().to_string()],
+        true,
+    );
     let mut codex_indexed = 0u64;
     let mut codex_messages = 0u64;
 
@@ -220,12 +338,18 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
                     let _ = rdr.read_line(&mut buf);
                     buf
                 }
-                Err(_) => continue,
+                Err(error) => {
+                    codex_run.record_warning(&jsonl_path_str, &error.to_string());
+                    continue;
+                }
             };
 
             let meta_parsed: Value = match serde_json::from_str(first_line.trim()) {
                 Ok(v) => v,
-                Err(_) => continue,
+                Err(error) => {
+                    codex_run.record_warning(&jsonl_path_str, &error.to_string());
+                    continue;
+                }
             };
 
             let meta_type = meta_parsed
@@ -233,12 +357,17 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             if meta_type != "session_meta" {
+                codex_run.record_warning(&jsonl_path_str, "first JSONL row is not session_meta");
                 continue;
             }
 
             let payload = match meta_parsed.get("payload") {
                 Some(p) => p,
-                None => continue,
+                None => {
+                    codex_run
+                        .record_warning(&jsonl_path_str, "session_meta row is missing payload");
+                    continue;
+                }
             };
 
             let codex_cwd = payload
@@ -247,6 +376,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
                 .unwrap_or("")
                 .to_string();
             if codex_cwd.is_empty() {
+                codex_run.record_warning(&jsonl_path_str, "session_meta row is missing cwd");
                 continue;
             }
 
@@ -276,14 +406,19 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
                 });
 
             match parse_codex_session(jsonl_path, &conn, &project_id, &now) {
-                Ok((sess, msgs)) => {
-                    codex_indexed += sess;
-                    codex_messages += msgs;
+                Ok(session) => {
+                    codex_indexed += 1;
+                    codex_messages += session.messages_indexed;
+                    codex_run.record_session(&session);
                 }
-                Err(_) => continue,
+                Err(error) => {
+                    codex_run.record_warning(&jsonl_path_str, &error);
+                    continue;
+                }
             }
         }
     }
+    persist_production_adapter_run(conn, &codex_run, &index_started_at)?;
 
     indexed_sessions += codex_indexed;
     indexed_messages += codex_messages;
@@ -528,7 +663,7 @@ fn upsert_adapter_summary_session(
     file_mtime: Option<String>,
     now: &str,
     existing_session_id: Option<&str>,
-) -> Result<(String, u64), String> {
+) -> Result<IndexedAdapterSession, String> {
     let sid = existing_session_id
         .map(String::from)
         .or_else(|| summary.stable_id.clone())
@@ -536,6 +671,7 @@ fn upsert_adapter_summary_session(
     let source_ref = summary.source_ref.clone();
     let message_count = summary.message_count.max(0) as u64;
     let day_counts = summary.day_counts.clone();
+    let parse_warnings = summary.parse_warnings.clone();
 
     for warning in &summary.parse_warnings {
         log::warn!(
@@ -564,7 +700,7 @@ fn upsert_adapter_summary_session(
             id: sid.clone(),
             project_id: project_id.to_string(),
             agent_type: Some(summary.agent_type),
-            jsonl_path: Some(source_ref),
+            jsonl_path: Some(source_ref.clone()),
             git_branch: summary.git_branch,
             cwd: summary.cwd,
             cli_version: summary.cli_version,
@@ -590,7 +726,12 @@ fn upsert_adapter_summary_session(
         let _ = queries::bump_session_day(conn, &sid, day, *n);
     }
 
-    Ok((sid, message_count))
+    Ok(IndexedAdapterSession {
+        session_id: sid,
+        source_ref,
+        messages_indexed: message_count,
+        parse_warnings,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -604,7 +745,7 @@ fn parse_claude_session(
     conn: &rusqlite::Connection,
     project_id: &str,
     now: &str,
-) -> Result<(u64, u64), String> {
+) -> Result<IndexedAdapterSession, String> {
     let jsonl_path_str = jsonl_path.to_string_lossy().to_string();
     let file_meta = std::fs::metadata(jsonl_path).ok();
     let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
@@ -617,7 +758,7 @@ fn parse_claude_session(
     let summary = ClaudeCodeAdapter.parse_raw(&jsonl_path_str, &raw);
     let existing =
         queries::get_session_by_jsonl_path(conn, &jsonl_path_str).map_err(|e| e.to_string())?;
-    let (_, message_count) = upsert_adapter_summary_session(
+    upsert_adapter_summary_session(
         conn,
         project_id,
         summary,
@@ -625,9 +766,7 @@ fn parse_claude_session(
         file_mtime_str,
         now,
         existing.as_ref().map(|m| m.id.as_str()),
-    )?;
-
-    Ok((1, message_count))
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -650,7 +789,7 @@ fn parse_codex_session(
     conn: &rusqlite::Connection,
     project_id: &str,
     now: &str,
-) -> Result<(u64, u64), String> {
+) -> Result<IndexedAdapterSession, String> {
     let jsonl_path_str = jsonl_path.to_string_lossy().to_string();
     let file_meta = std::fs::metadata(jsonl_path).ok();
     let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
@@ -663,7 +802,7 @@ fn parse_codex_session(
     let summary = CodexAdapter.parse_raw(&jsonl_path_str, &raw);
     let existing =
         queries::get_session_by_jsonl_path(conn, &jsonl_path_str).map_err(|e| e.to_string())?;
-    let (_, message_count) = upsert_adapter_summary_session(
+    upsert_adapter_summary_session(
         conn,
         project_id,
         summary,
@@ -671,9 +810,7 @@ fn parse_codex_session(
         file_mtime_str,
         now,
         existing.as_ref().map(|m| m.id.as_str()),
-    )?;
-
-    Ok((1, message_count))
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -767,7 +904,15 @@ pub fn read_cursor_item_table(key: &str) -> Option<String> {
 /// dropped from this indexer.
 fn index_cursor_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), String> {
     let db_path = resolve_cursor_global_db();
+    let index_started_at = chrono::Utc::now().to_rfc3339();
+    let mut cursor_run = ProductionAdapterRunStats::new(
+        "cursor",
+        "cursor",
+        vec![db_path.to_string_lossy().to_string()],
+        true,
+    );
     if !db_path.exists() {
+        persist_production_adapter_run(conn, &cursor_run, &index_started_at)?;
         return Ok((0, 0, 0));
     }
 
@@ -781,6 +926,8 @@ fn index_cursor_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64),
     ) {
         Ok(c) => c,
         Err(e) => {
+            cursor_run.record_warning(&db_path_str, &e.to_string());
+            persist_production_adapter_run(conn, &cursor_run, &index_started_at)?;
             log::warn!("Failed to open Cursor global db {}: {}", db_path_str, e);
             return Ok((0, 0, 0));
         }
@@ -793,7 +940,11 @@ fn index_cursor_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64),
             .prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
         {
             Ok(s) => s,
-            Err(_) => return Ok((0, 0, 0)),
+            Err(error) => {
+                cursor_run.record_warning(&db_path_str, &error.to_string());
+                persist_production_adapter_run(conn, &cursor_run, &index_started_at)?;
+                return Ok((0, 0, 0));
+            }
         };
         let mut out = Vec::new();
         if let Ok(rows) = stmt.query_map([], |row| {
@@ -812,12 +963,17 @@ fn index_cursor_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64),
     };
 
     if composers.is_empty() {
+        persist_production_adapter_run(conn, &cursor_run, &index_started_at)?;
         return Ok((0, 0, 0));
     }
 
     let mut bubble_stmt = match cursor_db.prepare("SELECT value FROM cursorDiskKV WHERE key = ?1") {
         Ok(s) => s,
-        Err(_) => return Ok((0, 0, 0)),
+        Err(error) => {
+            cursor_run.record_warning(&db_path_str, &error.to_string());
+            persist_production_adapter_run(conn, &cursor_run, &index_started_at)?;
+            return Ok((0, 0, 0));
+        }
     };
 
     let now = chrono::Utc::now().to_rfc3339();
@@ -828,7 +984,13 @@ fn index_cursor_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64),
     for (composer_id, composer_json) in composers {
         let composer: Value = match serde_json::from_str(&composer_json) {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(error) => {
+                cursor_run.record_warning(
+                    &format!("{db_path_str}#cursor-{composer_id}"),
+                    &error.to_string(),
+                );
+                continue;
+            }
         };
 
         let headers = composer
@@ -836,6 +998,10 @@ fn index_cursor_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64),
             .and_then(|v| v.as_array());
         let header_count = headers.map(|h| h.len()).unwrap_or(0);
         if header_count == 0 {
+            cursor_run.record_warning(
+                &format!("{db_path_str}#cursor-{composer_id}"),
+                "composer has no conversation headers",
+            );
             continue;
         }
 
@@ -873,6 +1039,8 @@ fn index_cursor_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64),
                 };
                 if let Ok(bubble) = serde_json::from_str::<Value>(&bubble_json) {
                     bubbles.push(bubble);
+                } else {
+                    cursor_run.record_warning(&composite_path, "bubble row is not valid JSON");
                 }
             }
         }
@@ -886,6 +1054,9 @@ fn index_cursor_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64),
         let mut summary = CursorAdapter.parse_raw(&composite_path, &raw);
 
         if summary.message_count == 0 {
+            for warning in &summary.parse_warnings {
+                cursor_run.record_warning(&composite_path, warning);
+            }
             continue;
         }
 
@@ -931,7 +1102,7 @@ fn index_cursor_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64),
         // the composer's `contextTokensUsed` is a snapshot, not a cumulative
         // total — so we store 0 here and rely on the live API in
         // `check_live_usage_cursor` for actual usage figures.
-        let (_, message_count) = upsert_adapter_summary_session(
+        let session = upsert_adapter_summary_session(
             conn,
             &project_id,
             summary,
@@ -942,9 +1113,11 @@ fn index_cursor_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64),
         )?;
 
         indexed_sessions += 1;
-        indexed_messages += message_count;
+        indexed_messages += session.messages_indexed;
+        cursor_run.record_session(&session);
     }
 
+    persist_production_adapter_run(conn, &cursor_run, &index_started_at)?;
     Ok((indexed_sessions, indexed_messages, skipped_sessions))
 }
 
@@ -1055,12 +1228,11 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/tests/fixtures/session_adapters/claude-code.jsonl"
         ));
-        let (sessions, messages) =
-            parse_claude_session(fixture, &conn, "project", "2026-06-12T16:03:00Z")
-                .expect("claude session");
+        let session = parse_claude_session(fixture, &conn, "project", "2026-06-12T16:03:00Z")
+            .expect("claude session");
 
-        assert_eq!(sessions, 1);
-        assert_eq!(messages, 3);
+        assert_eq!(session.session_id, "claude-session-1");
+        assert_eq!(session.messages_indexed, 3);
         let session = conn
             .query_row(
                 "SELECT id, agent_type, cwd, git_branch, model_used, message_count,
@@ -1115,12 +1287,11 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/tests/fixtures/session_adapters/codex.jsonl"
         ));
-        let (sessions, messages) =
-            parse_codex_session(fixture, &conn, "project", "2026-06-12T16:03:00Z")
-                .expect("codex session");
+        let session = parse_codex_session(fixture, &conn, "project", "2026-06-12T16:03:00Z")
+            .expect("codex session");
 
-        assert_eq!(sessions, 1);
-        assert_eq!(messages, 2);
+        assert_eq!(session.session_id, "codex-session-1");
+        assert_eq!(session.messages_indexed, 2);
         let session = conn
             .query_row(
                 "SELECT id, agent_type, cwd, git_branch, model_used, message_count,
@@ -1168,7 +1339,7 @@ mod tests {
         let conn = memory_conn_with_project();
         let raw = include_str!("../../tests/fixtures/session_adapters/cursor.json");
         let summary = CursorAdapter.parse_raw("/cursor/state.vscdb#cursor-composer-1", raw);
-        let (_, messages) = upsert_adapter_summary_session(
+        let indexed = upsert_adapter_summary_session(
             &conn,
             "project",
             summary,
@@ -1179,7 +1350,8 @@ mod tests {
         )
         .expect("cursor upsert");
 
-        assert_eq!(messages, 2);
+        assert_eq!(indexed.session_id, "cursor-composer-1");
+        assert_eq!(indexed.messages_indexed, 2);
         let session = conn
             .query_row(
                 "SELECT id, agent_type, cwd, model_used, slug, message_count,
@@ -1218,5 +1390,53 @@ mod tests {
             )
             .expect("session day bucket");
         assert_eq!(day_count, 2);
+    }
+
+    #[test]
+    fn production_adapter_run_stats_persist_source_health_row() {
+        let conn = memory_conn_with_project();
+        let mut stats = ProductionAdapterRunStats::new(
+            "codex",
+            "codex",
+            vec!["/Users/me/.codex/sessions".to_string()],
+            true,
+        );
+        stats.record_session(&IndexedAdapterSession {
+            session_id: "session-a".to_string(),
+            source_ref: "/Users/me/.codex/sessions/a.jsonl".to_string(),
+            messages_indexed: 7,
+            parse_warnings: vec!["missing cwd fallback used".to_string()],
+        });
+        stats.record_warning("/Users/me/.codex/sessions/b.jsonl", "not valid JSON");
+
+        let id = persist_production_adapter_run(&conn, &stats, "2026-06-12T16:03:00Z")
+            .expect("adapter run");
+        assert!(!id.is_empty());
+
+        let rows = queries::list_session_adapter_runs(&conn, None, 10).expect("adapter runs");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].adapter_id, "codex");
+        assert_eq!(rows[0].agent_type.as_deref(), Some("codex"));
+        assert_eq!(rows[0].source_roots, vec!["/Users/me/.codex/sessions"]);
+        assert_eq!(
+            rows[0].sample_source_paths,
+            vec!["/Users/me/.codex/sessions/a.jsonl"]
+        );
+        assert_eq!(rows[0].sample_session_ids, vec!["session-a"]);
+        assert_eq!(rows[0].sessions_indexed, 1);
+        assert_eq!(rows[0].messages_indexed, 7);
+        assert_eq!(
+            rows[0].last_indexed_at.as_deref(),
+            Some("2026-06-12T16:03:00Z")
+        );
+        assert!(rows[0]
+            .parse_warnings
+            .iter()
+            .any(|warning| warning.contains("missing cwd fallback used")));
+        assert!(rows[0]
+            .parse_warnings
+            .iter()
+            .any(|warning| warning.contains("not valid JSON")));
+        assert!(rows[0].supports_incremental);
     }
 }
