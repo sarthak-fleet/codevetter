@@ -8,8 +8,14 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     // Incremental migrations — safe to re-run (ignore "duplicate column" errors).
     let _ = conn.execute("ALTER TABLE agent_tasks ADD COLUMN project_path TEXT", []);
     let _ = conn.execute("ALTER TABLE provider_accounts ADD COLUMN plan TEXT", []);
-    let _ = conn.execute("ALTER TABLE provider_accounts ADD COLUMN weekly_limit REAL", []);
-    let _ = conn.execute("ALTER TABLE agent_tasks ADD COLUMN workspace_id TEXT REFERENCES workspaces(id)", []);
+    let _ = conn.execute(
+        "ALTER TABLE provider_accounts ADD COLUMN weekly_limit REAL",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE agent_tasks ADD COLUMN workspace_id TEXT REFERENCES workspaces(id)",
+        [],
+    );
 
     Ok(())
 }
@@ -215,6 +221,73 @@ CREATE TABLE IF NOT EXISTS cc_sessions (
     estimated_cost_usd REAL NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS session_adapter_runs (
+    id                       TEXT PRIMARY KEY,
+    project                  TEXT,
+    adapter_id               TEXT NOT NULL,
+    agent_type               TEXT,
+    source_roots_json        TEXT NOT NULL DEFAULT '[]',
+    sample_source_paths_json TEXT NOT NULL DEFAULT '[]',
+    evidence_archive         TEXT NOT NULL,
+    sessions_indexed         INTEGER NOT NULL DEFAULT 0,
+    messages_indexed         INTEGER NOT NULL DEFAULT 0,
+    last_indexed_at          TEXT,
+    sample_session_ids_json  TEXT NOT NULL DEFAULT '[]',
+    parse_warnings_json      TEXT NOT NULL DEFAULT '[]',
+    supports_incremental     INTEGER NOT NULL DEFAULT 0,
+    created_at               TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_adapter_runs_adapter_created
+    ON session_adapter_runs(adapter_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_session_adapter_runs_project_created
+    ON session_adapter_runs(project, created_at DESC);
+
+-- Compact normalized archive of adapter messages and tool calls. This is
+-- intentionally separate from legacy cc_messages so usage stats can stay
+-- bucketed while verification/replay features still have cited local evidence.
+CREATE TABLE IF NOT EXISTS session_message_archive (
+    id             TEXT PRIMARY KEY,
+    session_id     TEXT NOT NULL REFERENCES cc_sessions(id) ON DELETE CASCADE,
+    adapter_id     TEXT NOT NULL,
+    agent_type     TEXT NOT NULL,
+    source_ref     TEXT NOT NULL,
+    source_line    INTEGER,
+    message_index  INTEGER NOT NULL,
+    role           TEXT,
+    kind           TEXT NOT NULL,
+    timestamp      TEXT,
+    content_text   TEXT,
+    tool_name      TEXT,
+    tool_call_id   TEXT,
+    raw_type       TEXT,
+    created_at     TEXT NOT NULL,
+    UNIQUE(session_id, source_ref, message_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_message_archive_session
+    ON session_message_archive(session_id, message_index);
+
+CREATE INDEX IF NOT EXISTS idx_session_message_archive_adapter_created
+    ON session_message_archive(adapter_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_session_message_archive_kind
+    ON session_message_archive(kind);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS session_message_archive_fts USING fts5(
+    archive_id UNINDEXED,
+    session_id UNINDEXED,
+    adapter_id UNINDEXED,
+    agent_type UNINDEXED,
+    role UNINDEXED,
+    kind UNINDEXED,
+    content_text,
+    tool_name,
+    source_ref UNINDEXED,
+    tokenize = 'unicode61'
+);
+
 -- Per-session per-day message counts. Replaces per-message rows: the UI
 -- only needs token totals attributed across days, which only requires the
 -- count of messages per (session, day). Cuts the message-row footprint
@@ -282,6 +355,47 @@ CREATE TABLE IF NOT EXISTS local_review_findings (
     confidence  REAL,
     fingerprint TEXT
 );
+
+CREATE TABLE IF NOT EXISTS review_procedure_events (
+    id          TEXT PRIMARY KEY,
+    review_id   TEXT NOT NULL REFERENCES local_reviews(id) ON DELETE CASCADE,
+    step_id     TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    summary     TEXT NOT NULL,
+    artifact    TEXT,
+    metadata    TEXT,
+    created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_procedure_events_review_created
+    ON review_procedure_events(review_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS synthetic_qa_runs (
+    id              TEXT PRIMARY KEY,
+    review_id       TEXT REFERENCES local_reviews(id) ON DELETE CASCADE,
+    repo_path       TEXT,
+    loop_id         TEXT NOT NULL,
+    runner_type     TEXT NOT NULL,
+    base_url        TEXT,
+    route           TEXT,
+    goal            TEXT,
+    pass            INTEGER NOT NULL DEFAULT 0,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    notes           TEXT,
+    screenshot_path TEXT,
+    artifacts       TEXT,
+    console_errors  INTEGER NOT NULL DEFAULT 0,
+    error           TEXT,
+    trace_json      TEXT,
+    created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_synthetic_qa_runs_review_created
+    ON synthetic_qa_runs(review_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_synthetic_qa_runs_repo_created
+    ON synthetic_qa_runs(repo_path, created_at DESC);
 
 
 -- ================================================================

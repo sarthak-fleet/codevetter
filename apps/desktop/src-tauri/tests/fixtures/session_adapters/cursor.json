@@ -1,0 +1,32 @@
+{
+  "composer_id": "composer-1",
+  "composer": {
+    "name": "Fix checkout test",
+    "createdAt": 1781280000000,
+    "lastUpdatedAt": 1781280120000,
+    "modelConfig": {
+      "modelName": "cursor-small"
+    },
+    "workspaceIdentifier": {
+      "uri": {
+        "fsPath": "/repo/codevetter"
+      }
+    },
+    "fullConversationHeadersOnly": [
+      { "bubbleId": "bubble-1", "type": 1 },
+      { "bubbleId": "bubble-2", "type": 2 }
+    ]
+  },
+  "bubbles": [
+    {
+      "type": 1,
+      "text": "Fix checkout test",
+      "createdAt": "2026-06-12T16:00:00+00:00"
+    },
+    {
+      "type": 2,
+      "text": "Ran npm test",
+      "createdAt": "2026-06-12T16:02:00+00:00"
+    }
+  ]
+}

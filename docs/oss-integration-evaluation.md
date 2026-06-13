@@ -25,13 +25,12 @@ history explanation, synthetic QA evidence, and runnable review reports.
 ## Decision
 
 Do not add a dependency in this pass. The highest-ROI next spike is optional
-`ast-grep` support for changed-file structural evidence:
+`ast-grep` support for changed-file structural evidence is now implemented as an optional local collector:
 
-- detect `sg` on PATH
-- run one or two local rules against changed TypeScript/Rust files
-- attach matches as evidence references in the existing Review timeline and
-  agent fix packet
-- fall back cleanly when unavailable
+- detects `sg` on PATH
+- runs narrow local rules against changed TypeScript/Rust files
+- attaches matches as evidence references in Review prompts, Review UI, and reviewer handoffs
+- falls back cleanly when unavailable
 
 This fits the current Agent Verification Environment without turning CodeVetter
 into a generic static-analysis platform.

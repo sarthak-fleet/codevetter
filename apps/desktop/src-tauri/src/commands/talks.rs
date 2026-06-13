@@ -21,9 +21,8 @@ pub async fn list_project_talks(
     limit: Option<i64>,
 ) -> Result<Value, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let talks =
-        queries::list_talks_for_project(&conn, &project_path, limit.unwrap_or(20))
-            .map_err(|e| e.to_string())?;
+    let talks = queries::list_talks_for_project(&conn, &project_path, limit.unwrap_or(20))
+        .map_err(|e| e.to_string())?;
     Ok(json!(talks))
 }
 

@@ -24,6 +24,41 @@ pub async fn list_sessions(
     Ok(json!({ "sessions": sessions }))
 }
 
+/// Read the compact normalized adapter message/tool-call archive for one session.
+#[tauri::command]
+pub async fn list_session_message_archive(
+    db: State<'_, DbState>,
+    session_id: String,
+    limit: Option<i64>,
+) -> Result<Value, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let messages = queries::list_session_message_archive(&conn, &session_id, limit.unwrap_or(200))
+        .map_err(|e| e.to_string())?;
+    Ok(json!({ "messages": messages }))
+}
+
+/// Full-text search over the compact normalized adapter message/tool archive.
+#[tauri::command]
+pub async fn search_session_message_archive(
+    db: State<'_, DbState>,
+    query: String,
+    adapter_id: Option<String>,
+    kind: Option<String>,
+    limit: Option<i64>,
+) -> Result<Value, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    queries::sync_session_message_archive_fts(&conn).map_err(|e| e.to_string())?;
+    let results = queries::search_session_message_archive(
+        &conn,
+        &query,
+        adapter_id.as_deref(),
+        kind.as_deref(),
+        limit.unwrap_or(50),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(json!({ "results": results }))
+}
+
 /// Move all sessions from one or more source projects into a target project.
 /// Updates session counts on both source and target projects.
 #[tauri::command]

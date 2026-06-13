@@ -13,38 +13,44 @@ use tauri::State;
 /// Returns the branches and which one is currently checked out.
 #[tauri::command]
 pub async fn list_git_branches(repo_path: String) -> Result<Value, String> {
-    let output = StdCommand::new("git")
-        .args(["branch", "--no-color"])
+    let branches_output = StdCommand::new("git")
+        .args(["branch", "--no-color", "--format=%(refname:short)"])
         .current_dir(&repo_path)
         .output()
         .map_err(|e| format!("Failed to run git branch: {e}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    if !branches_output.status.success() {
+        let stderr = String::from_utf8_lossy(&branches_output.stderr);
         return Err(format!("git branch failed: {stderr}"));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let current_output = StdCommand::new("git")
+        .args(["branch", "--show-current"])
+        .current_dir(&repo_path)
+        .output()
+        .map_err(|e| format!("Failed to run git branch --show-current: {e}"))?;
+
+    if !current_output.status.success() {
+        let stderr = String::from_utf8_lossy(&current_output.stderr);
+        return Err(format!("git branch --show-current failed: {stderr}"));
+    }
+
+    let stdout = String::from_utf8_lossy(&branches_output.stdout);
+    let current_stdout = String::from_utf8_lossy(&current_output.stdout);
     let mut branches: Vec<String> = Vec::new();
-    let mut current_branch: Option<String> = None;
+    let current_branch = current_stdout.trim();
 
     for line in stdout.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
-        if let Some(name) = line.strip_prefix("* ") {
-            let name = name.trim().to_string();
-            current_branch = Some(name.clone());
-            branches.push(name);
-        } else {
-            branches.push(line.to_string());
-        }
+        branches.push(line.to_string());
     }
 
     Ok(json!({
         "branches": branches,
-        "current": current_branch,
+        "current": if current_branch.is_empty() { None::<String> } else { Some(current_branch.to_string()) },
     }))
 }
 

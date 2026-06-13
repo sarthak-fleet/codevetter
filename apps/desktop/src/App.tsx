@@ -15,6 +15,7 @@ import IntentDebugger from "@/pages/IntentDebugger";
 import QaReplay from "@/pages/QaReplay";
 import QuickReview from "@/pages/QuickReview";
 import RepoUnpacked from "@/pages/RepoUnpacked";
+import Roadmap from "@/pages/Roadmap";
 import Rubrics from "@/pages/Rubrics";
 import Settings from "@/pages/Settings";
 
@@ -168,6 +169,7 @@ export default function App() {
       <Route element={<Shell />}>
         <Route path="/" element={<Home />} />
         <Route path="/review" element={<QuickReview />} />
+        <Route path="/roadmap" element={<Roadmap />} />
         <Route path="/rubrics" element={<Rubrics />} />
         <Route path="/unpack" element={<RepoUnpacked />} />
         <Route path="/intent-debugger" element={<IntentDebugger />} />

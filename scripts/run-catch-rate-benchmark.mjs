@@ -51,6 +51,10 @@ function parseArgs(argv) {
   const reviewer = reviewerArg?.slice("--reviewer=".length) ?? null;
   const baselineArg = args.find((arg) => arg.startsWith("--baseline="));
   const baseline = baselineArg?.slice("--baseline=".length) ?? null;
+  const evidenceComparisonArg = args.find((arg) => arg.startsWith("--evidence-comparison="));
+  const evidenceComparison = evidenceComparisonArg
+    ? parseEvidenceComparison(evidenceComparisonArg.slice("--evidence-comparison=".length))
+    : null;
   const minRateArg = args.find((arg) => arg.startsWith("--min-rate="));
   const minRate = minRateArg ? Number(minRateArg.slice("--min-rate=".length)) : null;
   const maxFalsePositivesArg = args.find((arg) => arg.startsWith("--max-false-positives="));
@@ -79,6 +83,7 @@ function parseArgs(argv) {
     fixture,
     reviewer,
     baseline,
+    evidenceComparison,
     minRate,
     maxFalsePositives,
     maxRedundantMatches,
@@ -89,6 +94,14 @@ function parseArgs(argv) {
     strict,
     requireRationales,
   };
+}
+
+function parseEvidenceComparison(raw) {
+  const [withEvidence, withoutEvidence] = raw.split(":");
+  if (!withEvidence || !withoutEvidence) {
+    return { raw, error: "expected with_evidence:without_evidence" };
+  }
+  return { raw, withEvidence, withoutEvidence };
 }
 
 function assertObject(value, pathLabel, errors) {
@@ -234,6 +247,7 @@ function summarizeReviewer(cases, reviewer) {
       id: testCase.id,
       expected: expected.length,
       caught: expected.filter((issue) => matched.has(issue.id)).length,
+      caught_ids: expected.filter((issue) => matched.has(issue.id)).map((issue) => issue.id),
       false_positives: falsePositiveCount,
       redundant_matches: redundantMatches,
       missed: expected.filter((issue) => !matched.has(issue.id)).map((issue) => issue.id),
@@ -269,6 +283,32 @@ function summarizeReviewer(cases, reviewer) {
     redundant_matches: redundantMatches,
     by_severity: bySeverity,
     cases: rows,
+  };
+}
+
+function compareEvidenceSummaries(withSummary, withoutSummary) {
+  if (!withSummary || !withoutSummary) return null;
+  const withoutRows = new Map(withoutSummary.cases.map((row) => [row.id, row]));
+  return {
+    with_evidence: withSummary.reviewer,
+    without_evidence: withoutSummary.reviewer,
+    caught_delta: withSummary.caught - withoutSummary.caught,
+    rate_delta: roundMetric(withSummary.rate - withoutSummary.rate),
+    precision_delta: roundMetric(withSummary.precision - withoutSummary.precision),
+    f1_delta: roundMetric(withSummary.f1 - withoutSummary.f1),
+    false_positive_delta: withSummary.false_positives - withoutSummary.false_positives,
+    redundant_match_delta: withSummary.redundant_matches - withoutSummary.redundant_matches,
+    cases: withSummary.cases.map((withRow) => {
+      const withoutRow = withoutRows.get(withRow.id);
+      const withoutCaught = new Set(withoutRow?.caught_ids ?? []);
+      const withCaught = new Set(withRow.caught_ids ?? []);
+      return {
+        id: withRow.id,
+        caught_delta: withRow.caught - (withoutRow?.caught ?? 0),
+        newly_caught: [...withCaught].filter((id) => !withoutCaught.has(id)),
+        regressed: [...withoutCaught].filter((id) => !withCaught.has(id)),
+      };
+    }),
   };
 }
 
@@ -312,7 +352,32 @@ function printSummary(summary, comparison = null) {
   }
 }
 
-function markdownReport({ fixture, summaries }) {
+function printEvidenceComparison(comparison) {
+  if (!comparison) return;
+  const pct = (n) => `${Math.round(n * 1000) / 10}pp`;
+  const sign = (n) => (n > 0 ? `+${n}` : `${n}`);
+  console.log("");
+  console.log("Evidence search comparison:");
+  console.log(
+    `${comparison.with_evidence} vs ${comparison.without_evidence}: caught ${sign(
+      comparison.caught_delta,
+    )}, rate ${pct(comparison.rate_delta)}, precision ${pct(
+      comparison.precision_delta,
+    )}, F1 ${pct(comparison.f1_delta)}, false positives ${sign(
+      comparison.false_positive_delta,
+    )}, redundant ${sign(comparison.redundant_match_delta)}`,
+  );
+  for (const row of comparison.cases) {
+    if (!row.newly_caught.length && !row.regressed.length) continue;
+    console.log(
+      `- ${row.id}: newly_caught=${row.newly_caught.join(",") || "-"} regressed=${
+        row.regressed.join(",") || "-"
+      }`,
+    );
+  }
+}
+
+function markdownReport({ fixture, summaries, evidence_comparison }) {
   const pct = (n) => `${Math.round(n * 1000) / 10}%`;
   const lines = [
     "# CodeVetter Catch-Rate Benchmark Report",
@@ -345,16 +410,43 @@ function markdownReport({ fixture, summaries }) {
     }
     lines.push("");
   }
+  if (evidence_comparison) {
+    const delta = Math.round(evidence_comparison.rate_delta * 1000) / 10;
+    const precisionDelta = Math.round(evidence_comparison.precision_delta * 1000) / 10;
+    const f1Delta = Math.round(evidence_comparison.f1_delta * 1000) / 10;
+    lines.push("## Evidence Search Comparison", "");
+    lines.push(
+      `With evidence: \`${evidence_comparison.with_evidence}\` · Without evidence: \`${evidence_comparison.without_evidence}\``,
+    );
+    lines.push(
+      `Caught delta: **${evidence_comparison.caught_delta >= 0 ? "+" : ""}${evidence_comparison.caught_delta}** · Rate delta: **${delta >= 0 ? "+" : ""}${delta}pp** · Precision delta: **${precisionDelta >= 0 ? "+" : ""}${precisionDelta}pp** · F1 delta: **${f1Delta >= 0 ? "+" : ""}${f1Delta}pp**`,
+    );
+    lines.push(
+      `False-positive delta: **${evidence_comparison.false_positive_delta >= 0 ? "+" : ""}${evidence_comparison.false_positive_delta}** · Redundant-match delta: **${evidence_comparison.redundant_match_delta >= 0 ? "+" : ""}${evidence_comparison.redundant_match_delta}**`,
+    );
+    lines.push(
+      "",
+      "| Case | Caught delta | Newly caught | Regressed |",
+      "|---|---:|---|---|",
+    );
+    for (const row of evidence_comparison.cases) {
+      lines.push(
+        `| ${row.id} | ${row.caught_delta >= 0 ? "+" : ""}${row.caught_delta} | ${row.newly_caught.join(", ") || "-"} | ${row.regressed.join(", ") || "-"} |`,
+      );
+    }
+    lines.push("");
+  }
   return `${lines.join("\n").trim()}\n`;
 }
 
-function payloadFor({ fixture, summaries, baselineSummary }) {
+function payloadFor({ fixture, summaries, baselineSummary, evidenceComparisonSummary }) {
   return {
     fixture,
     summaries: summaries.map((summary) => ({
       ...summary,
       comparison: compareSummaries(summary, baselineSummary),
     })),
+    evidence_comparison: evidenceComparisonSummary,
   };
 }
 
@@ -368,6 +460,7 @@ const {
   fixture,
   reviewer,
   baseline,
+  evidenceComparison,
   minRate,
   maxFalsePositives,
   maxRedundantMatches,
@@ -421,14 +514,52 @@ if (baseline && !availableReviewers.has(baseline)) {
   process.exit(1);
 }
 
+if (evidenceComparison?.error) {
+  console.error(
+    `--evidence-comparison must use with_evidence:without_evidence, got "${evidenceComparison.raw}"`,
+  );
+  process.exit(1);
+}
+
+if (evidenceComparison) {
+  for (const name of [evidenceComparison.withEvidence, evidenceComparison.withoutEvidence]) {
+    if (!availableReviewers.has(name)) {
+      console.error(
+        `Evidence comparison reviewer "${name}" not found. Available reviewers: ${Array.from(
+          availableReviewers,
+        ).join(", ")}`,
+      );
+      process.exit(1);
+    }
+  }
+}
+
 if (!reviewers.length) {
   console.error("No reviewers found. Add reviews.<reviewer> findings to the fixture.");
   process.exit(1);
 }
 
-const summaries = reviewers.map((name) => summarizeReviewer(data.cases ?? [], name));
+const reviewerNames = new Set(reviewers);
+if (evidenceComparison) {
+  reviewerNames.add(evidenceComparison.withEvidence);
+  reviewerNames.add(evidenceComparison.withoutEvidence);
+}
+
+const summaries = Array.from(reviewerNames).map((name) => summarizeReviewer(data.cases ?? [], name));
 const baselineSummary = baseline ? summarizeReviewer(data.cases ?? [], baseline) : null;
-const payload = payloadFor({ fixture, summaries, baselineSummary });
+const summaryByReviewer = new Map(summaries.map((summary) => [summary.reviewer, summary]));
+const evidenceComparisonSummary = evidenceComparison
+  ? compareEvidenceSummaries(
+      summaryByReviewer.get(evidenceComparison.withEvidence),
+      summaryByReviewer.get(evidenceComparison.withoutEvidence),
+    )
+  : null;
+const payload = payloadFor({
+  fixture,
+  summaries,
+  baselineSummary,
+  evidenceComparisonSummary,
+});
 
 if (json || format === "json") {
   const content = JSON.stringify(payload, null, 2);
@@ -443,6 +574,7 @@ if (json || format === "json") {
     if (idx > 0) console.log("\n---\n");
     printSummary(summary, compareSummaries(summary, baselineSummary));
   }
+  printEvidenceComparison(evidenceComparisonSummary);
   if (out) writeOut(out, markdownReport(payload));
 }
 

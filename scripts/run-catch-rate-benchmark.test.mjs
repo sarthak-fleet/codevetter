@@ -126,6 +126,46 @@ test("markdown reports can be written as durable artifacts", () => {
   assert.match(result.stdout, /# CodeVetter Catch-Rate Benchmark Report/);
 });
 
+test("evidence comparison reports catch-rate deltas and per-case evidence impact", () => {
+  const result = runCli([
+    "--reviewer=codevetter",
+    "--evidence-comparison=codevetter:codevetter_no_evidence",
+    "--format=json",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.evidence_comparison.with_evidence, "codevetter");
+  assert.equal(payload.evidence_comparison.without_evidence, "codevetter_no_evidence");
+  assert.equal(payload.evidence_comparison.caught_delta, 2);
+  assert.equal(payload.evidence_comparison.rate_delta, 0.4);
+  assert.deepEqual(
+    payload.evidence_comparison.cases.find((row) => row.id === "agent-ui-regression-001")
+      .newly_caught,
+    ["missing-empty-state-action"],
+  );
+  assert.deepEqual(
+    payload.evidence_comparison.cases.find((row) => row.id === "agent-auth-boundary-001")
+      .regressed,
+    ["missing-regression-test"],
+  );
+});
+
+test("markdown report includes evidence search comparison section", () => {
+  const result = runCli([
+    "--reviewer=codevetter",
+    "--evidence-comparison=codevetter:codevetter_no_evidence",
+    "--format=markdown",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /## Evidence Search Comparison/);
+  assert.match(result.stdout, /With evidence: `codevetter`/);
+  assert.match(result.stdout, /Without evidence: `codevetter_no_evidence`/);
+  assert.match(result.stdout, /missing-empty-state-action/);
+  assert.match(result.stdout, /missing-regression-test/);
+});
+
 test("fixture directories load sorted per-case json files", () => {
   const fixture = readSample();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codevetter-benchmark-cases-"));

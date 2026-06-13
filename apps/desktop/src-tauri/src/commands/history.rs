@@ -1,8 +1,132 @@
+use crate::commands::session_adapters::{
+    ClaudeCodeAdapter, CodexAdapter, CursorAdapter, RawSessionAdapterSummary, SessionSourceAdapter,
+};
 use crate::db::queries;
 use crate::DbState;
+use serde::Serialize;
 use serde_json::{json, Value};
-use std::io::{BufRead, Seek, SeekFrom};
-use tauri::State;
+use std::io::BufRead;
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, State};
+
+static FULL_INDEX_LOCK: Mutex<()> = Mutex::new(());
+
+#[derive(Debug, Clone)]
+struct IndexedAdapterSession {
+    session_id: String,
+    source_ref: String,
+    messages_indexed: u64,
+    parse_warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ProductionAdapterRunStats {
+    adapter_id: String,
+    agent_type: String,
+    source_roots: Vec<String>,
+    sample_source_paths: Vec<String>,
+    sample_session_ids: Vec<String>,
+    parse_warnings: Vec<String>,
+    sessions_indexed: i64,
+    messages_indexed: i64,
+    supports_incremental: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FullIndexSummary {
+    pub indexed_sessions: u64,
+    pub indexed_messages: u64,
+    pub skipped_sessions: u64,
+    pub archive_search_rows_indexed: i64,
+    pub indexed_at: String,
+}
+
+impl FullIndexSummary {
+    pub fn log_message(&self) -> String {
+        format!(
+            "sessions={}, messages={}, skipped={}, archive_search_rows_indexed={}",
+            self.indexed_sessions,
+            self.indexed_messages,
+            self.skipped_sessions,
+            self.archive_search_rows_indexed
+        )
+    }
+}
+
+impl ProductionAdapterRunStats {
+    fn new(
+        adapter_id: &str,
+        agent_type: &str,
+        source_roots: Vec<String>,
+        supports_incremental: bool,
+    ) -> Self {
+        Self {
+            adapter_id: adapter_id.to_string(),
+            agent_type: agent_type.to_string(),
+            source_roots,
+            sample_source_paths: Vec::new(),
+            sample_session_ids: Vec::new(),
+            parse_warnings: Vec::new(),
+            sessions_indexed: 0,
+            messages_indexed: 0,
+            supports_incremental,
+        }
+    }
+
+    fn record_session(&mut self, session: &IndexedAdapterSession) {
+        self.sessions_indexed += 1;
+        self.messages_indexed += session.messages_indexed as i64;
+        push_unique_limited(&mut self.sample_source_paths, session.source_ref.clone(), 3);
+        push_unique_limited(&mut self.sample_session_ids, session.session_id.clone(), 3);
+        for warning in &session.parse_warnings {
+            self.record_warning(&session.source_ref, warning);
+        }
+    }
+
+    fn record_warning(&mut self, source_ref: &str, warning: &str) {
+        push_unique_limited(
+            &mut self.parse_warnings,
+            format!("{source_ref}: {warning}"),
+            8,
+        );
+    }
+}
+
+fn push_unique_limited(values: &mut Vec<String>, value: impl Into<String>, limit: usize) {
+    if values.len() >= limit {
+        return;
+    }
+    let value = value.into();
+    if !value.trim().is_empty() && !values.contains(&value) {
+        values.push(value);
+    }
+}
+
+fn persist_production_adapter_run(
+    conn: &rusqlite::Connection,
+    run: &ProductionAdapterRunStats,
+    last_indexed_at: &str,
+) -> Result<String, String> {
+    queries::insert_session_adapter_run(
+        conn,
+        &queries::SessionAdapterRunInput {
+            project: None,
+            adapter_id: run.adapter_id.clone(),
+            agent_type: Some(run.agent_type.clone()),
+            source_roots: run.source_roots.clone(),
+            sample_source_paths: run.sample_source_paths.clone(),
+            evidence_archive: "sqlite:cc_sessions".to_string(),
+            sessions_indexed: run.sessions_indexed,
+            messages_indexed: run.messages_indexed,
+            last_indexed_at: Some(last_indexed_at.to_string()),
+            sample_session_ids: run.sample_session_ids.clone(),
+            parse_warnings: run.parse_warnings.clone(),
+            supports_incremental: run.supports_incremental,
+        },
+    )
+    .map(|row| row.id)
+    .map_err(|e| e.to_string())
+}
 
 // ─────────────────────────────────────────────────────────────────
 // Public Tauri commands
@@ -20,32 +144,53 @@ use tauri::State;
 /// lines are parsed.
 /// Run the full index directly with a connection reference.
 /// Used by the startup background thread.
-pub fn run_full_index_with_conn(conn: &rusqlite::Connection) -> Result<String, String> {
+pub fn run_full_index_summary_with_conn(
+    conn: &rusqlite::Connection,
+) -> Result<FullIndexSummary, String> {
+    let _index_guard = FULL_INDEX_LOCK
+        .lock()
+        .map_err(|e| format!("full index lock poisoned: {e}"))?;
+    run_full_index_unlocked(conn)
+}
+
+fn run_full_index_unlocked(conn: &rusqlite::Connection) -> Result<FullIndexSummary, String> {
     let (indexed_sessions, indexed_messages, skipped_sessions) = full_index_impl(conn)?;
+    let archive_search_rows_indexed =
+        queries::sync_session_message_archive_fts(conn).map_err(|e| e.to_string())?;
 
     // Store the last indexed timestamp
     let now = chrono::Utc::now().to_rfc3339();
     let _ = queries::set_preference(conn, "last_indexed_at", &now);
 
-    Ok(format!(
-        "sessions={indexed_sessions}, messages={indexed_messages}, skipped={skipped_sessions}"
-    ))
+    Ok(FullIndexSummary {
+        indexed_sessions,
+        indexed_messages,
+        skipped_sessions,
+        archive_search_rows_indexed,
+        indexed_at: now,
+    })
+}
+
+pub fn emit_session_archive_updated(app: &AppHandle, summary: &FullIndexSummary) {
+    if let Err(error) = app.emit("session_archive_updated", summary.clone()) {
+        log::warn!("Failed to emit session_archive_updated: {error}");
+    }
 }
 
 #[tauri::command]
-pub async fn trigger_index(db: State<'_, DbState>) -> Result<Value, String> {
+pub async fn trigger_index(app: AppHandle, db: State<'_, DbState>) -> Result<Value, String> {
     let conn = conn_lock(&db)?;
-    let (indexed_sessions, indexed_messages, skipped_sessions) =
-        full_index_impl(&conn).map_err(|e| e.to_string())?;
-
-    // Store the last indexed timestamp
-    let now = chrono::Utc::now().to_rfc3339();
-    let _ = queries::set_preference(&conn, "last_indexed_at", &now);
+    let _index_guard = FULL_INDEX_LOCK
+        .lock()
+        .map_err(|e| format!("full index lock poisoned: {e}"))?;
+    let summary = run_full_index_unlocked(&conn)?;
+    emit_session_archive_updated(&app, &summary);
 
     Ok(json!({
-        "indexed_sessions": indexed_sessions,
-        "indexed_messages": indexed_messages,
-        "skipped_sessions": skipped_sessions,
+        "indexed_sessions": summary.indexed_sessions,
+        "indexed_messages": summary.indexed_messages,
+        "skipped_sessions": summary.skipped_sessions,
+        "archive_search_rows_indexed": summary.archive_search_rows_indexed,
         "projects_scanned": 0,
     }))
 }
@@ -53,6 +198,16 @@ pub async fn trigger_index(db: State<'_, DbState>) -> Result<Value, String> {
 /// Shared implementation for the full indexer.
 fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), String> {
     let all_bases = resolve_all_claude_projects_dirs();
+    let index_started_at = chrono::Utc::now().to_rfc3339();
+    let mut claude_run = ProductionAdapterRunStats::new(
+        "claude-code",
+        "claude-code",
+        all_bases
+            .iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect(),
+        true,
+    );
 
     let mut indexed_sessions = 0u64;
     let mut indexed_messages = 0u64;
@@ -76,423 +231,90 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
         // late in the iteration order (e.g. after a repo move) were never
         // scanned, freezing token-usage stats.
         let project_result: Result<(), String> = (|| {
-        let project_dir_name = project_path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
+            let project_dir_name = project_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
 
-        let display_name = resolve_project_display_name(&project_dir_name);
-        let dir_path_str = project_path.to_string_lossy().to_string();
+            let display_name = resolve_project_display_name(&project_dir_name);
+            let dir_path_str = project_path.to_string_lossy().to_string();
 
-        // Re-use existing project ID if the dir_path already exists, otherwise
-        // create a new one.  This avoids generating a fresh UUID on every
-        // re-index which would orphan sessions.
-        let project_id = queries::get_project_id_by_dir(&conn, &dir_path_str)
-            .map_err(|e| e.to_string())?
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            // Re-use existing project ID if the dir_path already exists, otherwise
+            // create a new one.  This avoids generating a fresh UUID on every
+            // re-index which would orphan sessions.
+            let project_id = queries::get_project_id_by_dir(&conn, &dir_path_str)
+                .map_err(|e| e.to_string())?
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-        let now = chrono::Utc::now().to_rfc3339();
+            let now = chrono::Utc::now().to_rfc3339();
 
-        queries::upsert_project(
-            &conn,
-            &queries::ProjectInput {
-                id: project_id.clone(),
-                display_name: display_name.clone(),
-                dir_path: dir_path_str,
-                session_count: None,
-                last_activity: Some(now.clone()),
-                created_at: now.clone(),
-            },
-        )
-        .map_err(|e| e.to_string())?;
-
-        // Look for JSONL files inside the project directory (recursively).
-        let jsonl_files: Vec<_> = walkdir(&project_path, "jsonl");
-
-        for jsonl_path in &jsonl_files {
-            let jsonl_path_str = jsonl_path.to_string_lossy().to_string();
-
-            // ── Incremental check ────────────────────────────────
-            let file_meta = std::fs::metadata(jsonl_path).ok();
-            let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
-            let file_mtime_str = file_meta
-                .as_ref()
-                .and_then(|m| m.modified().ok())
-                .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
-
-            let existing = queries::get_session_by_jsonl_path(&conn, &jsonl_path_str)
-                .map_err(|e| e.to_string())?;
-
-            // If the file mtime is unchanged AND the session already has
-            // messages, skip it.  Sessions with 0 messages (from the quick
-            // startup index) always need a full parse.
-            if let Some(ref meta) = existing {
-                if meta.file_mtime.as_deref() == file_mtime_str.as_deref()
-                    && meta.message_count > 0
-                {
-                    skipped_sessions += 1;
-                    continue;
-                }
-            }
-
-            // Determine byte offset for incremental reading.  If the file has
-            // grown (append-only) AND the session already has messages, seek
-            // to the old size and only parse new lines.  Sessions with 0
-            // messages need a full read from the start.
-            let byte_offset: u64 = match &existing {
-                Some(meta)
-                    if meta.file_size_bytes > 0
-                        && file_size >= meta.file_size_bytes
-                        && meta.message_count > 0 =>
-                {
-                    meta.file_size_bytes as u64
-                }
-                _ => 0,
-            };
-
-            // ── Parse the JSONL ──────────────────────────────────
-            let file = match std::fs::File::open(jsonl_path) {
-                Ok(f) => f,
-                Err(_) => continue,
-            };
-
-            let mut reader = std::io::BufReader::new(file);
-
-            // We need session-level metadata from existing records when doing
-            // incremental reads.  For a full read we extract them from the
-            // first message.
-            let mut session_id: Option<String> = existing.as_ref().map(|m| m.id.clone());
-            let mut session_version: Option<String> = None;
-            let mut session_git_branch: Option<String> = None;
-            let mut session_cwd: Option<String> = None;
-            let mut session_slug: Option<String> = None;
-            let mut model_used: Option<String> = None;
-
-            let mut msg_count: i64 = existing.as_ref().map(|m| m.message_count).unwrap_or(0);
-            let mut total_input: i64 = existing
-                .as_ref()
-                .map(|m| m.total_input_tokens)
-                .unwrap_or(0);
-            let mut total_output: i64 = existing
-                .as_ref()
-                .map(|m| m.total_output_tokens)
-                .unwrap_or(0);
-            let mut total_cache_read: i64 = existing
-                .as_ref()
-                .map(|m| m.cache_read_tokens)
-                .unwrap_or(0);
-            let mut total_cache_creation: i64 = existing
-                .as_ref()
-                .map(|m| m.cache_creation_tokens)
-                .unwrap_or(0);
-            let mut compaction_count: i64 = existing
-                .as_ref()
-                .map(|m| m.compaction_count)
-                .unwrap_or(0);
-
-            let mut first_message: Option<String> = None;
-            let mut last_message: Option<String> = None;
-
-            // Per-day message counts. Flushed to cc_session_days once the
-            // file is fully parsed. We only persist counts (not raw rows) —
-            // see purge_messages_to_buckets_once for the rationale.
-            let mut day_counts: std::collections::HashMap<String, i64> =
-                std::collections::HashMap::new();
-
-            // If doing a full re-read (offset == 0) we need the first message
-            // timestamp.  For incremental we keep whatever is in the DB.
-            let is_incremental = byte_offset > 0;
-
-            if !is_incremental {
-                // Full read: reset accumulators + per-day buckets so we
-                // don't double-count when re-parsing from scratch.
-                msg_count = 0;
-                total_input = 0;
-                total_output = 0;
-                total_cache_read = 0;
-                total_cache_creation = 0;
-                compaction_count = 0;
-                if let Some(ref meta) = existing {
-                    let _ = queries::reset_session_days(&conn, &meta.id);
-                }
-            }
-
-            // Seek to the byte offset for incremental reading.
-            if byte_offset > 0 {
-                if reader.seek(SeekFrom::Start(byte_offset)).is_err() {
-                    continue;
-                }
-            }
-
-            // Track the line number relative to the whole file.  For
-            // incremental reads we estimate the starting line from the
-            // existing message count.
-            let mut line_number: i64 = if is_incremental { msg_count } else { 0 };
-            let mut new_messages = 0u64;
-
-            let mut line_buf = String::new();
-            loop {
-                line_buf.clear();
-                match reader.read_line(&mut line_buf) {
-                    Ok(0) => break, // EOF
-                    Ok(_) => {}
-                    Err(_) => break,
-                }
-
-                let line = line_buf.trim();
-                if line.is_empty() {
-                    continue;
-                }
-
-                let parsed: Value = match serde_json::from_str(line) {
-                    Ok(v) => v,
-                    Err(_) => {
-                        line_number += 1;
-                        continue;
-                    }
-                };
-
-                // ── Skip non-indexable types ─────────────────────
-                let msg_type = parsed
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-
-                // Skip non-message metadata rows that bloat the DB without carrying
-                // tokens or displayable content. Dropping these cuts row count ~95%.
-                if matches!(
-                    msg_type,
-                    "progress"
-                        | "file-history-snapshot"
-                        | "queue-operation"
-                        | "last-prompt"
-                        | "permission-mode"
-                        | "pr-link"
-                        | "agent-name"
-                        | "custom-title"
-                        | "attachment"
-                ) {
-                    line_number += 1;
-                    continue;
-                }
-
-                // ── Track compaction events ─────────────────────
-                if msg_type == "summary" {
-                    compaction_count += 1;
-                }
-                if parsed.get("autoCompact").and_then(|v| v.as_bool()).unwrap_or(false)
-                    || parsed.get("isCompacted").and_then(|v| v.as_bool()).unwrap_or(false)
-                {
-                    compaction_count += 1;
-                }
-
-                // ── Extract session-level metadata from first msg ─
-                if session_id.is_none() {
-                    session_id = parsed
-                        .get("sessionId")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                }
-                // Fall back to generating a UUID if no sessionId in file.
-                if session_id.is_none() {
-                    session_id = Some(uuid::Uuid::new_v4().to_string());
-                }
-
-                if session_version.is_none() {
-                    session_version = parsed
-                        .get("version")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                }
-                if session_git_branch.is_none() {
-                    session_git_branch = parsed
-                        .get("gitBranch")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                }
-                if session_cwd.is_none() {
-                    session_cwd = parsed
-                        .get("cwd")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                }
-                if session_slug.is_none() {
-                    session_slug = parsed
-                        .get("slug")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                }
-
-                // ── Message UUID ─────────────────────────────────
-                let msg_id = parsed
-                    .get("uuid")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-
-                // ── Role ─────────────────────────────────────────
-                let role = parsed
-                    .get("message")
-                    .and_then(|m| m.get("role"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-
-                // ── Timestamp ────────────────────────────────────
-                let ts = parsed
-                    .get("timestamp")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-
-                if first_message.is_none() {
-                    first_message = ts.clone();
-                }
-                last_message = ts.clone();
-
-                // ── isSidechain ──────────────────────────────────
-                let is_sidechain = parsed
-                    .get("isSidechain")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-
-                // ── parentUuid ───────────────────────────────────
-                let parent_uuid = parsed
-                    .get("parentUuid")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-
-                // ── Token usage ──────────────────────────────────
-                let usage = parsed
-                    .get("message")
-                    .and_then(|m| m.get("usage"));
-
-                let input_tokens = usage
-                    .and_then(|u| u.get("input_tokens"))
-                    .and_then(|v| v.as_i64());
-                let cache_creation = usage
-                    .and_then(|u| u.get("cache_creation_input_tokens"))
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
-                let cache_read = usage
-                    .and_then(|u| u.get("cache_read_input_tokens"))
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
-                let output_tokens = usage
-                    .and_then(|u| u.get("output_tokens"))
-                    .and_then(|v| v.as_i64());
-
-                // Total input includes cache tokens for accurate billing.
-                let effective_input = input_tokens
-                    .map(|it| it + cache_creation + cache_read);
-
-                if let Some(it) = effective_input {
-                    total_input += it;
-                }
-                if let Some(ot) = output_tokens {
-                    total_output += ot;
-                }
-                total_cache_read += cache_read;
-                total_cache_creation += cache_creation;
-
-                // ── Model ────────────────────────────────────────
-                if let Some(m) = parsed
-                    .get("message")
-                    .and_then(|msg| msg.get("model"))
-                    .and_then(|v| v.as_str())
-                {
-                    model_used = Some(m.to_string());
-                }
-
-                // ── Slug (can appear on any message) ─────────────
-                if let Some(s) = parsed.get("slug").and_then(|v| v.as_str()) {
-                    session_slug = Some(s.to_string());
-                }
-
-                // ── Increment per-day bucket ─────────────────────
-                // We accumulate in-memory and flush once per file below.
-                // Day = local-time date of the message timestamp.
-                if let Some(ts_str) = ts.as_deref() {
-                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts_str) {
-                        let day = dt
-                            .with_timezone(&chrono::Local)
-                            .format("%Y-%m-%d")
-                            .to_string();
-                        *day_counts.entry(day).or_insert(0) += 1;
-                    }
-                }
-                // msg_id, parent_uuid, role, msg_type, is_sidechain — no longer
-                // persisted; UI never read them. Kept locally above because
-                // future log lines may reference them via parent_uuid chains.
-                let _ = (msg_id, parent_uuid, role, is_sidechain, msg_type);
-
-                msg_count += 1;
-                new_messages += 1;
-                line_number += 1;
-            }
-
-            // Flush per-day bucket counts to cc_session_days. Ignore errors
-            // for individual buckets — partial writes are fine, we'll re-bump
-            // on the next pass.
-            if let Some(ref sid) = session_id {
-                for (day, n) in &day_counts {
-                    let _ = queries::bump_session_day(&conn, sid, day, *n);
-                }
-            }
-
-            // ── Upsert session ───────────────────────────────────
-            let sid = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-
-            let estimated_cost = estimate_cost(
-                model_used.as_deref().unwrap_or(""),
-                total_input,
-                total_output,
-                total_cache_read,
-                total_cache_creation,
-            );
-
-            queries::upsert_session(
+            queries::upsert_project(
                 &conn,
-                &queries::SessionInput {
-                    id: sid,
-                    project_id: project_id.clone(),
-                    agent_type: Some("claude-code".to_string()),
-                    jsonl_path: Some(jsonl_path_str),
-                    git_branch: session_git_branch,
-                    cwd: session_cwd,
-                    cli_version: session_version,
-                    first_message,
-                    last_message,
-                    message_count: Some(msg_count),
-                    total_input_tokens: Some(total_input),
-                    total_output_tokens: Some(total_output),
-                    model_used,
-                    slug: session_slug,
-                    file_size_bytes: Some(file_size),
-                    indexed_at: Some(now.clone()),
-                    file_mtime: file_mtime_str,
-                    cache_read_tokens: Some(total_cache_read),
-                    cache_creation_tokens: Some(total_cache_creation),
-                    compaction_count: Some(compaction_count),
-                    estimated_cost_usd: Some(estimated_cost),
+                &queries::ProjectInput {
+                    id: project_id.clone(),
+                    display_name: display_name.clone(),
+                    dir_path: dir_path_str,
+                    session_count: None,
+                    last_activity: Some(now.clone()),
+                    created_at: now.clone(),
                 },
             )
             .map_err(|e| e.to_string())?;
 
-            indexed_sessions += 1;
-            indexed_messages += new_messages;
-        }
+            // Look for JSONL files inside the project directory (recursively).
+            let jsonl_files: Vec<_> = walkdir(&project_path, "jsonl");
 
-        // Update project session count.
-        let session_count = jsonl_files.len() as i64;
-        conn.execute(
-            "UPDATE cc_projects SET session_count = ?2 WHERE id = ?1",
-            rusqlite::params![project_id, session_count],
-        )
-        .map_err(|e: rusqlite::Error| e.to_string())?;
+            for jsonl_path in &jsonl_files {
+                let jsonl_path_str = jsonl_path.to_string_lossy().to_string();
 
-        // Update display name from session cwd if available (more reliable
-        // than decoding the encoded directory name).
-        let cwd_name: Option<String> = conn
+                // ── Incremental check ────────────────────────────────
+                let file_meta = std::fs::metadata(jsonl_path).ok();
+                let file_mtime_str = file_meta
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
+
+                let existing = queries::get_session_by_jsonl_path(&conn, &jsonl_path_str)
+                    .map_err(|e| e.to_string())?;
+
+                // If the file mtime is unchanged AND the session already has
+                // messages, skip it.  Sessions with 0 messages (from the quick
+                // startup index) always need a full parse.
+                if let Some(ref meta) = existing {
+                    if meta.file_mtime.as_deref() == file_mtime_str.as_deref()
+                        && meta.message_count > 0
+                        && meta.archived_message_count > 0
+                    {
+                        skipped_sessions += 1;
+                        continue;
+                    }
+                }
+
+                match parse_claude_session(jsonl_path, &conn, &project_id, &now) {
+                    Ok(session) => {
+                        indexed_sessions += 1;
+                        indexed_messages += session.messages_indexed;
+                        claude_run.record_session(&session);
+                    }
+                    Err(error) => {
+                        claude_run.record_warning(&jsonl_path_str, &error);
+                        continue;
+                    }
+                }
+            }
+
+            // Update project session count.
+            let session_count = jsonl_files.len() as i64;
+            conn.execute(
+                "UPDATE cc_projects SET session_count = ?2 WHERE id = ?1",
+                rusqlite::params![project_id, session_count],
+            )
+            .map_err(|e: rusqlite::Error| e.to_string())?;
+
+            // Update display name from session cwd if available (more reliable
+            // than decoding the encoded directory name).
+            let cwd_name: Option<String> = conn
             .query_row(
                 "SELECT cwd FROM cc_sessions WHERE project_id = ?1 AND cwd IS NOT NULL AND cwd != '' LIMIT 1",
                 rusqlite::params![project_id],
@@ -500,26 +322,34 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
             )
             .ok();
 
-        if let Some(ref cwd) = cwd_name {
-            let better_name = std::path::Path::new(cwd)
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| display_name.clone());
-            let _ = conn.execute(
-                "UPDATE cc_projects SET display_name = ?2 WHERE id = ?1",
-                rusqlite::params![project_id, better_name],
-            );
-        }
+            if let Some(ref cwd) = cwd_name {
+                let better_name = std::path::Path::new(cwd)
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| display_name.clone());
+                let _ = conn.execute(
+                    "UPDATE cc_projects SET display_name = ?2 WHERE id = ?1",
+                    rusqlite::params![project_id, better_name],
+                );
+            }
 
-        Ok(())
+            Ok(())
         })();
         if let Err(e) = project_result {
+            claude_run.record_warning(&project_path.to_string_lossy(), &e);
             log::error!("Skipping project {project_path:?}: {e}");
         }
     }
+    persist_production_adapter_run(conn, &claude_run, &index_started_at)?;
 
     // ── Phase 2: Scan Codex sessions ─────────────────────────
     let codex_base = resolve_codex_sessions_dir();
+    let mut codex_run = ProductionAdapterRunStats::new(
+        "codex",
+        "codex",
+        vec![codex_base.to_string_lossy().to_string()],
+        true,
+    );
     let mut codex_indexed = 0u64;
     let mut codex_messages = 0u64;
 
@@ -542,6 +372,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
             if let Some(ref meta) = existing {
                 if meta.file_mtime.as_deref() == file_mtime_str.as_deref()
                     && meta.message_count > 0
+                    && meta.archived_message_count > 0
                 {
                     skipped_sessions += 1;
                     continue;
@@ -556,26 +387,45 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
                     let _ = rdr.read_line(&mut buf);
                     buf
                 }
-                Err(_) => continue,
+                Err(error) => {
+                    codex_run.record_warning(&jsonl_path_str, &error.to_string());
+                    continue;
+                }
             };
 
             let meta_parsed: Value = match serde_json::from_str(first_line.trim()) {
                 Ok(v) => v,
-                Err(_) => continue,
+                Err(error) => {
+                    codex_run.record_warning(&jsonl_path_str, &error.to_string());
+                    continue;
+                }
             };
 
-            let meta_type = meta_parsed.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            let meta_type = meta_parsed
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if meta_type != "session_meta" {
+                codex_run.record_warning(&jsonl_path_str, "first JSONL row is not session_meta");
                 continue;
             }
 
             let payload = match meta_parsed.get("payload") {
                 Some(p) => p,
-                None => continue,
+                None => {
+                    codex_run
+                        .record_warning(&jsonl_path_str, "session_meta row is missing payload");
+                    continue;
+                }
             };
 
-            let codex_cwd = payload.get("cwd").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let codex_cwd = payload
+                .get("cwd")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             if codex_cwd.is_empty() {
+                codex_run.record_warning(&jsonl_path_str, "session_meta row is missing cwd");
                 continue;
             }
 
@@ -605,23 +455,39 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
                 });
 
             match parse_codex_session(jsonl_path, &conn, &project_id, &now) {
-                Ok((sess, msgs)) => {
-                    codex_indexed += sess;
-                    codex_messages += msgs;
+                Ok(session) => {
+                    codex_indexed += 1;
+                    codex_messages += session.messages_indexed;
+                    codex_run.record_session(&session);
                 }
-                Err(_) => continue,
+                Err(error) => {
+                    codex_run.record_warning(&jsonl_path_str, &error);
+                    continue;
+                }
             }
         }
     }
+    persist_production_adapter_run(conn, &codex_run, &index_started_at)?;
 
     indexed_sessions += codex_indexed;
     indexed_messages += codex_messages;
 
     // ── Phase 3: Scan Cursor AI sessions ─────────────────────
-    let (cursor_indexed, cursor_messages, cursor_skipped) = index_cursor_sessions(&conn)?;
-    indexed_sessions += cursor_indexed;
-    indexed_messages += cursor_messages;
-    skipped_sessions += cursor_skipped;
+    match index_cursor_sessions(&conn) {
+        Ok((cursor_indexed, cursor_messages, cursor_skipped)) => {
+            indexed_sessions += cursor_indexed;
+            indexed_messages += cursor_messages;
+            skipped_sessions += cursor_skipped;
+        }
+        Err(error) => {
+            log::warn!("Cursor session index failed; continuing with archive backfill: {error}");
+        }
+    }
+
+    let backfilled_archives = backfill_missing_session_archives(&conn)?;
+    if backfilled_archives > 0 {
+        log::info!("Backfilled normalized session archive for {backfilled_archives} sessions");
+    }
 
     Ok((indexed_sessions, indexed_messages, skipped_sessions))
 }
@@ -631,8 +497,8 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
 pub async fn get_index_stats(db: State<'_, DbState>) -> Result<Value, String> {
     let conn = conn_lock(&db)?;
     let stats = queries::get_index_stats(&conn).map_err(|e| e.to_string())?;
-    let last_indexed_at = queries::get_preference(&conn, "last_indexed_at")
-        .map_err(|e| e.to_string())?;
+    let last_indexed_at =
+        queries::get_preference(&conn, "last_indexed_at").map_err(|e| e.to_string())?;
     let mut result = json!(stats);
     result["last_indexed_at"] = json!(last_indexed_at);
     Ok(result)
@@ -818,7 +684,13 @@ fn resolve_project_display_name(dir_name: &str) -> String {
 // Cost estimation
 // ─────────────────────────────────────────────────────────────────
 
-fn estimate_cost(model: &str, total_input: i64, output_tokens: i64, cache_read: i64, cache_creation: i64) -> f64 {
+fn estimate_cost(
+    model: &str,
+    total_input: i64,
+    output_tokens: i64,
+    cache_read: i64,
+    cache_creation: i64,
+) -> f64 {
     // Per-million-token pricing (approximate as of early 2026)
     let (input_price, output_price, cache_read_price, cache_write_price) = match model {
         m if m.contains("opus") => (15.0, 75.0, 1.5, 18.75),
@@ -838,8 +710,165 @@ fn estimate_cost(model: &str, total_input: i64, output_tokens: i64, cache_read: 
     let cost = (base_input as f64 * input_price
         + output_tokens as f64 * output_price
         + cache_read as f64 * cache_read_price
-        + cache_creation as f64 * cache_write_price) / 1_000_000.0;
+        + cache_creation as f64 * cache_write_price)
+        / 1_000_000.0;
     (cost * 100.0).round() / 100.0 // round to cents
+}
+
+fn upsert_adapter_summary_session(
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    summary: RawSessionAdapterSummary,
+    file_size: i64,
+    file_mtime: Option<String>,
+    now: &str,
+    existing_session_id: Option<&str>,
+) -> Result<IndexedAdapterSession, String> {
+    let sid = existing_session_id
+        .map(String::from)
+        .or_else(|| summary.stable_id.clone())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let adapter_id = summary.adapter_id.clone();
+    let agent_type = summary.agent_type.clone();
+    let source_ref = summary.source_ref.clone();
+    let message_count = summary.message_count.max(0) as u64;
+    let day_counts = summary.day_counts.clone();
+    let archive_messages = summary.archive_messages.clone();
+    let parse_warnings = summary.parse_warnings.clone();
+
+    for warning in &summary.parse_warnings {
+        log::warn!(
+            "{} session adapter warning for {}: {}",
+            summary.adapter_id,
+            source_ref,
+            warning
+        );
+    }
+
+    // Adapter-backed writes reparse the source summary as a whole, so replace
+    // old day buckets instead of incrementing on top of stale counts.
+    let _ = queries::reset_session_days(conn, &sid);
+
+    let estimated_cost = estimate_cost(
+        summary.model_used.as_deref().unwrap_or(""),
+        summary.total_input_tokens,
+        summary.total_output_tokens,
+        summary.cache_read_tokens,
+        summary.cache_creation_tokens,
+    );
+
+    queries::upsert_session(
+        conn,
+        &queries::SessionInput {
+            id: sid.clone(),
+            project_id: project_id.to_string(),
+            agent_type: Some(agent_type.clone()),
+            jsonl_path: Some(source_ref.clone()),
+            git_branch: summary.git_branch,
+            cwd: summary.cwd,
+            cli_version: summary.cli_version,
+            first_message: summary.first_timestamp,
+            last_message: summary.last_timestamp,
+            message_count: Some(summary.message_count),
+            total_input_tokens: Some(summary.total_input_tokens),
+            total_output_tokens: Some(summary.total_output_tokens),
+            model_used: summary.model_used,
+            slug: summary.slug,
+            file_size_bytes: Some(file_size),
+            indexed_at: Some(now.to_string()),
+            file_mtime,
+            cache_read_tokens: Some(summary.cache_read_tokens),
+            cache_creation_tokens: Some(summary.cache_creation_tokens),
+            compaction_count: Some(summary.compaction_count),
+            estimated_cost_usd: Some(estimated_cost),
+        },
+    )
+    .map_err(|e| e.to_string())?;
+
+    for (day, n) in &day_counts {
+        let _ = queries::bump_session_day(conn, &sid, day, *n);
+    }
+
+    replace_archive_messages(
+        conn,
+        &sid,
+        &adapter_id,
+        &agent_type,
+        &source_ref,
+        archive_messages,
+    )?;
+
+    Ok(IndexedAdapterSession {
+        session_id: sid,
+        source_ref,
+        messages_indexed: message_count,
+        parse_warnings,
+    })
+}
+
+fn replace_archive_messages(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    adapter_id: &str,
+    agent_type: &str,
+    source_ref: &str,
+    archive_messages: Vec<crate::commands::session_adapters::RawSessionArchiveMessage>,
+) -> Result<(), String> {
+    let archive_inputs: Vec<_> = archive_messages
+        .into_iter()
+        .enumerate()
+        .map(|(idx, message)| queries::SessionMessageArchiveInput {
+            adapter_id: adapter_id.to_string(),
+            agent_type: agent_type.to_string(),
+            source_ref: source_ref.to_string(),
+            source_line: message.source_line,
+            message_index: idx as i64,
+            role: message.role,
+            kind: message.kind,
+            timestamp: message.timestamp,
+            content_text: message.content_text,
+            tool_name: message.tool_name,
+            tool_call_id: message.tool_call_id,
+            raw_type: message.raw_type,
+        })
+        .collect();
+    queries::replace_session_message_archive(conn, session_id, &archive_inputs)
+        .map_err(|e| e.to_string())
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Claude Code session parsing
+// ─────────────────────────────────────────────────────────────────
+
+/// Parse a Claude Code JSONL session file with the shared raw adapter and
+/// upsert the normalized session summary.
+fn parse_claude_session(
+    jsonl_path: &std::path::Path,
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    now: &str,
+) -> Result<IndexedAdapterSession, String> {
+    let jsonl_path_str = jsonl_path.to_string_lossy().to_string();
+    let file_meta = std::fs::metadata(jsonl_path).ok();
+    let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
+    let file_mtime_str = file_meta
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
+
+    let raw = std::fs::read_to_string(jsonl_path).map_err(|e| e.to_string())?;
+    let summary = ClaudeCodeAdapter.parse_raw(&jsonl_path_str, &raw);
+    let existing =
+        queries::get_session_by_jsonl_path(conn, &jsonl_path_str).map_err(|e| e.to_string())?;
+    upsert_adapter_summary_session(
+        conn,
+        project_id,
+        summary,
+        file_size,
+        file_mtime_str,
+        now,
+        existing.as_ref().map(|m| m.id.as_str()),
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -862,7 +891,7 @@ fn parse_codex_session(
     conn: &rusqlite::Connection,
     project_id: &str,
     now: &str,
-) -> Result<(u64, u64), String> {
+) -> Result<IndexedAdapterSession, String> {
     let jsonl_path_str = jsonl_path.to_string_lossy().to_string();
     let file_meta = std::fs::metadata(jsonl_path).ok();
     let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
@@ -871,180 +900,62 @@ fn parse_codex_session(
         .and_then(|m| m.modified().ok())
         .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
 
-    let file = std::fs::File::open(jsonl_path).map_err(|e| e.to_string())?;
-    let reader = std::io::BufReader::new(file);
+    let raw = std::fs::read_to_string(jsonl_path).map_err(|e| e.to_string())?;
+    let summary = CodexAdapter.parse_raw(&jsonl_path_str, &raw);
+    let existing =
+        queries::get_session_by_jsonl_path(conn, &jsonl_path_str).map_err(|e| e.to_string())?;
+    upsert_adapter_summary_session(
+        conn,
+        project_id,
+        summary,
+        file_size,
+        file_mtime_str,
+        now,
+        existing.as_ref().map(|m| m.id.as_str()),
+    )
+}
 
-    let mut session_id: Option<String> = None;
-    let mut session_cwd: Option<String> = None;
-    let mut session_version: Option<String> = None;
-    let mut session_git_branch: Option<String> = None;
-    let mut model_used: Option<String> = None;
+fn backfill_missing_session_archives(conn: &rusqlite::Connection) -> Result<u64, String> {
+    let candidates =
+        queries::list_sessions_needing_archive_backfill(conn, 5_000).map_err(|e| e.to_string())?;
+    let mut backfilled = 0u64;
 
-    let mut msg_count: i64 = 0;
-    let mut total_input: i64 = 0;
-    let mut total_output: i64 = 0;
-    let mut total_cache_read: i64 = 0;
-    let total_cache_creation: i64 = 0;
-    let mut first_message: Option<String> = None;
-    let mut last_message: Option<String> = None;
-    let mut new_messages: u64 = 0;
-    let mut line_number: i64 = 0;
-    let mut day_counts: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
-
-    for line_result in reader.lines() {
-        let line = match line_result {
-            Ok(l) => l,
-            Err(_) => break,
-        };
-        let line = line.trim().to_string();
-        if line.is_empty() {
-            line_number += 1;
+    for candidate in candidates {
+        let path = std::path::Path::new(&candidate.jsonl_path);
+        if !path.exists() {
             continue;
         }
-
-        let parsed: Value = match serde_json::from_str(&line) {
-            Ok(v) => v,
-            Err(_) => {
-                line_number += 1;
+        let raw = match std::fs::read_to_string(path) {
+            Ok(raw) => raw,
+            Err(error) => {
+                log::warn!(
+                    "Archive backfill could not read {}: {}",
+                    candidate.jsonl_path,
+                    error
+                );
                 continue;
             }
         };
-
-        let msg_type = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        let payload = parsed.get("payload");
-
-        if msg_type == "session_meta" {
-            if let Some(p) = payload {
-                session_id = p.get("id").and_then(|v| v.as_str()).map(String::from);
-                session_cwd = p.get("cwd").and_then(|v| v.as_str()).map(String::from);
-                session_version = p.get("cli_version").and_then(|v| v.as_str()).map(String::from);
-                session_git_branch = p.get("git")
-                    .and_then(|g| g.get("branch"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                if let Some(m) = p.get("model").and_then(|v| v.as_str()) {
-                    model_used = Some(m.to_string());
-                } else if let Some(mp) = p.get("model_provider").and_then(|v| v.as_str()) {
-                    // Codex doesn't specify a model name; use a reasonable default
-                    model_used = Some(if mp == "openai" { "o3".to_string() } else { mp.to_string() });
-                }
-            }
-            line_number += 1;
+        let summary = match candidate.agent_type.as_str() {
+            "claude-code" => ClaudeCodeAdapter.parse_raw(&candidate.jsonl_path, &raw),
+            "codex" => CodexAdapter.parse_raw(&candidate.jsonl_path, &raw),
+            _ => continue,
+        };
+        if summary.archive_messages.is_empty() {
             continue;
         }
-
-        // ── Extract token counts from event_msg.token_count ──────────
-        // Codex stores cumulative token usage in event_msg with type "token_count"
-        // under payload.info.total_token_usage. We take the last one seen.
-        if msg_type == "event_msg" {
-            if let Some(p) = payload {
-                let sub_type = p.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                if sub_type == "token_count" {
-                    if let Some(info) = p.get("info") {
-                        if let Some(total_usage) = info.get("total_token_usage") {
-                            // These are cumulative — always take the latest value
-                            let input_t = total_usage.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                            let output_t = total_usage.get("output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                            let cached = total_usage.get("cached_input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                            total_input = input_t;
-                            total_output = output_t;
-                            total_cache_read = cached;
-                        }
-                    }
-                }
-            }
-        }
-
-        if msg_type == "response_item" {
-            if let Some(p) = payload {
-                let role = p.get("role").and_then(|v| v.as_str()).map(String::from);
-
-                // Extract token usage from response_item.payload.usage (if present)
-                if let Some(usage) = p.get("usage") {
-                    let input_t = usage.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                    let output_t = usage.get("output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                    // Only use additive if no token_count events are providing cumulative totals
-                    if total_input == 0 && total_output == 0 {
-                        total_input += input_t;
-                        total_output += output_t;
-                    }
-                }
-
-                // Timestamp
-                let ts = parsed.get("timestamp")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                if first_message.is_none() {
-                    first_message = ts.clone();
-                }
-                last_message = ts.clone();
-
-                let _ = role;
-                if let Some(ts_str) = ts.as_deref() {
-                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts_str) {
-                        let day = dt
-                            .with_timezone(&chrono::Local)
-                            .format("%Y-%m-%d")
-                            .to_string();
-                        *day_counts.entry(day).or_insert(0) += 1;
-                    }
-                }
-
-                msg_count += 1;
-                new_messages += 1;
-            }
-        }
-
-        line_number += 1;
+        replace_archive_messages(
+            conn,
+            &candidate.id,
+            &summary.adapter_id,
+            &summary.agent_type,
+            &summary.source_ref,
+            summary.archive_messages,
+        )?;
+        backfilled += 1;
     }
 
-    if let Some(ref sid) = session_id {
-        for (day, n) in &day_counts {
-            let _ = queries::bump_session_day(conn, sid, day, *n);
-        }
-    }
-
-    // If we didn't get a session_id from the file, generate one
-    let sid = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-
-    let estimated_cost = estimate_cost(
-        model_used.as_deref().unwrap_or(""),
-        total_input,
-        total_output,
-        total_cache_read,
-        total_cache_creation,
-    );
-
-    queries::upsert_session(
-        conn,
-        &queries::SessionInput {
-            id: sid,
-            project_id: project_id.to_string(),
-            agent_type: Some("codex".to_string()),
-            jsonl_path: Some(jsonl_path_str),
-            git_branch: session_git_branch,
-            cwd: session_cwd,
-            cli_version: session_version,
-            first_message,
-            last_message,
-            message_count: Some(msg_count),
-            total_input_tokens: Some(total_input),
-            total_output_tokens: Some(total_output),
-            model_used,
-            slug: None,
-            file_size_bytes: Some(file_size),
-            indexed_at: Some(now.to_string()),
-            file_mtime: file_mtime_str,
-            cache_read_tokens: Some(total_cache_read),
-            cache_creation_tokens: Some(total_cache_creation),
-            compaction_count: Some(0),
-            estimated_cost_usd: Some(estimated_cost),
-        },
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok((1, new_messages))
+    Ok(backfilled)
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1078,7 +989,9 @@ pub fn resolve_cursor_data_dir() -> std::path::PathBuf {
     #[cfg(target_os = "linux")]
     {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        std::path::PathBuf::from(home).join(".config").join("Cursor")
+        std::path::PathBuf::from(home)
+            .join(".config")
+            .join("Cursor")
     }
     #[cfg(target_os = "windows")]
     {
@@ -1134,11 +1047,17 @@ pub fn read_cursor_item_table(key: &str) -> Option<String> {
 /// Older workspace-storage `state.vscdb` ItemTable entries (composerData,
 /// workbench.panel.aichat, etc.) are no longer produced and have been
 /// dropped from this indexer.
-fn index_cursor_sessions(
-    conn: &rusqlite::Connection,
-) -> Result<(u64, u64, u64), String> {
+fn index_cursor_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), String> {
     let db_path = resolve_cursor_global_db();
+    let index_started_at = chrono::Utc::now().to_rfc3339();
+    let mut cursor_run = ProductionAdapterRunStats::new(
+        "cursor",
+        "cursor",
+        vec![db_path.to_string_lossy().to_string()],
+        true,
+    );
     if !db_path.exists() {
+        persist_production_adapter_run(conn, &cursor_run, &index_started_at)?;
         return Ok((0, 0, 0));
     }
 
@@ -1152,6 +1071,8 @@ fn index_cursor_sessions(
     ) {
         Ok(c) => c,
         Err(e) => {
+            cursor_run.record_warning(&db_path_str, &e.to_string());
+            persist_production_adapter_run(conn, &cursor_run, &index_started_at)?;
             log::warn!("Failed to open Cursor global db {}: {}", db_path_str, e);
             return Ok((0, 0, 0));
         }
@@ -1160,16 +1081,20 @@ fn index_cursor_sessions(
     // Collect every composer up-front so we can drop the statement and then
     // re-use the connection to query bubbles in the loop below.
     let composers: Vec<(String, String)> = {
-        let mut stmt = match cursor_db.prepare(
-            "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'",
-        ) {
+        let mut stmt = match cursor_db
+            .prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
+        {
             Ok(s) => s,
-            Err(_) => return Ok((0, 0, 0)),
+            Err(error) => {
+                cursor_run.record_warning(&db_path_str, &error.to_string());
+                persist_production_adapter_run(conn, &cursor_run, &index_started_at)?;
+                return Ok((0, 0, 0));
+            }
         };
         let mut out = Vec::new();
-        if let Ok(rows) =
-            stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
-        {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) {
             for r in rows.flatten() {
                 if let Some(cid) = r.0.strip_prefix("composerData:") {
                     if cid == "empty-state-draft" || cid.is_empty() {
@@ -1183,14 +1108,17 @@ fn index_cursor_sessions(
     };
 
     if composers.is_empty() {
+        persist_production_adapter_run(conn, &cursor_run, &index_started_at)?;
         return Ok((0, 0, 0));
     }
 
-    let mut bubble_stmt = match cursor_db.prepare(
-        "SELECT value FROM cursorDiskKV WHERE key = ?1",
-    ) {
+    let mut bubble_stmt = match cursor_db.prepare("SELECT value FROM cursorDiskKV WHERE key = ?1") {
         Ok(s) => s,
-        Err(_) => return Ok((0, 0, 0)),
+        Err(error) => {
+            cursor_run.record_warning(&db_path_str, &error.to_string());
+            persist_production_adapter_run(conn, &cursor_run, &index_started_at)?;
+            return Ok((0, 0, 0));
+        }
     };
 
     let now = chrono::Utc::now().to_rfc3339();
@@ -1201,7 +1129,13 @@ fn index_cursor_sessions(
     for (composer_id, composer_json) in composers {
         let composer: Value = match serde_json::from_str(&composer_json) {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(error) => {
+                cursor_run.record_warning(
+                    &format!("{db_path_str}#cursor-{composer_id}"),
+                    &error.to_string(),
+                );
+                continue;
+            }
         };
 
         let headers = composer
@@ -1209,6 +1143,10 @@ fn index_cursor_sessions(
             .and_then(|v| v.as_array());
         let header_count = headers.map(|h| h.len()).unwrap_or(0);
         if header_count == 0 {
+            cursor_run.record_warning(
+                &format!("{db_path_str}#cursor-{composer_id}"),
+                "composer has no conversation headers",
+            );
             continue;
         }
 
@@ -1220,36 +1158,58 @@ fn index_cursor_sessions(
         let session_id = format!("cursor-{}", composer_id);
         let composite_path = format!("{}#{}", db_path_str, session_id);
 
-        if let Ok(Some(existing)) = queries::get_session_by_jsonl_path(conn, &composite_path) {
+        let existing =
+            queries::get_session_by_jsonl_path(conn, &composite_path).map_err(|e| e.to_string())?;
+        if let Some(ref existing) = existing {
             if existing.file_mtime.as_deref() == composer_mtime.as_deref()
                 && existing.message_count > 0
+                && existing.archived_message_count > 0
             {
                 skipped_sessions += 1;
                 continue;
             }
         }
 
-        // Workspace folder: prefer `workspaceIdentifier.uri.fsPath`, fall back to
-        // the first tracked git repo path, otherwise group under a placeholder.
-        let cwd = composer
-            .pointer("/workspaceIdentifier/uri/fsPath")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .or_else(|| {
-                composer
-                    .get("trackedGitRepos")
-                    .and_then(|v| v.as_array())
-                    .and_then(|arr| arr.first())
-                    .and_then(|r| {
-                        r.get("path")
-                            .or_else(|| r.get("repoPath"))
-                            .or_else(|| r.get("rootPath"))
-                    })
-                    .and_then(|v| v.as_str())
-                    .map(String::from)
-            })
-            .unwrap_or_else(|| "Cursor (no workspace)".to_string());
+        let mut bubbles = Vec::new();
+        if let Some(hdrs) = headers {
+            for hdr in hdrs {
+                let Some(bid) = hdr.get("bubbleId").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let key = format!("bubbleId:{}:{}", composer_id, bid);
+                let bubble_json: Option<String> = bubble_stmt
+                    .query_row(rusqlite::params![key], |row| row.get::<_, String>(0))
+                    .ok();
+                let Some(bubble_json) = bubble_json else {
+                    continue;
+                };
+                if let Ok(bubble) = serde_json::from_str::<Value>(&bubble_json) {
+                    bubbles.push(bubble);
+                } else {
+                    cursor_run.record_warning(&composite_path, "bubble row is not valid JSON");
+                }
+            }
+        }
 
+        let raw = json!({
+            "composer_id": composer_id,
+            "composer": composer,
+            "bubbles": bubbles,
+        })
+        .to_string();
+        let mut summary = CursorAdapter.parse_raw(&composite_path, &raw);
+
+        if summary.message_count == 0 {
+            for warning in &summary.parse_warnings {
+                cursor_run.record_warning(&composite_path, warning);
+            }
+            continue;
+        }
+
+        let cwd = summary
+            .cwd
+            .clone()
+            .unwrap_or_else(|| "Cursor (no workspace)".to_string());
         let project_id = queries::get_project_id_by_dir(conn, &cwd)
             .map_err(|e| e.to_string())?
             .unwrap_or_else(|| {
@@ -1272,137 +1232,38 @@ fn index_cursor_sessions(
                 pid
             });
 
-        let title = composer
-            .get("name")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(String::from);
-        let model_used = composer
-            .pointer("/modelConfig/modelName")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty() && *s != "default")
-            .map(String::from);
         // `contextTokensUsed` is the *last* conversation context size, not a
         // cumulative billing figure — using it as a token total understates
         // Cursor's real burn by orders of magnitude (every assistant turn
         // re-sends the whole context). The live `api2.cursor.sh` call below
         // is the source of truth for usage. We deliberately don't fabricate
         // a token count locally.
-        let _ = composer.get("contextTokensUsed");
-
-        let composer_created_at = composer
-            .get("createdAt")
-            .and_then(|v| v.as_i64())
-            .and_then(|ms| chrono::DateTime::from_timestamp_millis(ms).map(|dt| dt.to_rfc3339()));
-        let composer_last_at = composer
-            .get("lastUpdatedAt")
-            .and_then(|v| v.as_i64())
-            .and_then(|ms| chrono::DateTime::from_timestamp_millis(ms).map(|dt| dt.to_rfc3339()));
-
-        let mut first_message: Option<String> = composer_created_at.clone();
-        let mut last_message: Option<String> = composer_last_at.clone();
-        let mut msg_count: i64 = 0;
-        let mut new_messages: u64 = 0;
-        let mut day_counts: std::collections::HashMap<String, i64> =
-            std::collections::HashMap::new();
-
-        // Always re-read the full conversation; Cursor doesn't expose
-        // append-only byte offsets and composers can have prior bubbles
-        // edited or appended.
-        let _ = queries::reset_session_days(conn, &session_id);
-
-        if let Some(hdrs) = headers {
-            for hdr in hdrs {
-                let bid = match hdr.get("bubbleId").and_then(|v| v.as_str()) {
-                    Some(b) => b,
-                    None => continue,
-                };
-                let key = format!("bubbleId:{}:{}", composer_id, bid);
-                let bubble_json: Option<String> = bubble_stmt
-                    .query_row(rusqlite::params![key], |row| row.get::<_, String>(0))
-                    .ok();
-                let Some(bubble_json) = bubble_json else { continue };
-                let bubble: Value = match serde_json::from_str(&bubble_json) {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-
-                let ts: Option<String> = bubble.get("createdAt").and_then(|v| {
-                    if let Some(s) = v.as_str() {
-                        Some(s.to_string())
-                    } else if let Some(n) = v.as_i64() {
-                        chrono::DateTime::from_timestamp_millis(n).map(|dt| dt.to_rfc3339())
-                    } else {
-                        None
-                    }
-                });
-
-                if msg_count == 0 && ts.is_some() {
-                    first_message = ts.clone();
-                }
-                if ts.is_some() {
-                    last_message = ts.clone();
-                }
-
-                if let Some(ts_str) = ts.as_deref() {
-                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts_str) {
-                        let day = dt
-                            .with_timezone(&chrono::Local)
-                            .format("%Y-%m-%d")
-                            .to_string();
-                        *day_counts.entry(day).or_insert(0) += 1;
-                    }
-                }
-
-                msg_count += 1;
-                new_messages += 1;
-            }
-        }
-
-        if msg_count == 0 {
-            continue;
-        }
-
-        for (day, n) in &day_counts {
-            let _ = queries::bump_session_day(conn, &session_id, day, *n);
-        }
+        summary.total_input_tokens = 0;
+        summary.total_output_tokens = 0;
+        summary.cache_read_tokens = 0;
+        summary.cache_creation_tokens = 0;
+        summary.compaction_count = 0;
 
         // Cursor doesn't ship per-message token counts in local storage and
         // the composer's `contextTokensUsed` is a snapshot, not a cumulative
         // total — so we store 0 here and rely on the live API in
         // `check_live_usage_cursor` for actual usage figures.
-        queries::upsert_session(
+        let session = upsert_adapter_summary_session(
             conn,
-            &queries::SessionInput {
-                id: session_id.clone(),
-                project_id,
-                agent_type: Some("cursor".to_string()),
-                jsonl_path: Some(composite_path),
-                git_branch: None,
-                cwd: Some(cwd),
-                cli_version: None,
-                first_message,
-                last_message,
-                message_count: Some(msg_count),
-                total_input_tokens: Some(0),
-                total_output_tokens: Some(0),
-                model_used,
-                slug: title,
-                file_size_bytes: Some(file_size),
-                indexed_at: Some(now.clone()),
-                file_mtime: composer_mtime,
-                cache_read_tokens: Some(0),
-                cache_creation_tokens: Some(0),
-                compaction_count: Some(0),
-                estimated_cost_usd: Some(0.0),
-            },
-        )
-        .map_err(|e| e.to_string())?;
+            &project_id,
+            summary,
+            file_size,
+            composer_mtime,
+            &now,
+            existing.as_ref().map(|m| m.id.as_str()),
+        )?;
 
         indexed_sessions += 1;
-        indexed_messages += new_messages;
+        indexed_messages += session.messages_indexed;
+        cursor_run.record_session(&session);
     }
 
+    persist_production_adapter_run(conn, &cursor_run, &index_started_at)?;
     Ok((indexed_sessions, indexed_messages, skipped_sessions))
 }
 
@@ -1426,7 +1287,11 @@ fn resolve_all_claude_projects_dirs() -> Vec<std::path::PathBuf> {
     let mut dirs = Vec::new();
 
     if let Ok(config_dirs) = std::env::var("CLAUDE_CONFIG_DIR") {
-        for raw in config_dirs.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        for raw in config_dirs
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             let projects_dir = std::path::PathBuf::from(raw).join("projects");
             if projects_dir.exists() && !dirs.contains(&projects_dir) {
                 dirs.push(projects_dir);
@@ -1476,4 +1341,324 @@ fn walkdir(dir: &std::path::Path, ext: &str) -> Vec<std::path::PathBuf> {
         }
     }
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::schema;
+    use rusqlite::{params, Connection};
+
+    fn memory_conn_with_project() -> Connection {
+        let conn = Connection::open_in_memory().expect("memory db");
+        schema::run_migrations(&conn).expect("schema");
+        queries::upsert_project(
+            &conn,
+            &queries::ProjectInput {
+                id: "project".to_string(),
+                display_name: "CodeVetter".to_string(),
+                dir_path: "/repo/codevetter".to_string(),
+                session_count: None,
+                last_activity: Some("2026-06-12T16:00:00Z".to_string()),
+                created_at: "2026-06-12T16:00:00Z".to_string(),
+            },
+        )
+        .expect("project");
+        conn
+    }
+
+    #[test]
+    fn claude_indexer_uses_adapter_summary_for_session_upsert() {
+        let conn = memory_conn_with_project();
+        let fixture = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/session_adapters/claude-code.jsonl"
+        ));
+        let session = parse_claude_session(fixture, &conn, "project", "2026-06-12T16:03:00Z")
+            .expect("claude session");
+
+        assert_eq!(session.session_id, "claude-session-1");
+        assert_eq!(session.messages_indexed, 3);
+        let session = conn
+            .query_row(
+                "SELECT id, agent_type, cwd, git_branch, model_used, message_count,
+                        total_input_tokens, total_output_tokens, cache_read_tokens,
+                        cache_creation_tokens, compaction_count
+                 FROM cc_sessions
+                 WHERE jsonl_path = ?1",
+                params![fixture.to_string_lossy().as_ref()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, i64>(8)?,
+                        row.get::<_, i64>(9)?,
+                        row.get::<_, i64>(10)?,
+                    ))
+                },
+            )
+            .expect("session row");
+        assert_eq!(session.0, "claude-session-1");
+        assert_eq!(session.1, "claude-code");
+        assert_eq!(session.2.as_deref(), Some("/repo/codevetter"));
+        assert_eq!(session.3.as_deref(), Some("main"));
+        assert_eq!(session.4.as_deref(), Some("claude-sonnet-4"));
+        assert_eq!(session.5, 3);
+        assert_eq!(session.6, 135);
+        assert_eq!(session.7, 40);
+        assert_eq!(session.8, 25);
+        assert_eq!(session.9, 10);
+        assert_eq!(session.10, 1);
+
+        let day_count: i64 = conn
+            .query_row(
+                "SELECT msg_count FROM cc_session_days WHERE session_id = ?1 AND day = ?2",
+                params!["claude-session-1", "2026-06-12"],
+                |row| row.get(0),
+            )
+            .expect("session day bucket");
+        assert_eq!(day_count, 3);
+
+        let archived =
+            queries::list_session_message_archive(&conn, "claude-session-1", 10).expect("archive");
+        assert_eq!(archived.len(), 3);
+        assert_eq!(archived[0].adapter_id, "claude-code");
+        assert_eq!(archived[0].role.as_deref(), Some("user"));
+        assert_eq!(archived[2].kind, "compaction");
+    }
+
+    #[test]
+    fn codex_indexer_uses_adapter_summary_for_session_upsert() {
+        let conn = memory_conn_with_project();
+        let fixture = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/session_adapters/codex.jsonl"
+        ));
+        let session = parse_codex_session(fixture, &conn, "project", "2026-06-12T16:03:00Z")
+            .expect("codex session");
+
+        assert_eq!(session.session_id, "codex-session-1");
+        assert_eq!(session.messages_indexed, 2);
+        let session = conn
+            .query_row(
+                "SELECT id, agent_type, cwd, git_branch, model_used, message_count,
+                        total_input_tokens, total_output_tokens, cache_read_tokens
+                 FROM cc_sessions
+                 WHERE jsonl_path = ?1",
+                params![fixture.to_string_lossy().as_ref()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, i64>(8)?,
+                    ))
+                },
+            )
+            .expect("session row");
+        assert_eq!(session.0, "codex-session-1");
+        assert_eq!(session.1, "codex");
+        assert_eq!(session.2.as_deref(), Some("/repo/codevetter"));
+        assert_eq!(session.3.as_deref(), Some("feature/adapter"));
+        assert_eq!(session.4.as_deref(), Some("o3"));
+        assert_eq!(session.5, 2);
+        assert_eq!(session.6, 500);
+        assert_eq!(session.7, 150);
+        assert_eq!(session.8, 100);
+
+        let day_count: i64 = conn
+            .query_row(
+                "SELECT msg_count FROM cc_session_days WHERE session_id = ?1 AND day = ?2",
+                params!["codex-session-1", "2026-06-12"],
+                |row| row.get(0),
+            )
+            .expect("session day bucket");
+        assert_eq!(day_count, 2);
+
+        let archived =
+            queries::list_session_message_archive(&conn, "codex-session-1", 10).expect("archive");
+        assert_eq!(archived.len(), 2);
+        assert_eq!(archived[0].adapter_id, "codex");
+        assert_eq!(archived[0].role.as_deref(), Some("user"));
+        assert_eq!(archived[1].raw_type.as_deref(), Some("response_item"));
+    }
+
+    #[test]
+    fn archive_backfill_repairs_existing_codex_session_rows() {
+        let conn = memory_conn_with_project();
+        let fixture = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/session_adapters/codex.jsonl"
+        ));
+
+        queries::upsert_session(
+            &conn,
+            &queries::SessionInput {
+                id: "codex-session-1".to_string(),
+                project_id: "project".to_string(),
+                agent_type: Some("codex".to_string()),
+                jsonl_path: Some(fixture.to_string_lossy().to_string()),
+                git_branch: None,
+                cwd: Some("/repo/codevetter".to_string()),
+                cli_version: None,
+                first_message: None,
+                last_message: Some("2026-06-12T16:01:00Z".to_string()),
+                message_count: Some(2),
+                total_input_tokens: Some(500),
+                total_output_tokens: Some(150),
+                model_used: Some("o3".to_string()),
+                slug: None,
+                file_size_bytes: Some(123),
+                indexed_at: Some("2026-06-12T16:03:00Z".to_string()),
+                file_mtime: Some("2026-06-12T16:03:00Z".to_string()),
+                cache_read_tokens: Some(100),
+                cache_creation_tokens: Some(0),
+                compaction_count: Some(0),
+                estimated_cost_usd: Some(0.0),
+            },
+        )
+        .expect("existing codex session");
+
+        let candidates =
+            queries::list_sessions_needing_archive_backfill(&conn, 10).expect("candidates");
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].id, "codex-session-1");
+
+        let backfilled = backfill_missing_session_archives(&conn).expect("backfill");
+        assert_eq!(backfilled, 1);
+
+        let archived =
+            queries::list_session_message_archive(&conn, "codex-session-1", 10).expect("archive");
+        assert_eq!(archived.len(), 2);
+        assert_eq!(archived[0].adapter_id, "codex");
+        assert_eq!(archived[0].role.as_deref(), Some("user"));
+        assert_eq!(archived[1].role.as_deref(), Some("assistant"));
+    }
+
+    #[test]
+    fn cursor_adapter_summary_upserts_session_and_day_bucket() {
+        let conn = memory_conn_with_project();
+        let raw = include_str!("../../tests/fixtures/session_adapters/cursor.json");
+        let summary = CursorAdapter.parse_raw("/cursor/state.vscdb#cursor-composer-1", raw);
+        let indexed = upsert_adapter_summary_session(
+            &conn,
+            "project",
+            summary,
+            123,
+            Some("2026-06-12T16:02:00Z".to_string()),
+            "2026-06-12T16:03:00Z",
+            None,
+        )
+        .expect("cursor upsert");
+
+        assert_eq!(indexed.session_id, "cursor-composer-1");
+        assert_eq!(indexed.messages_indexed, 2);
+        let session = conn
+            .query_row(
+                "SELECT id, agent_type, cwd, model_used, slug, message_count,
+                        total_input_tokens, total_output_tokens
+                 FROM cc_sessions
+                 WHERE jsonl_path = ?1",
+                params!["/cursor/state.vscdb#cursor-composer-1"],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                    ))
+                },
+            )
+            .expect("session row");
+        assert_eq!(session.0, "cursor-composer-1");
+        assert_eq!(session.1, "cursor");
+        assert_eq!(session.2.as_deref(), Some("/repo/codevetter"));
+        assert_eq!(session.3.as_deref(), Some("cursor-small"));
+        assert_eq!(session.4.as_deref(), Some("Fix checkout test"));
+        assert_eq!(session.5, 2);
+        assert_eq!(session.6, 0);
+        assert_eq!(session.7, 0);
+
+        let day_count: i64 = conn
+            .query_row(
+                "SELECT msg_count FROM cc_session_days WHERE session_id = ?1 AND day = ?2",
+                params!["cursor-composer-1", "2026-06-12"],
+                |row| row.get(0),
+            )
+            .expect("session day bucket");
+        assert_eq!(day_count, 2);
+
+        let archived =
+            queries::list_session_message_archive(&conn, "cursor-composer-1", 10).expect("archive");
+        assert_eq!(archived.len(), 2);
+        assert_eq!(archived[0].adapter_id, "cursor");
+        assert_eq!(
+            archived[0].content_text.as_deref(),
+            Some("Fix checkout test")
+        );
+        assert_eq!(archived[1].role.as_deref(), Some("assistant"));
+    }
+
+    #[test]
+    fn production_adapter_run_stats_persist_source_health_row() {
+        let conn = memory_conn_with_project();
+        let mut stats = ProductionAdapterRunStats::new(
+            "codex",
+            "codex",
+            vec!["/Users/me/.codex/sessions".to_string()],
+            true,
+        );
+        stats.record_session(&IndexedAdapterSession {
+            session_id: "session-a".to_string(),
+            source_ref: "/Users/me/.codex/sessions/a.jsonl".to_string(),
+            messages_indexed: 7,
+            parse_warnings: vec!["missing cwd fallback used".to_string()],
+        });
+        stats.record_warning("/Users/me/.codex/sessions/b.jsonl", "not valid JSON");
+
+        let id = persist_production_adapter_run(&conn, &stats, "2026-06-12T16:03:00Z")
+            .expect("adapter run");
+        assert!(!id.is_empty());
+
+        let rows = queries::list_session_adapter_runs(&conn, None, 10).expect("adapter runs");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].adapter_id, "codex");
+        assert_eq!(rows[0].agent_type.as_deref(), Some("codex"));
+        assert_eq!(rows[0].source_roots, vec!["/Users/me/.codex/sessions"]);
+        assert_eq!(
+            rows[0].sample_source_paths,
+            vec!["/Users/me/.codex/sessions/a.jsonl"]
+        );
+        assert_eq!(rows[0].sample_session_ids, vec!["session-a"]);
+        assert_eq!(rows[0].sessions_indexed, 1);
+        assert_eq!(rows[0].messages_indexed, 7);
+        assert_eq!(
+            rows[0].last_indexed_at.as_deref(),
+            Some("2026-06-12T16:03:00Z")
+        );
+        assert!(rows[0]
+            .parse_warnings
+            .iter()
+            .any(|warning| warning.contains("missing cwd fallback used")));
+        assert!(rows[0]
+            .parse_warnings
+            .iter()
+            .any(|warning| warning.contains("not valid JSON")));
+        assert!(rows[0].supports_incremental);
+    }
 }

@@ -1,8 +1,8 @@
 # PRD: Review Memory Graph
 
-Status: proposed
+Status: in progress
 Owner: unassigned
-Last updated: 2026-06-08
+Last updated: 2026-06-12
 
 ## Summary
 
@@ -131,11 +131,23 @@ Suggested edge types:
 
 Acceptance:
 
-- Repo Unpacked can build and persist a graph for a selected repo.
-- Graph contains at least files, package scripts, Tauri commands, route files, tables, and decision markers where present.
-- Graph rebuild is deterministic for the same repo state.
-- No target repo files are modified.
-- No external network calls are required.
+- Repo Unpacked can build and persist a graph for a selected repo. Implemented as the `repo_graph` field inside the saved Repo Unpacked inventory JSON.
+- Graph contains at least files, package scripts, Tauri commands, route files, tables, and decision markers where present. Implemented for package/script nodes, route nodes, Tauri command nodes, DB table nodes, test nodes, and `WHY:` / `DECISION:` / `TRADEOFF:` decision nodes.
+- Graph rebuild is deterministic for the same repo state. Covered by backend unit test.
+- No target repo files are modified. Implemented; graph artifacts are stored in CodeVetter's local report inventory, not written into the target repo.
+- No external network calls are required. Implemented; first slice is pure local scanning and source marker parsing.
+
+### Phase 1.5: Review-Scoped Memory Graph
+
+Build a bounded graph for the current review from already-computed local signals while the persisted repo graph is still pending.
+
+Acceptance:
+
+- Changed files, evidence candidates, procedure gates, blast radius, and history context are represented as graph nodes and edges. Implemented for `review_memory_graph` in CLI review results.
+- Review prompt includes a compact "Changed-file graph neighborhood" section. Implemented with explicit warning that graph edges are navigation leads, not ground truth.
+- Review UI shows a compact graph context panel in the result sidebar. Implemented.
+- Reviewer proof export includes the graph neighborhood. Implemented in `buildReviewerProofMarkdown`.
+- No target repo files are modified and no new dependency is required. Implemented.
 
 ### Phase 2: Review Context Integration
 
@@ -143,9 +155,9 @@ Use the graph to enrich a review run.
 
 Acceptance:
 
-- For a selected diff, CodeVetter resolves changed files to graph nodes.
-- Review prompt includes a compact "Changed-file graph neighborhood" section.
-- Review UI shows a graph context panel for the selected finding or changed file.
+- For a selected diff, CodeVetter resolves changed files to graph nodes. Implemented for review-scoped graph nodes.
+- Review prompt includes a compact "Changed-file graph neighborhood" section. Implemented.
+- Review UI shows a graph context panel for the selected finding or changed file. Implemented for review-level graph context plus a selected-finding focused subgraph in the Review sidebar and copied reviewer proof.
 - Context is bounded so large repos do not flood the prompt.
 - Existing `npm run test:review-proof` and the smallest relevant backend test pass.
 
@@ -166,10 +178,11 @@ Add optional export/open paths for users who already use Hunk or Graphify.
 
 Acceptance:
 
-- CodeVetter can export findings as Hunk-style agent-context notes or another documented sidecar format.
-- CodeVetter can import a graph JSON/report only through an explicit user action.
+- CodeVetter can export findings as Hunk-style agent-context notes or another documented sidecar format. Implemented through Repo Unpacked `agent_context_markdown` sidecar export with repo graph and history context plus Review's selected-finding "Copy note" action, which includes file/line, evidence status, local history context, focused graph nodes/edges, and next verification actions.
+- CodeVetter can export its local graph as JSON for Graphify comparison. Implemented through Repo Unpacked `repo_graph_json` export.
+- CodeVetter can import a graph JSON/report only through an explicit user action. Implemented in Repo Unpacked through an explicit `Import graph` file action that validates CodeVetter `repo_graph` JSON or loose graph-shaped JSON, normalizes it into the local graph schema, and renders it as an imported preview without mutating the saved report.
 - Missing optional CLIs produce clear non-fatal UI errors.
-- No production dependency is added unless a prior spike proves the value and tradeoff.
+- No production dependency is added unless a prior spike proves the value and tradeoff. Implemented for the export slice; no Graphify/Hunk runtime dependency was added.
 
 ## UX Requirements
 

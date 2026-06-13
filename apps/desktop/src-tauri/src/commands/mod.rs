@@ -1,11 +1,15 @@
 pub mod accounts;
 pub mod blast_radius;
+pub mod evidence_pattern;
 pub mod files;
 pub mod git;
 pub mod github_ops;
 pub mod history;
 pub mod preferences;
+pub mod procedure_events;
 pub mod review;
+pub mod session_adapters;
+pub mod session_intelligence;
 pub mod sessions;
 pub mod setup;
 pub mod synthetic_qa;

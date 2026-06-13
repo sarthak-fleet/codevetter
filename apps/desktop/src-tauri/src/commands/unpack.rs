@@ -16,7 +16,7 @@ use crate::DbState;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
@@ -46,13 +46,10 @@ const ALWAYS_SKIP: &[&str] = &[
 ];
 
 const BINARY_EXTS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "ico", "icns", "bmp", "tiff",
-    "mp4", "mov", "webm", "mp3", "wav", "ogg", "flac",
-    "zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar",
-    "pdf", "psd", "ai", "sketch", "fig",
-    "exe", "dll", "so", "dylib", "bin", "wasm", "o", "a", "lib",
-    "ttf", "otf", "woff", "woff2", "eot",
-    "lock", "min.js", "min.css",
+    "png", "jpg", "jpeg", "gif", "webp", "ico", "icns", "bmp", "tiff", "mp4", "mov", "webm", "mp3",
+    "wav", "ogg", "flac", "zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "pdf", "psd", "ai",
+    "sketch", "fig", "exe", "dll", "so", "dylib", "bin", "wasm", "o", "a", "lib", "ttf", "otf",
+    "woff", "woff2", "eot", "lock", "min.js", "min.css",
 ];
 
 const MAX_FILES: usize = 4000;
@@ -100,6 +97,149 @@ pub struct DirSummary {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QaReadinessSignal {
+    pub id: String,
+    pub label: String,
+    pub status: String, // ready | partial | missing
+    pub detail: String,
+    pub sources: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QaSuggestedFlow {
+    pub id: String,
+    pub route: String,
+    pub goal: String,
+    pub sources: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QaReadiness {
+    pub score: i64,
+    pub status: String, // ready | partial | missing
+    pub summary: String,
+    pub signals: Vec<QaReadinessSignal>,
+    pub suggested_flows: Vec<QaSuggestedFlow>,
+}
+
+impl Default for QaReadiness {
+    fn default() -> Self {
+        Self {
+            score: 0,
+            status: "missing".to_string(),
+            summary: "No synthetic QA readiness signals were captured for this inventory."
+                .to_string(),
+            signals: Vec::new(),
+            suggested_flows: Vec::new(),
+        }
+    }
+}
+
+fn default_qa_readiness() -> QaReadiness {
+    QaReadiness::default()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RepoGraphNode {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    pub path: Option<String>,
+    pub detail: Option<String>,
+    pub sources: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RepoGraphEdge {
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+    pub evidence: String,
+    pub sources: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RepoGraph {
+    pub schema_version: i64,
+    pub nodes: Vec<RepoGraphNode>,
+    pub edges: Vec<RepoGraphEdge>,
+    pub truncated: bool,
+}
+
+impl Default for RepoGraph {
+    fn default() -> Self {
+        Self {
+            schema_version: 1,
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            truncated: false,
+        }
+    }
+}
+
+fn default_repo_graph() -> RepoGraph {
+    RepoGraph::default()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RepoGraphImportResult {
+    pub graph: RepoGraph,
+    pub source_kind: String,
+    pub node_count: usize,
+    pub edge_count: usize,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RepoHistoryCommit {
+    pub sha: String,
+    pub date: Option<String>,
+    pub subject: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RepoHistoryDecision {
+    pub marker: String,
+    pub text: String,
+    pub source: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RepoHistoryTestHint {
+    pub path: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RepoHistoryBrief {
+    pub schema_version: i64,
+    pub summary: String,
+    pub recent_commits: Vec<RepoHistoryCommit>,
+    pub decisions: Vec<RepoHistoryDecision>,
+    pub test_hints: Vec<RepoHistoryTestHint>,
+    pub sources: Vec<String>,
+    pub truncated: bool,
+}
+
+impl Default for RepoHistoryBrief {
+    fn default() -> Self {
+        Self {
+            schema_version: 1,
+            summary: "No local history brief was captured for this inventory.".to_string(),
+            recent_commits: Vec::new(),
+            decisions: Vec::new(),
+            test_hints: Vec::new(),
+            sources: Vec::new(),
+            truncated: false,
+        }
+    }
+}
+
+fn default_history_brief() -> RepoHistoryBrief {
+    RepoHistoryBrief::default()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RepoInventory {
     pub repo_path: String,
     pub repo_name: String,
@@ -117,6 +257,12 @@ pub struct RepoInventory {
     pub docs: Vec<DocFile>,
     pub config_files: Vec<String>,
     pub stack_tags: Vec<String>,
+    #[serde(default = "default_qa_readiness")]
+    pub qa_readiness: QaReadiness,
+    #[serde(default = "default_repo_graph")]
+    pub repo_graph: RepoGraph,
+    #[serde(default = "default_history_brief")]
+    pub history_brief: RepoHistoryBrief,
     pub all_files: Vec<String>,
     pub ignored_dirs: Vec<String>,
 }
@@ -356,10 +502,7 @@ pub async fn list_repo_unpack_reports(
 }
 
 #[tauri::command]
-pub async fn get_repo_unpack_report(
-    db: State<'_, DbState>,
-    id: String,
-) -> Result<Value, String> {
+pub async fn get_repo_unpack_report(db: State<'_, DbState>, id: String) -> Result<Value, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
     let row = conn
@@ -448,14 +591,209 @@ pub async fn export_repo_unpack_report(
         .as_deref()
         .and_then(|s| serde_json::from_str(s).ok());
 
-    let body = render_markdown(&repo_name, &created_at, agent_used.as_deref(), model_used.as_deref(), &report, inventory.as_ref());
+    let body = render_markdown(
+        &repo_name,
+        &created_at,
+        agent_used.as_deref(),
+        model_used.as_deref(),
+        &report,
+        inventory.as_ref(),
+    );
 
     let content = match format.as_str() {
         "html" => render_html(&repo_name, &body),
+        "repo_graph_json" => {
+            let Some(inventory) = inventory.as_ref() else {
+                return Err("Report missing inventory graph.".to_string());
+            };
+            serde_json::to_string_pretty(&inventory.repo_graph).map_err(|e| e.to_string())?
+        }
+        "agent_context_markdown" => {
+            let Some(inventory) = inventory.as_ref() else {
+                return Err("Report missing inventory context.".to_string());
+            };
+            render_agent_context_sidecar(&repo_name, &created_at, inventory)
+        }
         _ => body,
     };
 
     Ok(json!({ "content": content, "format": format }))
+}
+
+#[tauri::command]
+pub async fn import_repo_graph_json(content: String) -> Result<RepoGraphImportResult, String> {
+    let value: Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Graph import must be valid JSON: {e}"))?;
+    import_repo_graph_from_value(&value)
+}
+
+fn import_repo_graph_from_value(value: &Value) -> Result<RepoGraphImportResult, String> {
+    let (candidate, source_kind) = if let Some(graph) = value.get("repo_graph") {
+        (graph, "repo_graph")
+    } else if let Some(graph) = value.get("graph") {
+        (graph, "graph")
+    } else if let Some(graph) = value.pointer("/data/graph") {
+        (graph, "data.graph")
+    } else {
+        (value, "root")
+    };
+
+    let mut warnings = Vec::new();
+    let graph = match serde_json::from_value::<RepoGraph>(candidate.clone()) {
+        Ok(graph) => graph,
+        Err(_) => import_loose_repo_graph(candidate, &mut warnings)?,
+    };
+    validate_imported_repo_graph(&graph)?;
+
+    let node_count = graph.nodes.len();
+    let edge_count = graph.edges.len();
+    Ok(RepoGraphImportResult {
+        graph,
+        source_kind: source_kind.to_string(),
+        node_count,
+        edge_count,
+        warnings,
+    })
+}
+
+fn import_loose_repo_graph(value: &Value, warnings: &mut Vec<String>) -> Result<RepoGraph, String> {
+    let nodes_value = value
+        .get("nodes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Graph import needs a nodes array.".to_string())?;
+    let edges_value = value
+        .get("edges")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Graph import needs an edges array.".to_string())?;
+
+    const MAX_IMPORTED_NODES: usize = 1_000;
+    const MAX_IMPORTED_EDGES: usize = 1_500;
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+
+    for (idx, node) in nodes_value.iter().take(MAX_IMPORTED_NODES).enumerate() {
+        let id = string_field(node, &["id", "key"])
+            .or_else(|| string_field(node, &["label", "name"]).map(|s| graph_id("imported", &s)))
+            .ok_or_else(|| format!("Node {idx} is missing id, label, or name."))?;
+        let kind = string_field(node, &["kind", "type", "category"])
+            .unwrap_or_else(|| "imported".to_string());
+        let label = string_field(node, &["label", "name", "title"]).unwrap_or_else(|| id.clone());
+        let path = string_field(node, &["path", "file_path", "source_path"]);
+        let detail = string_field(node, &["detail", "description", "summary"]);
+        let mut sources = string_array_field(node, "sources");
+        if sources.is_empty() {
+            if let Some(path) = path.as_ref() {
+                sources.push(path.clone());
+            }
+        }
+        nodes.push(RepoGraphNode {
+            id,
+            kind,
+            label,
+            path,
+            detail,
+            sources,
+        });
+    }
+
+    for (idx, edge) in edges_value.iter().take(MAX_IMPORTED_EDGES).enumerate() {
+        let from = string_field(edge, &["from", "source", "source_id", "start"])
+            .ok_or_else(|| format!("Edge {idx} is missing from/source."))?;
+        let to = string_field(edge, &["to", "target", "target_id", "end"])
+            .ok_or_else(|| format!("Edge {idx} is missing to/target."))?;
+        let kind = string_field(edge, &["kind", "type", "label"])
+            .unwrap_or_else(|| "relates_to".to_string());
+        let evidence = string_field(edge, &["evidence", "detail", "description"])
+            .unwrap_or_else(|| "imported graph edge".to_string());
+        edges.push(RepoGraphEdge {
+            from,
+            to,
+            kind,
+            evidence,
+            sources: string_array_field(edge, "sources"),
+        });
+    }
+
+    let truncated =
+        nodes_value.len() > MAX_IMPORTED_NODES || edges_value.len() > MAX_IMPORTED_EDGES;
+    if nodes_value.len() > MAX_IMPORTED_NODES {
+        warnings.push(format!(
+            "Imported first {MAX_IMPORTED_NODES} of {} nodes.",
+            nodes_value.len()
+        ));
+    }
+    if edges_value.len() > MAX_IMPORTED_EDGES {
+        warnings.push(format!(
+            "Imported first {MAX_IMPORTED_EDGES} of {} edges.",
+            edges_value.len()
+        ));
+    }
+    warnings
+        .push("Loose graph JSON was normalized into CodeVetter's repo_graph schema.".to_string());
+
+    Ok(RepoGraph {
+        schema_version: 1,
+        nodes,
+        edges,
+        truncated,
+    })
+}
+
+fn string_field(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn string_array_field(value: &Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn validate_imported_repo_graph(graph: &RepoGraph) -> Result<(), String> {
+    if graph.nodes.is_empty() {
+        return Err("Graph import did not contain any nodes.".to_string());
+    }
+    let mut node_ids = HashSet::new();
+    for node in &graph.nodes {
+        if node.id.trim().is_empty() {
+            return Err("Graph import contains a node with an empty id.".to_string());
+        }
+        if node.kind.trim().is_empty() {
+            return Err(format!("Graph node {} has an empty kind.", node.id));
+        }
+        if !node_ids.insert(node.id.as_str()) {
+            return Err(format!(
+                "Graph import contains duplicate node id {}.",
+                node.id
+            ));
+        }
+    }
+    for edge in &graph.edges {
+        if edge.from.trim().is_empty() || edge.to.trim().is_empty() {
+            return Err("Graph import contains an edge with an empty endpoint.".to_string());
+        }
+        if !node_ids.contains(edge.from.as_str()) || !node_ids.contains(edge.to.as_str()) {
+            return Err(format!(
+                "Graph edge {} -> {} references a missing node.",
+                edge.from, edge.to
+            ));
+        }
+    }
+    Ok(())
 }
 
 // ─── Inventory builder (deterministic) ──────────────────────────────────────
@@ -622,6 +960,9 @@ pub fn build_inventory(repo_path: &str) -> Result<RepoInventory, String> {
 
     // Entrypoints
     let entrypoints = infer_entrypoints(&all_files, &manifests, &stack_tags);
+    let qa_readiness = build_qa_readiness(&all_files, &manifests, &entrypoints);
+    let repo_graph = build_repo_graph(&root, &all_files, &manifests, &entrypoints);
+    let history_brief = build_history_brief(&root, &all_files, &manifests);
 
     let path_strings: Vec<String> = all_files.iter().map(|(p, _)| p.clone()).collect();
 
@@ -642,11 +983,1081 @@ pub fn build_inventory(repo_path: &str) -> Result<RepoInventory, String> {
         docs,
         config_files,
         stack_tags,
+        qa_readiness,
+        repo_graph,
+        history_brief,
         all_files: path_strings,
         ignored_dirs,
     };
 
     Ok(inventory)
+}
+
+fn build_qa_readiness(
+    files: &[(String, u64)],
+    manifests: &[ManifestSummary],
+    entrypoints: &[EntrypointHint],
+) -> QaReadiness {
+    let file_paths: Vec<&str> = files.iter().map(|(path, _)| path.as_str()).collect();
+
+    let browser_config_sources: Vec<String> = file_paths
+        .iter()
+        .filter(|path| {
+            let lower = path.to_ascii_lowercase();
+            lower.ends_with("playwright.config.ts")
+                || lower.ends_with("playwright.config.js")
+                || lower.ends_with("playwright.config.mjs")
+                || lower.ends_with("cypress.config.ts")
+                || lower.ends_with("cypress.config.js")
+                || lower.ends_with("cypress.config.mjs")
+        })
+        .take(8)
+        .map(|path| (*path).to_string())
+        .collect();
+
+    let browser_spec_sources: Vec<String> = file_paths
+        .iter()
+        .filter(|path| {
+            let lower = path.to_ascii_lowercase();
+            let browserish_dir = lower.contains("/e2e/")
+                || lower.contains("/playwright/")
+                || lower.contains("/cypress/")
+                || lower.starts_with("e2e/")
+                || lower.starts_with("tests/e2e/")
+                || lower.starts_with("cypress/");
+            let browserish_name = lower.ends_with(".spec.ts")
+                || lower.ends_with(".spec.tsx")
+                || lower.ends_with(".spec.js")
+                || lower.ends_with(".spec.jsx");
+            browserish_dir && browserish_name
+        })
+        .take(12)
+        .map(|path| (*path).to_string())
+        .collect();
+
+    let runnable_script_names = [
+        "dev",
+        "start",
+        "preview",
+        "serve",
+        "tauri:dev",
+        "desktop:dev",
+    ];
+    let qa_script_names = [
+        "e2e",
+        "test:e2e",
+        "playwright",
+        "test:playwright",
+        "cypress",
+        "test:cypress",
+        "qa",
+        "synthetic-qa",
+        "test:synthetic-qa",
+    ];
+
+    let runnable_script_sources: Vec<String> = manifests
+        .iter()
+        .filter(|manifest| {
+            manifest.kind == "package.json"
+                && manifest
+                    .scripts
+                    .iter()
+                    .any(|script| runnable_script_names.contains(&script.as_str()))
+        })
+        .map(|manifest| manifest.path.clone())
+        .take(8)
+        .collect();
+
+    let qa_script_sources: Vec<String> = manifests
+        .iter()
+        .filter(|manifest| {
+            manifest.kind == "package.json"
+                && manifest.scripts.iter().any(|script| {
+                    let lower = script.to_ascii_lowercase();
+                    qa_script_names.contains(&lower.as_str())
+                        || lower.contains("e2e")
+                        || lower.contains("playwright")
+                        || lower.contains("cypress")
+                        || lower.contains("qa")
+                })
+        })
+        .map(|manifest| manifest.path.clone())
+        .take(8)
+        .collect();
+
+    let browser_dep_sources: Vec<String> = manifests
+        .iter()
+        .filter(|manifest| {
+            manifest.dependencies.iter().any(|dep| {
+                dep == "@playwright/test"
+                    || dep == "playwright"
+                    || dep == "cypress"
+                    || dep == "puppeteer"
+            })
+        })
+        .map(|manifest| manifest.path.clone())
+        .take(8)
+        .collect();
+
+    let artifact_sources: Vec<String> = file_paths
+        .iter()
+        .filter(|path| {
+            let lower = path.to_ascii_lowercase();
+            lower.contains("playwright-report/")
+                || lower.contains("test-results/")
+                || lower.contains("cypress/screenshots/")
+                || lower.contains("cypress/videos/")
+                || lower.ends_with("trace.zip")
+                || lower.ends_with("report.html")
+        })
+        .take(8)
+        .map(|path| (*path).to_string())
+        .collect();
+
+    let route_sources: Vec<String> = entrypoints
+        .iter()
+        .filter(|entry| {
+            entry.kind == "web"
+                || entry.reason.to_ascii_lowercase().contains("react")
+                || entry.reason.to_ascii_lowercase().contains("router")
+        })
+        .map(|entry| entry.path.clone())
+        .take(10)
+        .collect();
+
+    let docs_sources: Vec<String> = file_paths
+        .iter()
+        .filter(|path| {
+            let lower = path.to_ascii_lowercase();
+            lower.contains("qa")
+                || lower.contains("playwright")
+                || lower.contains("cypress")
+                || lower.contains("e2e")
+        })
+        .filter(|path| path.ends_with(".md") || path.ends_with(".mdx"))
+        .take(8)
+        .map(|path| (*path).to_string())
+        .collect();
+
+    let mut score = 0;
+    if !browser_config_sources.is_empty() {
+        score += 20;
+    } else if !browser_dep_sources.is_empty() {
+        score += 12;
+    }
+    if !browser_spec_sources.is_empty() {
+        score += 25;
+    }
+    if !qa_script_sources.is_empty() {
+        score += 20;
+    }
+    if !runnable_script_sources.is_empty() {
+        score += 15;
+    }
+    if !artifact_sources.is_empty() {
+        score += 10;
+    } else if !browser_config_sources.is_empty() || !browser_dep_sources.is_empty() {
+        score += 5;
+    }
+    if !route_sources.is_empty() {
+        score += 5;
+    }
+    if !docs_sources.is_empty() {
+        score += 5;
+    }
+    score = score.min(100);
+
+    let status = if score >= 75 {
+        "ready"
+    } else if score >= 45 {
+        "partial"
+    } else {
+        "missing"
+    }
+    .to_string();
+
+    let signal = |id: &str,
+                  label: &str,
+                  ready: bool,
+                  partial: bool,
+                  detail: String,
+                  sources: Vec<String>|
+     -> QaReadinessSignal {
+        QaReadinessSignal {
+            id: id.to_string(),
+            label: label.to_string(),
+            status: if ready {
+                "ready"
+            } else if partial {
+                "partial"
+            } else {
+                "missing"
+            }
+            .to_string(),
+            detail,
+            sources,
+        }
+    };
+
+    let mut runner_sources = browser_config_sources.clone();
+    for source in &browser_dep_sources {
+        push_unique_limited(&mut runner_sources, source.clone(), 8);
+    }
+
+    let signals = vec![
+        signal(
+            "browser_runner",
+            "Browser runner",
+            !browser_config_sources.is_empty(),
+            !browser_dep_sources.is_empty(),
+            if !browser_config_sources.is_empty() {
+                format!(
+                    "{} browser runner config file{} found.",
+                    browser_config_sources.len(),
+                    if browser_config_sources.len() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                )
+            } else if !browser_dep_sources.is_empty() {
+                "Browser automation dependency is installed, but no runner config was found."
+                    .to_string()
+            } else {
+                "No Playwright, Cypress, or browser runner config was found.".to_string()
+            },
+            runner_sources,
+        ),
+        signal(
+            "user_flow_specs",
+            "User-flow specs",
+            !browser_spec_sources.is_empty(),
+            false,
+            if !browser_spec_sources.is_empty() {
+                format!(
+                    "{} browser-oriented spec file{} found.",
+                    browser_spec_sources.len(),
+                    if browser_spec_sources.len() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                )
+            } else {
+                "No e2e/playwright/cypress spec files were found.".to_string()
+            },
+            browser_spec_sources.clone(),
+        ),
+        signal(
+            "local_app_command",
+            "Local app command",
+            !runnable_script_sources.is_empty(),
+            false,
+            if !runnable_script_sources.is_empty() {
+                "Package scripts expose a local dev/start/preview command.".to_string()
+            } else {
+                "No obvious package script for starting the app locally was found.".to_string()
+            },
+            runnable_script_sources.clone(),
+        ),
+        signal(
+            "qa_script",
+            "QA script",
+            !qa_script_sources.is_empty(),
+            false,
+            if !qa_script_sources.is_empty() {
+                "Package scripts expose a QA/e2e/browser test command.".to_string()
+            } else {
+                "No explicit QA/e2e/browser test script was found.".to_string()
+            },
+            qa_script_sources.clone(),
+        ),
+        signal(
+            "artifact_trail",
+            "Artifact trail",
+            !artifact_sources.is_empty(),
+            !browser_config_sources.is_empty() || !browser_dep_sources.is_empty(),
+            if !artifact_sources.is_empty() {
+                "Existing browser test artifacts or reports were found.".to_string()
+            } else if !browser_config_sources.is_empty() || !browser_dep_sources.is_empty() {
+                "Runner is artifact-capable, but no existing screenshot/trace/report artifacts were found in the scanned files.".to_string()
+            } else {
+                "No browser QA artifacts or artifact-capable runner were found.".to_string()
+            },
+            artifact_sources.clone(),
+        ),
+        signal(
+            "targetable_routes",
+            "Targetable surfaces",
+            !route_sources.is_empty(),
+            false,
+            if !route_sources.is_empty() {
+                "Web entrypoints or pages give Synthetic QA candidate surfaces.".to_string()
+            } else {
+                "No obvious web entrypoint or route file was found.".to_string()
+            },
+            route_sources.clone(),
+        ),
+    ];
+
+    let suggested_flows = suggested_qa_flows(&file_paths);
+    let summary = match status.as_str() {
+        "ready" => "Repo has enough browser-runner, script, and flow evidence to seed Synthetic QA workflows from Repo Unpacked.",
+        "partial" => "Repo has some Synthetic QA building blocks, but CodeVetter should ask for the missing runner/script/spec pieces before claiming runtime coverage.",
+        _ => "Repo does not expose enough local browser QA structure for a reliable Synthetic QA workflow yet.",
+    }
+    .to_string();
+
+    QaReadiness {
+        score,
+        status,
+        summary,
+        signals,
+        suggested_flows,
+    }
+}
+
+fn suggested_qa_flows(paths: &[&str]) -> Vec<QaSuggestedFlow> {
+    let mut flows = Vec::new();
+    let mut push_flow = |id: String, route: String, goal: String, source: String| {
+        if flows.len() >= 8 {
+            return;
+        }
+        if flows
+            .iter()
+            .any(|flow: &QaSuggestedFlow| flow.route == route)
+        {
+            return;
+        }
+        flows.push(QaSuggestedFlow {
+            id,
+            route,
+            goal,
+            sources: vec![source],
+        });
+    };
+
+    for path in paths {
+        let lower = path.to_ascii_lowercase();
+        if lower.ends_with("/app/page.tsx") || lower == "app/page.tsx" {
+            push_flow(
+                "app-root".to_string(),
+                "/".to_string(),
+                "Open the app home page and confirm the primary content renders.".to_string(),
+                (*path).to_string(),
+            );
+            continue;
+        }
+        if lower.contains("/app/") && lower.ends_with("/page.tsx") {
+            let route = path
+                .split("/app/")
+                .nth(1)
+                .unwrap_or(path)
+                .trim_end_matches("/page.tsx")
+                .split('/')
+                .filter(|part| !part.starts_with('(') && !part.starts_with('['))
+                .collect::<Vec<_>>()
+                .join("/");
+            if !route.is_empty() {
+                push_flow(
+                    format!("next-{route}").replace('/', "-"),
+                    format!("/{route}"),
+                    format!("Open /{route} and verify the main user-visible flow."),
+                    (*path).to_string(),
+                );
+            }
+            continue;
+        }
+        if (lower.contains("/src/pages/") || lower.starts_with("src/pages/"))
+            && (lower.ends_with(".tsx") || lower.ends_with(".jsx"))
+        {
+            let stem = Path::new(path)
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if stem.is_empty() {
+                continue;
+            }
+            let route = if stem.eq_ignore_ascii_case("home") || stem.eq_ignore_ascii_case("index") {
+                "/".to_string()
+            } else {
+                format!("/{}", camel_to_kebab(&stem))
+            };
+            push_flow(
+                format!("page-{}", route.trim_start_matches('/')).replace('/', "-"),
+                route.clone(),
+                format!(
+                    "Open {route} and verify the primary screen renders without console errors."
+                ),
+                (*path).to_string(),
+            );
+        }
+    }
+
+    flows
+}
+
+fn camel_to_kebab(value: &str) -> String {
+    let mut out = String::new();
+    for (idx, ch) in value.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if idx > 0 {
+                out.push('-');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else if ch == '_' || ch == ' ' {
+            out.push('-');
+        } else {
+            out.push(ch.to_ascii_lowercase());
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+fn push_unique_limited(values: &mut Vec<String>, value: impl Into<String>, limit: usize) {
+    if values.len() >= limit {
+        return;
+    }
+    let value = value.into();
+    if !value.trim().is_empty() && !values.contains(&value) {
+        values.push(value);
+    }
+}
+
+const MAX_REPO_GRAPH_NODES: usize = 260;
+const MAX_REPO_GRAPH_EDGES: usize = 520;
+
+fn graph_id(kind: &str, value: &str) -> String {
+    let slug = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    format!("{kind}:{slug}")
+}
+
+fn push_repo_graph_node(nodes: &mut Vec<RepoGraphNode>, node: RepoGraphNode) -> bool {
+    if nodes.iter().any(|existing| existing.id == node.id) {
+        return false;
+    }
+    if nodes.len() >= MAX_REPO_GRAPH_NODES {
+        return false;
+    }
+    nodes.push(node);
+    true
+}
+
+fn push_repo_graph_edge(edges: &mut Vec<RepoGraphEdge>, edge: RepoGraphEdge) -> bool {
+    if edges.iter().any(|existing| {
+        existing.from == edge.from && existing.to == edge.to && existing.kind == edge.kind
+    }) {
+        return false;
+    }
+    if edges.len() >= MAX_REPO_GRAPH_EDGES {
+        return false;
+    }
+    edges.push(edge);
+    true
+}
+
+fn file_graph_node(path: &str, kind: &str, detail: &str) -> RepoGraphNode {
+    RepoGraphNode {
+        id: graph_id("file", path),
+        kind: kind.to_string(),
+        label: path.to_string(),
+        path: Some(path.to_string()),
+        detail: Some(detail.to_string()),
+        sources: vec![path.to_string()],
+    }
+}
+
+fn build_repo_graph(
+    root: &Path,
+    files: &[(String, u64)],
+    manifests: &[ManifestSummary],
+    entrypoints: &[EntrypointHint],
+) -> RepoGraph {
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    let mut truncated = false;
+    let file_paths: Vec<&str> = files.iter().map(|(path, _)| path.as_str()).collect();
+
+    for entry in entrypoints.iter().take(80) {
+        if !push_repo_graph_node(
+            &mut nodes,
+            file_graph_node(&entry.path, "file", &entry.reason),
+        ) {
+            truncated = true;
+        }
+    }
+
+    for manifest in manifests.iter().take(40) {
+        let package_label = manifest
+            .name
+            .clone()
+            .unwrap_or_else(|| manifest.path.clone());
+        let package_id = graph_id("package", &manifest.path);
+        if !push_repo_graph_node(
+            &mut nodes,
+            RepoGraphNode {
+                id: package_id.clone(),
+                kind: "package".to_string(),
+                label: package_label,
+                path: Some(manifest.path.clone()),
+                detail: Some(format!("{} manifest", manifest.kind)),
+                sources: vec![manifest.path.clone()],
+            },
+        ) {
+            truncated = true;
+        }
+
+        for script in manifest.scripts.iter().take(18) {
+            let script_id = graph_id("script", &format!("{}:{script}", manifest.path));
+            if !push_repo_graph_node(
+                &mut nodes,
+                RepoGraphNode {
+                    id: script_id.clone(),
+                    kind: "script".to_string(),
+                    label: script.clone(),
+                    path: Some(manifest.path.clone()),
+                    detail: Some("package script".to_string()),
+                    sources: vec![manifest.path.clone()],
+                },
+            ) {
+                truncated = true;
+            }
+            if !push_repo_graph_edge(
+                &mut edges,
+                RepoGraphEdge {
+                    from: package_id.clone(),
+                    to: script_id,
+                    kind: "defines".to_string(),
+                    evidence: format!("{} defines npm script `{script}`", manifest.path),
+                    sources: vec![manifest.path.clone()],
+                },
+            ) {
+                truncated = true;
+            }
+        }
+    }
+
+    for flow in suggested_qa_flows(&file_paths) {
+        let Some(source) = flow.sources.first() else {
+            continue;
+        };
+        let route_id = graph_id("route", &flow.route);
+        let file_id = graph_id("file", source);
+        let _ = push_repo_graph_node(&mut nodes, file_graph_node(source, "file", "route file"));
+        if !push_repo_graph_node(
+            &mut nodes,
+            RepoGraphNode {
+                id: route_id.clone(),
+                kind: "route".to_string(),
+                label: flow.route.clone(),
+                path: Some(source.clone()),
+                detail: Some(flow.goal.clone()),
+                sources: flow.sources.clone(),
+            },
+        ) {
+            truncated = true;
+        }
+        if !push_repo_graph_edge(
+            &mut edges,
+            RepoGraphEdge {
+                from: file_id,
+                to: route_id,
+                kind: "routes_to".to_string(),
+                evidence: "route inferred from page file path".to_string(),
+                sources: flow.sources,
+            },
+        ) {
+            truncated = true;
+        }
+    }
+
+    for path in file_paths.iter().filter(|path| is_test_path(path)).take(80) {
+        let test_id = graph_id("test", path);
+        if !push_repo_graph_node(
+            &mut nodes,
+            RepoGraphNode {
+                id: test_id.clone(),
+                kind: "test".to_string(),
+                label: (*path).to_string(),
+                path: Some((*path).to_string()),
+                detail: Some("test/spec file".to_string()),
+                sources: vec![(*path).to_string()],
+            },
+        ) {
+            truncated = true;
+        }
+    }
+
+    for path in file_paths
+        .iter()
+        .filter(|path| should_scan_for_graph_markers(path))
+        .take(300)
+    {
+        let abs = root.join(path);
+        let content = read_first_bytes(&abs, 80 * 1024);
+        if content.is_empty() {
+            continue;
+        }
+        let file_id = graph_id("file", path);
+        scan_tauri_commands(
+            path,
+            &content,
+            &mut nodes,
+            &mut edges,
+            &mut truncated,
+            &file_id,
+        );
+        scan_db_tables(
+            path,
+            &content,
+            &mut nodes,
+            &mut edges,
+            &mut truncated,
+            &file_id,
+        );
+        scan_decision_markers(
+            path,
+            &content,
+            &mut nodes,
+            &mut edges,
+            &mut truncated,
+            &file_id,
+        );
+    }
+
+    nodes.sort_by(|a, b| a.kind.cmp(&b.kind).then_with(|| a.label.cmp(&b.label)));
+    edges.sort_by(|a, b| {
+        a.kind
+            .cmp(&b.kind)
+            .then_with(|| a.from.cmp(&b.from))
+            .then_with(|| a.to.cmp(&b.to))
+    });
+
+    RepoGraph {
+        schema_version: 1,
+        nodes,
+        edges,
+        truncated,
+    }
+}
+
+fn is_test_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".test.ts")
+        || lower.ends_with(".test.tsx")
+        || lower.ends_with(".spec.ts")
+        || lower.ends_with(".spec.tsx")
+        || lower.ends_with("_test.rs")
+        || lower.contains("/tests/")
+        || lower.starts_with("tests/")
+}
+
+fn should_scan_for_graph_markers(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".rs")
+        || lower.ends_with(".ts")
+        || lower.ends_with(".tsx")
+        || lower.ends_with(".js")
+        || lower.ends_with(".jsx")
+        || lower.ends_with(".sql")
+        || lower.ends_with(".md")
+        || lower.ends_with(".mdx")
+}
+
+fn scan_tauri_commands(
+    path: &str,
+    content: &str,
+    nodes: &mut Vec<RepoGraphNode>,
+    edges: &mut Vec<RepoGraphEdge>,
+    truncated: &mut bool,
+    file_id: &str,
+) {
+    let mut pending_command_attr = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("#[tauri::command") {
+            pending_command_attr = true;
+            continue;
+        }
+        if !pending_command_attr {
+            continue;
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("pub async fn ")
+            .or_else(|| trimmed.strip_prefix("pub fn "))
+            .or_else(|| trimmed.strip_prefix("async fn "))
+            .or_else(|| trimmed.strip_prefix("fn "))
+        {
+            let name = rest
+                .split(|ch: char| ch == '(' || ch.is_whitespace())
+                .next()
+                .unwrap_or("")
+                .trim();
+            if name.is_empty() {
+                pending_command_attr = false;
+                continue;
+            }
+            let command_id = graph_id("tauri_command", name);
+            if !push_repo_graph_node(
+                nodes,
+                RepoGraphNode {
+                    id: command_id.clone(),
+                    kind: "tauri_command".to_string(),
+                    label: name.to_string(),
+                    path: Some(path.to_string()),
+                    detail: Some("Tauri command boundary".to_string()),
+                    sources: vec![path.to_string()],
+                },
+            ) {
+                *truncated = true;
+            }
+            if !push_repo_graph_edge(
+                edges,
+                RepoGraphEdge {
+                    from: file_id.to_string(),
+                    to: command_id,
+                    kind: "defines".to_string(),
+                    evidence: "function has #[tauri::command] attribute".to_string(),
+                    sources: vec![path.to_string()],
+                },
+            ) {
+                *truncated = true;
+            }
+            pending_command_attr = false;
+        }
+    }
+}
+
+fn scan_db_tables(
+    path: &str,
+    content: &str,
+    nodes: &mut Vec<RepoGraphNode>,
+    edges: &mut Vec<RepoGraphEdge>,
+    truncated: &mut bool,
+    file_id: &str,
+) {
+    for line in content.lines() {
+        let upper = line.to_ascii_uppercase();
+        let Some(idx) = upper.find("CREATE TABLE") else {
+            continue;
+        };
+        let after = line[idx + "CREATE TABLE".len()..]
+            .trim()
+            .trim_start_matches("IF NOT EXISTS")
+            .trim();
+        let table = after
+            .split(|ch: char| ch == '(' || ch.is_whitespace())
+            .next()
+            .unwrap_or("")
+            .trim_matches('"')
+            .trim_matches('`')
+            .trim();
+        if table.is_empty() {
+            continue;
+        }
+        let table_id = graph_id("db_table", table);
+        if !push_repo_graph_node(
+            nodes,
+            RepoGraphNode {
+                id: table_id.clone(),
+                kind: "db_table".to_string(),
+                label: table.to_string(),
+                path: Some(path.to_string()),
+                detail: Some("database table".to_string()),
+                sources: vec![path.to_string()],
+            },
+        ) {
+            *truncated = true;
+        }
+        if !push_repo_graph_edge(
+            edges,
+            RepoGraphEdge {
+                from: file_id.to_string(),
+                to: table_id,
+                kind: "persists_to".to_string(),
+                evidence: "CREATE TABLE statement".to_string(),
+                sources: vec![path.to_string()],
+            },
+        ) {
+            *truncated = true;
+        }
+    }
+}
+
+fn scan_decision_markers(
+    path: &str,
+    content: &str,
+    nodes: &mut Vec<RepoGraphNode>,
+    edges: &mut Vec<RepoGraphEdge>,
+    truncated: &mut bool,
+    file_id: &str,
+) {
+    for (idx, line) in content.lines().enumerate().take(600) {
+        let marker = ["WHY:", "DECISION:", "TRADEOFF:"]
+            .iter()
+            .find(|marker| line.contains(**marker));
+        let Some(marker) = marker else {
+            continue;
+        };
+        let detail = line
+            .split_once(marker)
+            .map(|(_, rest)| rest.trim())
+            .unwrap_or(line.trim())
+            .chars()
+            .take(160)
+            .collect::<String>();
+        let source = format!("{path}#L{}", idx + 1);
+        let decision_id = graph_id("decision", &source);
+        if !push_repo_graph_node(
+            nodes,
+            RepoGraphNode {
+                id: decision_id.clone(),
+                kind: "decision".to_string(),
+                label: marker.trim_end_matches(':').to_ascii_lowercase(),
+                path: Some(path.to_string()),
+                detail: Some(detail),
+                sources: vec![source.clone()],
+            },
+        ) {
+            *truncated = true;
+        }
+        if !push_repo_graph_edge(
+            edges,
+            RepoGraphEdge {
+                from: file_id.to_string(),
+                to: decision_id,
+                kind: "decided_by".to_string(),
+                evidence: format!("{marker} marker"),
+                sources: vec![source],
+            },
+        ) {
+            *truncated = true;
+        }
+    }
+}
+
+fn build_history_brief(
+    root: &Path,
+    files: &[(String, u64)],
+    manifests: &[ManifestSummary],
+) -> RepoHistoryBrief {
+    let commits = read_recent_git_commits(root, 12);
+    let mut decisions = collect_history_decisions(root, files, 16);
+    let mut test_hints = collect_history_test_hints(files, manifests, 16);
+    let mut sources = Vec::new();
+    let mut truncated = false;
+
+    if decisions.len() > 12 {
+        decisions.truncate(12);
+        truncated = true;
+    }
+    if test_hints.len() > 12 {
+        test_hints.truncate(12);
+        truncated = true;
+    }
+
+    for decision in &decisions {
+        push_unique_limited(&mut sources, decision.source.clone(), 24);
+    }
+    for hint in &test_hints {
+        push_unique_limited(&mut sources, hint.path.clone(), 24);
+    }
+    for manifest in manifests.iter().take(4) {
+        push_unique_limited(&mut sources, manifest.path.clone(), 24);
+    }
+
+    let summary = if commits.is_empty() && decisions.is_empty() && test_hints.is_empty() {
+        "No recent git commits, decision markers, or test hints were available from the bounded local scan.".to_string()
+    } else {
+        format!(
+            "Local history brief captured {} recent commit{}, {} decision marker{}, and {} test hint{} for Repo Unpacked. Treat commit subjects as leads and rely on cited files for durable constraints.",
+            commits.len(),
+            if commits.len() == 1 { "" } else { "s" },
+            decisions.len(),
+            if decisions.len() == 1 { "" } else { "s" },
+            test_hints.len(),
+            if test_hints.len() == 1 { "" } else { "s" },
+        )
+    };
+
+    RepoHistoryBrief {
+        schema_version: 1,
+        summary,
+        recent_commits: commits,
+        decisions,
+        test_hints,
+        sources,
+        truncated,
+    }
+}
+
+fn read_recent_git_commits(root: &Path, limit: usize) -> Vec<RepoHistoryCommit> {
+    let output = StdCommand::new("git")
+        .args([
+            "log",
+            &format!("-n{limit}"),
+            "--date=short",
+            "--format=%H%x1f%ad%x1f%s",
+        ])
+        .current_dir(root)
+        .output();
+
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(parse_git_commit_line)
+        .collect()
+}
+
+fn parse_git_commit_line(line: &str) -> Option<RepoHistoryCommit> {
+    let mut parts = line.splitn(3, '\x1f');
+    let sha = parts.next()?.trim();
+    let date = parts
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let subject = parts.next()?.trim();
+    if sha.is_empty() || subject.is_empty() {
+        return None;
+    }
+
+    Some(RepoHistoryCommit {
+        sha: sha.chars().take(12).collect(),
+        date: date.map(String::from),
+        subject: subject.chars().take(180).collect(),
+    })
+}
+
+fn collect_history_decisions(
+    root: &Path,
+    files: &[(String, u64)],
+    limit: usize,
+) -> Vec<RepoHistoryDecision> {
+    let mut decisions = Vec::new();
+    for (path, _) in files
+        .iter()
+        .filter(|(path, _)| should_scan_for_history_markers(path))
+        .take(320)
+    {
+        if decisions.len() >= limit {
+            break;
+        }
+        let content = read_first_bytes(&root.join(path), 80 * 1024);
+        if content.is_empty() {
+            continue;
+        }
+        for (idx, line) in content.lines().enumerate().take(700) {
+            if decisions.len() >= limit {
+                break;
+            }
+            let marker = ["WHY:", "DECISION:", "TRADEOFF:"]
+                .iter()
+                .find(|marker| line.contains(**marker));
+            let Some(marker) = marker else {
+                continue;
+            };
+            let text = line
+                .split_once(marker)
+                .map(|(_, rest)| rest.trim())
+                .unwrap_or(line.trim())
+                .chars()
+                .take(180)
+                .collect::<String>();
+            if text.is_empty() {
+                continue;
+            }
+            decisions.push(RepoHistoryDecision {
+                marker: marker.trim_end_matches(':').to_ascii_lowercase(),
+                text,
+                source: format!("{path}#L{}", idx + 1),
+            });
+        }
+    }
+    decisions
+}
+
+fn should_scan_for_history_markers(path: &str) -> bool {
+    should_scan_for_graph_markers(path) && !looks_sensitive_path(path)
+}
+
+fn looks_sensitive_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    let basename = Path::new(&lower)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default();
+    basename == ".env"
+        || basename.ends_with(".pem")
+        || basename.ends_with(".key")
+        || basename == "id_rsa"
+        || basename == "id_ed25519"
+        || lower.contains("/.ssh/")
+        || lower.contains("/secrets/")
+        || lower.contains("/credentials/")
+}
+
+fn collect_history_test_hints(
+    files: &[(String, u64)],
+    manifests: &[ManifestSummary],
+    limit: usize,
+) -> Vec<RepoHistoryTestHint> {
+    let mut hints = Vec::new();
+    for manifest in manifests
+        .iter()
+        .filter(|manifest| !manifest.scripts.is_empty())
+    {
+        for script in &manifest.scripts {
+            let lower = script.to_ascii_lowercase();
+            if lower.contains("test")
+                || lower.contains("lint")
+                || lower.contains("check")
+                || lower.contains("e2e")
+                || lower.contains("playwright")
+            {
+                hints.push(RepoHistoryTestHint {
+                    path: manifest.path.clone(),
+                    reason: format!("package script `{script}` is a likely verification command"),
+                });
+                if hints.len() >= limit {
+                    return hints;
+                }
+            }
+        }
+    }
+
+    for (path, _) in files.iter().filter(|(path, _)| is_test_path(path)) {
+        if hints.iter().any(|hint| hint.path == *path) {
+            continue;
+        }
+        hints.push(RepoHistoryTestHint {
+            path: path.clone(),
+            reason: "test/spec file anchors expected behavior".to_string(),
+        });
+        if hints.len() >= limit {
+            break;
+        }
+    }
+
+    hints
 }
 
 fn read_git_metadata(root: &Path) -> (Option<String>, Option<String>, Option<String>) {
@@ -1064,35 +2475,57 @@ fn infer_stack(files: &[(String, u64)], manifests: &[ManifestSummary]) -> Vec<St
     if has("tauri.conf.json") || has_in("src-tauri/") {
         tags.push("Tauri");
     }
-    if manifests.iter().any(|m| m.dependencies.contains(&"react".to_string())) {
+    if manifests
+        .iter()
+        .any(|m| m.dependencies.contains(&"react".to_string()))
+    {
         tags.push("React");
     }
-    if manifests.iter().any(|m| m.dependencies.contains(&"vue".to_string())) {
+    if manifests
+        .iter()
+        .any(|m| m.dependencies.contains(&"vue".to_string()))
+    {
         tags.push("Vue");
     }
-    if manifests.iter().any(|m| m.dependencies.contains(&"svelte".to_string())) {
+    if manifests
+        .iter()
+        .any(|m| m.dependencies.contains(&"svelte".to_string()))
+    {
         tags.push("Svelte");
     }
-    if manifests.iter().any(|m| m.dependencies.contains(&"next".to_string())) {
+    if manifests
+        .iter()
+        .any(|m| m.dependencies.contains(&"next".to_string()))
+    {
         tags.push("Next.js");
     }
-    if manifests.iter().any(|m| m.dependencies.contains(&"vite".to_string()))
+    if manifests
+        .iter()
+        .any(|m| m.dependencies.contains(&"vite".to_string()))
         || has("vite.config.ts")
         || has("vite.config.js")
     {
         tags.push("Vite");
     }
-    if manifests.iter().any(|m| m.dependencies.contains(&"tailwindcss".to_string()))
+    if manifests
+        .iter()
+        .any(|m| m.dependencies.contains(&"tailwindcss".to_string()))
         || has("tailwind.config.ts")
         || has("tailwind.config.js")
     {
         tags.push("Tailwind");
     }
-    if manifests.iter().any(|m| m.dependencies.iter().any(|d| d == "drizzle-orm")) {
+    if manifests
+        .iter()
+        .any(|m| m.dependencies.iter().any(|d| d == "drizzle-orm"))
+    {
         tags.push("Drizzle");
     }
-    if manifests.iter().any(|m| m.dependencies.iter().any(|d| d == "@cloudflare/workers-types"))
-        || has("wrangler.toml")
+    if manifests.iter().any(|m| {
+        m.dependencies
+            .iter()
+            .any(|d| d == "@cloudflare/workers-types")
+    }) || has("wrangler.toml")
         || has("wrangler.jsonc")
     {
         tags.push("Cloudflare Workers");
@@ -1106,10 +2539,16 @@ fn infer_stack(files: &[(String, u64)], manifests: &[ManifestSummary]) -> Vec<St
     if manifests.iter().any(|m| m.kind == "pyproject.toml") {
         tags.push("Python");
     }
-    if manifests.iter().any(|m| m.dependencies.iter().any(|d| d == "@playwright/test")) {
+    if manifests
+        .iter()
+        .any(|m| m.dependencies.iter().any(|d| d == "@playwright/test"))
+    {
         tags.push("Playwright");
     }
-    if manifests.iter().any(|m| m.dependencies.iter().any(|d| d == "vitest")) {
+    if manifests
+        .iter()
+        .any(|m| m.dependencies.iter().any(|d| d == "vitest"))
+    {
         tags.push("Vitest");
     }
     if has(".github/workflows") || has_in(".github/workflows/") {
@@ -1346,12 +2785,18 @@ in what you actually read. Return ONLY valid JSON (no markdown fences, no commen
 
     buf.push_str("\nLanguages (top 10 by bytes):\n");
     for l in inv.languages.iter().take(10) {
-        buf.push_str(&format!("  - {} — {} files, {} bytes\n", l.language, l.files, l.bytes));
+        buf.push_str(&format!(
+            "  - {} — {} files, {} bytes\n",
+            l.language, l.files, l.bytes
+        ));
     }
 
     buf.push_str("\nTop-level dirs:\n");
     for d in inv.top_level_dirs.iter().take(20) {
-        buf.push_str(&format!("  - {}/ — {} files, {} bytes\n", d.path, d.file_count, d.bytes));
+        buf.push_str(&format!(
+            "  - {}/ — {} files, {} bytes\n",
+            d.path, d.file_count, d.bytes
+        ));
     }
 
     buf.push_str("\nManifests:\n");
@@ -1373,7 +2818,12 @@ in what you actually read. Return ONLY valid JSON (no markdown fences, no commen
         if !m.dependencies.is_empty() {
             buf.push_str(&format!(
                 "      deps: {}\n",
-                m.dependencies.iter().take(40).cloned().collect::<Vec<_>>().join(", ")
+                m.dependencies
+                    .iter()
+                    .take(40)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
     }
@@ -1387,6 +2837,110 @@ in what you actually read. Return ONLY valid JSON (no markdown fences, no commen
         buf.push_str("\nNotable configs:\n");
         for c in &inv.config_files {
             buf.push_str(&format!("  - {}\n", c));
+        }
+    }
+
+    buf.push_str("\nSynthetic QA readiness:\n");
+    buf.push_str(&format!(
+        "  - status={} score={} — {}\n",
+        inv.qa_readiness.status, inv.qa_readiness.score, inv.qa_readiness.summary
+    ));
+    for signal in &inv.qa_readiness.signals {
+        let sources = if signal.sources.is_empty() {
+            "no sources".to_string()
+        } else {
+            signal.sources.join(", ")
+        };
+        buf.push_str(&format!(
+            "  - {} [{}]: {} ({})\n",
+            signal.label, signal.status, signal.detail, sources
+        ));
+    }
+    if !inv.qa_readiness.suggested_flows.is_empty() {
+        buf.push_str("  Suggested local QA flows:\n");
+        for flow in &inv.qa_readiness.suggested_flows {
+            buf.push_str(&format!(
+                "    - {} — {} (sources: {})\n",
+                flow.route,
+                flow.goal,
+                flow.sources.join(", ")
+            ));
+        }
+    }
+
+    buf.push_str("\nRepo memory graph:\n");
+    buf.push_str(&format!(
+        "  - schema={} nodes={} edges={}{}\n",
+        inv.repo_graph.schema_version,
+        inv.repo_graph.nodes.len(),
+        inv.repo_graph.edges.len(),
+        if inv.repo_graph.truncated {
+            " truncated"
+        } else {
+            ""
+        }
+    ));
+    for node in inv.repo_graph.nodes.iter().take(20) {
+        buf.push_str(&format!(
+            "  - node {} [{}]{}{}\n",
+            node.label,
+            node.kind,
+            node.path
+                .as_deref()
+                .map(|path| format!(" path={path}"))
+                .unwrap_or_default(),
+            node.detail
+                .as_deref()
+                .map(|detail| format!(" detail={detail}"))
+                .unwrap_or_default()
+        ));
+    }
+    for edge in inv.repo_graph.edges.iter().take(20) {
+        buf.push_str(&format!(
+            "  - edge {} -> {} [{}] ({})\n",
+            edge.from, edge.to, edge.kind, edge.evidence
+        ));
+    }
+
+    buf.push_str("\nCodebase history brief:\n");
+    buf.push_str(&format!(
+        "  - schema={}{} — {}\n",
+        inv.history_brief.schema_version,
+        if inv.history_brief.truncated {
+            " truncated"
+        } else {
+            ""
+        },
+        inv.history_brief.summary
+    ));
+    if !inv.history_brief.recent_commits.is_empty() {
+        buf.push_str("  Recent commits:\n");
+        for commit in inv.history_brief.recent_commits.iter().take(8) {
+            buf.push_str(&format!(
+                "    - {}{} — {}\n",
+                commit.sha,
+                commit
+                    .date
+                    .as_deref()
+                    .map(|date| format!(" {date}"))
+                    .unwrap_or_default(),
+                commit.subject
+            ));
+        }
+    }
+    if !inv.history_brief.decisions.is_empty() {
+        buf.push_str("  Decision markers:\n");
+        for decision in inv.history_brief.decisions.iter().take(8) {
+            buf.push_str(&format!(
+                "    - {} at {} — {}\n",
+                decision.marker, decision.source, decision.text
+            ));
+        }
+    }
+    if !inv.history_brief.test_hints.is_empty() {
+        buf.push_str("  Verification hints:\n");
+        for hint in inv.history_brief.test_hints.iter().take(8) {
+            buf.push_str(&format!("    - {} — {}\n", hint.path, hint.reason));
         }
     }
 
@@ -1435,10 +2989,7 @@ fn normalize_report(parsed: &Value, inv: &RepoInventory) -> UnpackReport {
                 arr.iter()
                     .filter_map(|c| {
                         let claim = c.get("claim").and_then(|x| x.as_str())?.to_string();
-                        let kind = c
-                            .get("kind")
-                            .and_then(|x| x.as_str())
-                            .map(String::from);
+                        let kind = c.get("kind").and_then(|x| x.as_str()).map(String::from);
                         let sources = c
                             .get("sources")
                             .and_then(|x| x.as_array())
@@ -1535,6 +3086,121 @@ fn render_markdown(
             "**Files scanned:** {} ({} skipped, {} bytes)\n\n",
             inv.files_scanned, inv.files_skipped, inv.bytes_scanned
         ));
+        out.push_str(&format!(
+            "**Synthetic QA readiness:** {} / 100 ({}) — {}\n\n",
+            inv.qa_readiness.score, inv.qa_readiness.status, inv.qa_readiness.summary
+        ));
+        if !inv.qa_readiness.signals.is_empty() {
+            out.push_str("### Synthetic QA Signals\n\n");
+            for signal in &inv.qa_readiness.signals {
+                out.push_str(&format!(
+                    "- **{}:** {} — {}\n",
+                    signal.label, signal.status, signal.detail
+                ));
+                if !signal.sources.is_empty() {
+                    let srcs: Vec<String> =
+                        signal.sources.iter().map(|s| format!("`{s}`")).collect();
+                    out.push_str(&format!("  - sources: {}\n", srcs.join(", ")));
+                }
+            }
+            out.push('\n');
+        }
+        if !inv.qa_readiness.suggested_flows.is_empty() {
+            out.push_str("### Suggested Synthetic QA Flows\n\n");
+            for flow in &inv.qa_readiness.suggested_flows {
+                let srcs: Vec<String> = flow.sources.iter().map(|s| format!("`{s}`")).collect();
+                out.push_str(&format!(
+                    "- `{}` — {}{}{}\n",
+                    flow.route,
+                    flow.goal,
+                    if srcs.is_empty() { "" } else { " (sources: " },
+                    if srcs.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{})", srcs.join(", "))
+                    }
+                ));
+            }
+            out.push('\n');
+        }
+        if !inv.repo_graph.nodes.is_empty() {
+            out.push_str(&format!(
+                "### Repo Memory Graph\n\nSchema v{} · {} nodes · {} edges{}\n\n",
+                inv.repo_graph.schema_version,
+                inv.repo_graph.nodes.len(),
+                inv.repo_graph.edges.len(),
+                if inv.repo_graph.truncated {
+                    " · truncated"
+                } else {
+                    ""
+                }
+            ));
+            for node in inv.repo_graph.nodes.iter().take(20) {
+                out.push_str(&format!("- **{}** `{}`", node.kind, node.label));
+                if let Some(path) = &node.path {
+                    out.push_str(&format!(" — `{path}`"));
+                }
+                if let Some(detail) = &node.detail {
+                    out.push_str(&format!(" — {detail}"));
+                }
+                out.push('\n');
+            }
+            for edge in inv.repo_graph.edges.iter().take(20) {
+                out.push_str(&format!(
+                    "- `{}` -> `{}` ({}) — {}\n",
+                    edge.from, edge.to, edge.kind, edge.evidence
+                ));
+            }
+            out.push('\n');
+        }
+        if !inv.history_brief.recent_commits.is_empty()
+            || !inv.history_brief.decisions.is_empty()
+            || !inv.history_brief.test_hints.is_empty()
+        {
+            out.push_str(&format!(
+                "### Codebase History Brief\n\nSchema v{}{} · {}\n\n",
+                inv.history_brief.schema_version,
+                if inv.history_brief.truncated {
+                    " · truncated"
+                } else {
+                    ""
+                },
+                inv.history_brief.summary
+            ));
+            if !inv.history_brief.recent_commits.is_empty() {
+                out.push_str("**Recent commits**\n\n");
+                for commit in inv.history_brief.recent_commits.iter().take(8) {
+                    out.push_str(&format!(
+                        "- `{}`{} — {}\n",
+                        commit.sha,
+                        commit
+                            .date
+                            .as_deref()
+                            .map(|date| format!(" {date}"))
+                            .unwrap_or_default(),
+                        commit.subject
+                    ));
+                }
+                out.push('\n');
+            }
+            if !inv.history_brief.decisions.is_empty() {
+                out.push_str("**Decision markers**\n\n");
+                for decision in inv.history_brief.decisions.iter().take(10) {
+                    out.push_str(&format!(
+                        "- **{}** `{}` — {}\n",
+                        decision.marker, decision.source, decision.text
+                    ));
+                }
+                out.push('\n');
+            }
+            if !inv.history_brief.test_hints.is_empty() {
+                out.push_str("**Verification hints**\n\n");
+                for hint in inv.history_brief.test_hints.iter().take(10) {
+                    out.push_str(&format!("- `{}` — {}\n", hint.path, hint.reason));
+                }
+                out.push('\n');
+            }
+        }
     }
 
     let render_section = |out: &mut String, sec: &Option<ReportSection>| {
@@ -1550,11 +3216,7 @@ fn render_markdown(
             };
             out.push_str(&format!("- {}{}\n", c.claim, kind_marker));
             if !c.sources.is_empty() {
-                let srcs: Vec<String> = c
-                    .sources
-                    .iter()
-                    .map(|s| format!("`{}`", s))
-                    .collect();
+                let srcs: Vec<String> = c.sources.iter().map(|s| format!("`{}`", s)).collect();
                 out.push_str(&format!("  - sources: {}\n", srcs.join(", ")));
             }
         }
@@ -1575,6 +3237,105 @@ fn render_markdown(
         out.push_str("```text\n");
         out.push_str(prompt);
         out.push_str("\n```\n");
+    }
+
+    out
+}
+
+fn render_agent_context_sidecar(
+    repo_name: &str,
+    created_at: &str,
+    inventory: &RepoInventory,
+) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("# Agent Context Sidecar — {repo_name}\n\n"));
+    out.push_str(&format!(
+        "_Generated: {created_at} · schema: repo_graph.v{} / history_brief.v{}_\n\n",
+        inventory.repo_graph.schema_version, inventory.history_brief.schema_version
+    ));
+    out.push_str("## Use This For\n\n");
+    out.push_str("- Paste into Hunk, Graphify, or an agent session as local context.\n");
+    out.push_str("- Treat graph edges as navigation leads, not proof by themselves.\n");
+    out.push_str("- Prefer cited files and decision markers when resolving conflicts.\n\n");
+
+    out.push_str("## Repo\n\n");
+    out.push_str(&format!("- path: `{}`\n", inventory.repo_path));
+    if let Some(branch) = &inventory.branch {
+        out.push_str(&format!("- branch: `{branch}`\n"));
+    }
+    if let Some(sha) = &inventory.commit_sha {
+        out.push_str(&format!("- commit: `{}`\n", sha));
+    }
+    if !inventory.stack_tags.is_empty() {
+        out.push_str(&format!("- stack: {}\n", inventory.stack_tags.join(", ")));
+    }
+    out.push('\n');
+
+    if !inventory.history_brief.summary.is_empty() {
+        out.push_str("## History Brief\n\n");
+        out.push_str(&format!("{}\n\n", inventory.history_brief.summary));
+        for decision in inventory.history_brief.decisions.iter().take(12) {
+            out.push_str(&format!(
+                "- **{}** `{}` — {}\n",
+                decision.marker, decision.source, decision.text
+            ));
+        }
+        for hint in inventory.history_brief.test_hints.iter().take(12) {
+            out.push_str(&format!("- `{}` — {}\n", hint.path, hint.reason));
+        }
+        if !inventory.history_brief.recent_commits.is_empty() {
+            out.push_str("\nRecent commits:\n");
+            for commit in inventory.history_brief.recent_commits.iter().take(8) {
+                out.push_str(&format!(
+                    "- `{}`{} — {}\n",
+                    commit.sha,
+                    commit
+                        .date
+                        .as_deref()
+                        .map(|date| format!(" {date}"))
+                        .unwrap_or_default(),
+                    commit.subject
+                ));
+            }
+        }
+        out.push('\n');
+    }
+
+    if !inventory.repo_graph.nodes.is_empty() {
+        out.push_str("## Repo Graph Nodes\n\n");
+        for node in inventory.repo_graph.nodes.iter().take(80) {
+            out.push_str(&format!("- **{}** `{}`", node.kind, node.label));
+            if let Some(path) = &node.path {
+                out.push_str(&format!(" — `{path}`"));
+            }
+            if let Some(detail) = &node.detail {
+                out.push_str(&format!(" — {detail}"));
+            }
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+
+    if !inventory.repo_graph.edges.is_empty() {
+        out.push_str("## Repo Graph Edges\n\n");
+        for edge in inventory.repo_graph.edges.iter().take(120) {
+            out.push_str(&format!(
+                "- `{}` -> `{}` ({}) — {}",
+                edge.from, edge.to, edge.kind, edge.evidence
+            ));
+            if !edge.sources.is_empty() {
+                let sources: Vec<String> = edge.sources.iter().map(|s| format!("`{s}`")).collect();
+                out.push_str(&format!("; sources: {}", sources.join(", ")));
+            }
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+
+    if inventory.repo_graph.truncated || inventory.history_brief.truncated {
+        out.push_str(
+            "> This sidecar was truncated by CodeVetter's bounded local inventory scan.\n",
+        );
     }
 
     out
@@ -1670,7 +3431,11 @@ fn parse_gitignore(root: &Path) -> Vec<GlobPattern> {
             if dir_only {
                 pattern = pattern.trim_end_matches('/').to_string();
             }
-            Some(GlobPattern { pattern, negated, dir_only })
+            Some(GlobPattern {
+                pattern,
+                negated,
+                dir_only,
+            })
         })
         .collect()
 }
@@ -1718,4 +3483,405 @@ fn path_match(pattern: &str, text: &str) -> bool {
         return true;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn package_manifest(path: &str, scripts: &[&str], deps: &[&str]) -> ManifestSummary {
+        ManifestSummary {
+            path: path.to_string(),
+            kind: "package.json".to_string(),
+            name: Some("demo".to_string()),
+            version: None,
+            dependencies: deps.iter().map(|dep| (*dep).to_string()).collect(),
+            scripts: scripts.iter().map(|script| (*script).to_string()).collect(),
+        }
+    }
+
+    fn minimal_inventory() -> RepoInventory {
+        RepoInventory {
+            repo_path: "/tmp/demo".to_string(),
+            repo_name: "demo".to_string(),
+            commit_sha: Some("1234567890abcdef".to_string()),
+            branch: Some("main".to_string()),
+            remote_url: None,
+            files_scanned: 2,
+            files_skipped: 0,
+            bytes_scanned: 200,
+            max_files_hit: false,
+            languages: Vec::new(),
+            manifests: Vec::new(),
+            entrypoints: Vec::new(),
+            top_level_dirs: Vec::new(),
+            docs: Vec::new(),
+            config_files: Vec::new(),
+            stack_tags: vec!["React".to_string(), "Rust".to_string()],
+            qa_readiness: QaReadiness::default(),
+            repo_graph: RepoGraph {
+                schema_version: 1,
+                nodes: vec![RepoGraphNode {
+                    id: "file:src-review-ts".to_string(),
+                    kind: "file".to_string(),
+                    label: "src/review.ts".to_string(),
+                    path: Some("src/review.ts".to_string()),
+                    detail: Some("review surface".to_string()),
+                    sources: vec!["src/review.ts".to_string()],
+                }],
+                edges: vec![RepoGraphEdge {
+                    from: "file:src-review-ts".to_string(),
+                    to: "decision:src-review-ts-l1".to_string(),
+                    kind: "decided_by".to_string(),
+                    evidence: "DECISION marker".to_string(),
+                    sources: vec!["src/review.ts#L1".to_string()],
+                }],
+                truncated: false,
+            },
+            history_brief: RepoHistoryBrief {
+                schema_version: 1,
+                summary: "History summary".to_string(),
+                recent_commits: vec![RepoHistoryCommit {
+                    sha: "1234567890ab".to_string(),
+                    date: Some("2026-06-12".to_string()),
+                    subject: "Add history brief".to_string(),
+                }],
+                decisions: vec![RepoHistoryDecision {
+                    marker: "decision".to_string(),
+                    text: "review keeps proof local".to_string(),
+                    source: "src/review.ts#L1".to_string(),
+                }],
+                test_hints: vec![RepoHistoryTestHint {
+                    path: "package.json".to_string(),
+                    reason: "package script `test` is a likely verification command".to_string(),
+                }],
+                sources: vec!["src/review.ts#L1".to_string()],
+                truncated: false,
+            },
+            all_files: vec!["src/review.ts".to_string(), "package.json".to_string()],
+            ignored_dirs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn qa_readiness_scores_playwright_repo_with_flows() {
+        let files = vec![
+            ("package.json".to_string(), 200),
+            ("playwright.config.ts".to_string(), 300),
+            ("src/pages/Home.tsx".to_string(), 200),
+            ("src/pages/Checkout.tsx".to_string(), 200),
+            ("tests/e2e/checkout.spec.ts".to_string(), 500),
+            ("docs/qa.md".to_string(), 100),
+        ];
+        let manifests = vec![package_manifest(
+            "package.json",
+            &["dev", "test:synthetic-qa", "test:e2e"],
+            &["@playwright/test", "react"],
+        )];
+        let entrypoints = infer_entrypoints(&files, &manifests, &["React".to_string()]);
+
+        let readiness = build_qa_readiness(&files, &manifests, &entrypoints);
+
+        assert_eq!(readiness.status, "ready");
+        assert!(readiness.score >= 90);
+        assert!(readiness
+            .signals
+            .iter()
+            .any(|signal| signal.id == "browser_runner" && signal.status == "ready"));
+        assert!(readiness
+            .suggested_flows
+            .iter()
+            .any(|flow| flow.route == "/checkout"));
+    }
+
+    #[test]
+    fn qa_readiness_marks_missing_repo_without_browser_runner() {
+        let files = vec![("src/main.rs".to_string(), 200)];
+        let manifests = vec![ManifestSummary {
+            path: "Cargo.toml".to_string(),
+            kind: "cargo.toml".to_string(),
+            name: Some("demo".to_string()),
+            version: None,
+            dependencies: Vec::new(),
+            scripts: Vec::new(),
+        }];
+        let entrypoints = infer_entrypoints(&files, &manifests, &["Rust".to_string()]);
+
+        let readiness = build_qa_readiness(&files, &manifests, &entrypoints);
+
+        assert_eq!(readiness.status, "missing");
+        assert!(readiness.score < 45);
+        assert!(readiness.suggested_flows.is_empty());
+    }
+
+    #[test]
+    fn repo_graph_contains_core_repo_relationships_deterministically() {
+        let root =
+            std::env::temp_dir().join(format!("codevetter-graph-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("src-tauri/src/commands")).expect("commands dir");
+        std::fs::create_dir_all(root.join("src-tauri/src/db")).expect("db dir");
+        std::fs::create_dir_all(root.join("src/pages")).expect("pages dir");
+        std::fs::create_dir_all(root.join("tests/e2e")).expect("tests dir");
+        std::fs::write(
+            root.join("src-tauri/src/commands/review.rs"),
+            r#"
+#[tauri::command]
+pub async fn run_review() -> Result<(), String> {
+    Ok(())
+}
+"#,
+        )
+        .expect("command file");
+        std::fs::write(
+            root.join("src-tauri/src/db/schema.rs"),
+            r##"
+const MIGRATION_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS local_reviews (
+    id TEXT PRIMARY KEY
+);
+"#;
+"##,
+        )
+        .expect("schema file");
+        std::fs::write(
+            root.join("src/pages/Review.tsx"),
+            "// DECISION: review page owns the primary user flow\nexport default function Review() { return null; }\n",
+        )
+        .expect("page file");
+        std::fs::write(
+            root.join("tests/e2e/review.spec.ts"),
+            "test('review', () => {});\n",
+        )
+        .expect("test file");
+
+        let files = vec![
+            ("package.json".to_string(), 200),
+            ("src-tauri/src/commands/review.rs".to_string(), 200),
+            ("src-tauri/src/db/schema.rs".to_string(), 200),
+            ("src/pages/Review.tsx".to_string(), 200),
+            ("tests/e2e/review.spec.ts".to_string(), 200),
+        ];
+        let manifests = vec![package_manifest(
+            "package.json",
+            &["dev", "test:e2e"],
+            &["@playwright/test", "react"],
+        )];
+        let entrypoints = infer_entrypoints(&files, &manifests, &["React".to_string()]);
+
+        let graph = build_repo_graph(&root, &files, &manifests, &entrypoints);
+        let graph_again = build_repo_graph(&root, &files, &manifests, &entrypoints);
+
+        assert_eq!(
+            serde_json::to_string(&graph).expect("graph json"),
+            serde_json::to_string(&graph_again).expect("graph json")
+        );
+        assert!(graph
+            .nodes
+            .iter()
+            .any(|node| node.kind == "script" && node.label == "test:e2e"));
+        assert!(graph
+            .nodes
+            .iter()
+            .any(|node| node.kind == "route" && node.label == "/review"));
+        assert!(graph
+            .nodes
+            .iter()
+            .any(|node| node.kind == "tauri_command" && node.label == "run_review"));
+        assert!(graph
+            .nodes
+            .iter()
+            .any(|node| node.kind == "db_table" && node.label == "local_reviews"));
+        assert!(graph.nodes.iter().any(|node| node.kind == "test"));
+        assert!(graph.nodes.iter().any(|node| node.kind == "decision"));
+        assert!(graph.edges.iter().any(|edge| edge.kind == "defines"));
+        assert!(graph.edges.iter().any(|edge| edge.kind == "routes_to"));
+        assert!(graph.edges.iter().any(|edge| edge.kind == "persists_to"));
+        assert!(graph.edges.iter().any(|edge| edge.kind == "decided_by"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn history_brief_collects_decisions_and_verification_hints_deterministically() {
+        let root =
+            std::env::temp_dir().join(format!("codevetter-history-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("src")).expect("src dir");
+        std::fs::create_dir_all(root.join("tests")).expect("tests dir");
+        std::fs::write(
+            root.join("src/review.ts"),
+            "// DECISION: review keeps proof local\nexport const proof = true;\n",
+        )
+        .expect("source file");
+        std::fs::write(
+            root.join("tests/review.test.ts"),
+            "test('proof', () => {});\n",
+        )
+        .expect("test file");
+
+        let files = vec![
+            ("package.json".to_string(), 200),
+            ("src/review.ts".to_string(), 200),
+            ("tests/review.test.ts".to_string(), 200),
+        ];
+        let manifests = vec![package_manifest(
+            "package.json",
+            &["lint", "test:review-proof"],
+            &["react"],
+        )];
+
+        let brief = build_history_brief(&root, &files, &manifests);
+        let brief_again = build_history_brief(&root, &files, &manifests);
+
+        assert_eq!(
+            serde_json::to_string(&brief).expect("history brief json"),
+            serde_json::to_string(&brief_again).expect("history brief json")
+        );
+        assert_eq!(brief.schema_version, 1);
+        assert!(brief.summary.contains("decision marker"));
+        assert!(brief
+            .decisions
+            .iter()
+            .any(|decision| decision.source == "src/review.ts#L1"));
+        assert!(brief
+            .test_hints
+            .iter()
+            .any(|hint| hint.path == "package.json" && hint.reason.contains("lint")));
+        assert!(brief
+            .test_hints
+            .iter()
+            .any(|hint| hint.path == "tests/review.test.ts"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_recent_git_commit_line() {
+        let commit = parse_git_commit_line(
+            "1234567890abcdef\x1f2026-06-12\x1fAdd Repo Unpacked history brief",
+        )
+        .expect("commit line");
+
+        assert_eq!(commit.sha, "1234567890ab");
+        assert_eq!(commit.date.as_deref(), Some("2026-06-12"));
+        assert_eq!(commit.subject, "Add Repo Unpacked history brief");
+        assert!(parse_git_commit_line("bad").is_none());
+    }
+
+    #[test]
+    fn agent_context_sidecar_exports_graph_and_history() {
+        let inventory = minimal_inventory();
+        let sidecar = render_agent_context_sidecar("demo", "2026-06-12T00:00:00Z", &inventory);
+
+        assert!(sidecar.contains("# Agent Context Sidecar"));
+        assert!(sidecar.contains("repo_graph.v1 / history_brief.v1"));
+        assert!(sidecar.contains("review keeps proof local"));
+        assert!(sidecar.contains("src/review.ts#L1"));
+        assert!(sidecar.contains("file:src-review-ts"));
+        assert!(sidecar.contains("decided_by"));
+    }
+
+    #[test]
+    fn imports_codevetter_repo_graph_from_wrapper_json() {
+        let raw = serde_json::json!({
+            "repo_graph": {
+                "schema_version": 1,
+                "nodes": [
+                    {
+                        "id": "file:src-review-ts",
+                        "kind": "file",
+                        "label": "src/review.ts",
+                        "path": "src/review.ts",
+                        "detail": "changed file",
+                        "sources": ["src/review.ts"]
+                    }
+                ],
+                "edges": [],
+                "truncated": false
+            }
+        });
+
+        let result = import_repo_graph_from_value(&raw).expect("imported graph");
+
+        assert_eq!(result.source_kind, "repo_graph");
+        assert_eq!(result.node_count, 1);
+        assert_eq!(result.edge_count, 0);
+        assert!(result.warnings.is_empty());
+        assert_eq!(result.graph.nodes[0].label, "src/review.ts");
+    }
+
+    #[test]
+    fn imports_loose_graph_json_with_source_target_edges() {
+        let raw = serde_json::json!({
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "a",
+                        "type": "file",
+                        "name": "src/a.ts",
+                        "file_path": "src/a.ts"
+                    },
+                    {
+                        "id": "b",
+                        "type": "test",
+                        "name": "tests/a.test.ts"
+                    }
+                ],
+                "edges": [
+                    {
+                        "source": "a",
+                        "target": "b",
+                        "type": "tests",
+                        "description": "test covers file"
+                    }
+                ]
+            }
+        });
+
+        let result = import_repo_graph_from_value(&raw).expect("loose graph");
+
+        assert_eq!(result.source_kind, "graph");
+        assert_eq!(result.node_count, 2);
+        assert_eq!(result.edge_count, 1);
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("normalized")));
+        assert_eq!(result.graph.nodes[0].kind, "file");
+        assert_eq!(result.graph.nodes[0].path.as_deref(), Some("src/a.ts"));
+        assert_eq!(result.graph.edges[0].kind, "tests");
+        assert_eq!(result.graph.edges[0].evidence, "test covers file");
+    }
+
+    #[test]
+    fn repo_inventory_deserializes_old_reports_without_qa_readiness_or_repo_graph() {
+        let raw = serde_json::json!({
+            "repo_path": "/tmp/demo",
+            "repo_name": "demo",
+            "commit_sha": null,
+            "branch": null,
+            "remote_url": null,
+            "files_scanned": 0,
+            "files_skipped": 0,
+            "bytes_scanned": 0,
+            "max_files_hit": false,
+            "languages": [],
+            "manifests": [],
+            "entrypoints": [],
+            "top_level_dirs": [],
+            "docs": [],
+            "config_files": [],
+            "stack_tags": [],
+            "all_files": [],
+            "ignored_dirs": []
+        });
+
+        let inventory: RepoInventory = serde_json::from_value(raw).expect("legacy inventory");
+
+        assert_eq!(inventory.qa_readiness.status, "missing");
+        assert_eq!(inventory.qa_readiness.score, 0);
+        assert_eq!(inventory.repo_graph.schema_version, 1);
+        assert!(inventory.repo_graph.nodes.is_empty());
+        assert_eq!(inventory.history_brief.schema_version, 1);
+        assert!(inventory.history_brief.recent_commits.is_empty());
+    }
 }

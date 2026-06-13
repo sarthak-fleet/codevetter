@@ -73,41 +73,45 @@ fn extract_definitions_from_line(lang: &str, line: &str) -> Vec<(String, &'stati
     match lang {
         "ts" => {
             // `function foo(` / `export function foo(` / `export async function foo(`
-            if let Some(rest) = strip_prefix_any(trimmed, &[
-                "export default async function ",
-                "export default function ",
-                "export async function ",
-                "export function ",
-                "async function ",
-                "function ",
-            ]) {
+            if let Some(rest) = strip_prefix_any(
+                trimmed,
+                &[
+                    "export default async function ",
+                    "export default function ",
+                    "export async function ",
+                    "export function ",
+                    "async function ",
+                    "function ",
+                ],
+            ) {
                 if let Some(name) = take_ident(rest) {
                     out.push((name, "function"));
                 }
             }
             // `class Foo` / `export class Foo`
-            if let Some(rest) = strip_prefix_any(trimmed, &[
-                "export default class ",
-                "export abstract class ",
-                "export class ",
-                "abstract class ",
-                "class ",
-            ]) {
+            if let Some(rest) = strip_prefix_any(
+                trimmed,
+                &[
+                    "export default class ",
+                    "export abstract class ",
+                    "export class ",
+                    "abstract class ",
+                    "class ",
+                ],
+            ) {
                 if let Some(name) = take_ident(rest) {
                     out.push((name, "class"));
                 }
             }
             // `export const foo = ` / `const foo = (...) =>`
-            if let Some(rest) = strip_prefix_any(trimmed, &[
-                "export const ",
-                "export let ",
-                "const ",
-                "let ",
-            ]) {
+            if let Some(rest) =
+                strip_prefix_any(trimmed, &["export const ", "export let ", "const ", "let "])
+            {
                 if let Some(name) = take_ident(rest) {
                     // Only capture if it's assigned to a function/arrow
                     // (otherwise every local variable matches — too noisy)
-                    if rest.contains("=>") || rest.contains("function") || rest.contains("= async") {
+                    if rest.contains("=>") || rest.contains("function") || rest.contains("= async")
+                    {
                         out.push((name, "const-fn"));
                     }
                 }
@@ -131,12 +135,9 @@ fn extract_definitions_from_line(lang: &str, line: &str) -> Vec<(String, &'stati
             }
         }
         "rs" => {
-            if let Some(rest) = strip_prefix_any(trimmed, &[
-                "pub async fn ",
-                "pub fn ",
-                "async fn ",
-                "fn ",
-            ]) {
+            if let Some(rest) =
+                strip_prefix_any(trimmed, &["pub async fn ", "pub fn ", "async fn ", "fn "])
+            {
                 if let Some(name) = take_ident(rest) {
                     out.push((name, "function"));
                 }
@@ -157,7 +158,9 @@ fn extract_definitions_from_line(lang: &str, line: &str) -> Vec<(String, &'stati
             if let Some(rest) = strip_prefix_any(trimmed, &["func "]) {
                 let after_recv = if rest.starts_with('(') {
                     // skip receiver `(r *T) `
-                    rest.find(')').map(|i| rest[i + 1..].trim_start()).unwrap_or(rest)
+                    rest.find(')')
+                        .map(|i| rest[i + 1..].trim_start())
+                        .unwrap_or(rest)
                 } else {
                     rest
                 };
@@ -225,7 +228,16 @@ fn maybe_method(line: &str) -> Option<String> {
     }
     let mut work = line;
     // Allow leading modifiers
-    for kw in ["public ", "private ", "protected ", "static ", "readonly ", "async ", "get ", "set "] {
+    for kw in [
+        "public ",
+        "private ",
+        "protected ",
+        "static ",
+        "readonly ",
+        "async ",
+        "get ",
+        "set ",
+    ] {
         if let Some(rest) = work.strip_prefix(kw) {
             work = rest;
         }
@@ -234,7 +246,10 @@ fn maybe_method(line: &str) -> Option<String> {
     let after = &work[name.len()..];
     // Must be followed by `(` (possibly with generics: `<T>(...)`)
     let after = after.trim_start();
-    let after = after.strip_prefix('<').and_then(|r| r.find('>').map(|i| r[i + 1..].trim_start())).unwrap_or(after);
+    let after = after
+        .strip_prefix('<')
+        .and_then(|r| r.find('>').map(|i| r[i + 1..].trim_start()))
+        .unwrap_or(after);
     if !after.starts_with('(') {
         return None;
     }
@@ -496,10 +511,7 @@ pub fn summarize_for_prompt(report: &BlastRadiusReport) -> Option<String> {
     }
 
     if report.total_symbols > 8 {
-        lines.push(format!(
-            "  (…and {} more)",
-            report.total_symbols - 8
-        ));
+        lines.push(format!("  (…and {} more)", report.total_symbols - 8));
     }
 
     lines.push(
@@ -512,10 +524,7 @@ pub fn summarize_for_prompt(report: &BlastRadiusReport) -> Option<String> {
 /// Analyze the blast radius of a diff: extract symbols from the diff and
 /// count every caller in the repo.
 #[tauri::command]
-pub async fn analyze_blast_radius(
-    repo_path: String,
-    diff_range: String,
-) -> Result<Value, String> {
+pub async fn analyze_blast_radius(repo_path: String, diff_range: String) -> Result<Value, String> {
     let report = compute_blast_radius(&repo_path, &diff_range)?;
     Ok(json!(report))
 }
@@ -534,7 +543,8 @@ mod tests {
 
     #[test]
     fn extracts_rs_fn() {
-        let defs = extract_definitions_from_line("rs", "pub async fn run_review() -> Result<(), Error> {");
+        let defs =
+            extract_definitions_from_line("rs", "pub async fn run_review() -> Result<(), Error> {");
         assert_eq!(defs, vec![("run_review".to_string(), "function")]);
     }
 
@@ -546,7 +556,10 @@ mod tests {
 
     #[test]
     fn extracts_go_func_with_receiver() {
-        let defs = extract_definitions_from_line("go", "func (s *Server) HandleRequest(ctx context.Context) error {");
+        let defs = extract_definitions_from_line(
+            "go",
+            "func (s *Server) HandleRequest(ctx context.Context) error {",
+        );
         assert_eq!(defs, vec![("HandleRequest".to_string(), "function")]);
     }
 
@@ -572,6 +585,9 @@ mod tests {
     fn parses_added_lines() {
         let diff = "diff --git a/foo.ts b/foo.ts\n--- a/foo.ts\n+++ b/foo.ts\n@@ -1,1 +1,2 @@\n-old line\n+new line\n+another\n";
         let m = parse_diff_added_lines(diff);
-        assert_eq!(m.get("foo.ts").unwrap(), &vec!["new line".to_string(), "another".to_string()]);
+        assert_eq!(
+            m.get("foo.ts").unwrap(),
+            &vec!["new line".to_string(), "another".to_string()]
+        );
     }
 }

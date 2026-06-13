@@ -433,8 +433,10 @@ pub async fn detect_provider_accounts(db: State<'_, DbState>) -> Result<Value, S
                 .iter()
                 .filter(|e| e.provider == det.provider)
                 .collect();
-            let detected_for_provider =
-                detected.iter().filter(|d| d.provider == det.provider).count();
+            let detected_for_provider = detected
+                .iter()
+                .filter(|d| d.provider == det.provider)
+                .count();
             let matched_account = provider_accounts
                 .iter()
                 .copied()
@@ -1074,9 +1076,7 @@ async fn check_live_usage_cursor() -> Result<Value, String> {
     let total_spend_cents = period
         .pointer("/planUsage/totalSpend")
         .and_then(|v| v.as_f64());
-    let limit_cents = period
-        .pointer("/planUsage/limit")
-        .and_then(|v| v.as_f64());
+    let limit_cents = period.pointer("/planUsage/limit").and_then(|v| v.as_f64());
     let remaining_cents = period
         .pointer("/planUsage/remaining")
         .and_then(|v| v.as_f64());
@@ -1094,10 +1094,7 @@ async fn check_live_usage_cursor() -> Result<Value, String> {
     // epoch-ms. We pass the cycle bounds we just got so the spend % and
     // token totals are talking about the same window.
     let agg_tokens = if let (Some(start), Some(end)) = (cycle_start_ms, cycle_end_ms) {
-        let body = format!(
-            "{{\"startDate\":\"{}\",\"endDate\":\"{}\"}}",
-            start, end
-        );
+        let body = format!("{{\"startDate\":\"{}\",\"endDate\":\"{}\"}}", start, end);
         match client
             .post("https://api2.cursor.sh/aiserver.v1.DashboardService/GetAggregatedUsageEvents")
             .header("Authorization", format!("Bearer {}", token))
@@ -1128,7 +1125,8 @@ async fn check_live_usage_cursor() -> Result<Value, String> {
             .or_else(|| v.and_then(|x| x.as_i64()))
             .unwrap_or(0)
     };
-    let total_input_tokens = parse_token(agg_tokens.as_ref().and_then(|t| t.get("totalInputTokens")));
+    let total_input_tokens =
+        parse_token(agg_tokens.as_ref().and_then(|t| t.get("totalInputTokens")));
     let total_output_tokens =
         parse_token(agg_tokens.as_ref().and_then(|t| t.get("totalOutputTokens")));
     let total_cache_read_tokens = parse_token(

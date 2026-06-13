@@ -1,0 +1,4 @@
+{"type":"session_meta","payload":{"id":"codex-session-1","cwd":"/repo/codevetter","cli_version":"0.1.0","model_provider":"openai","git":{"branch":"feature/adapter"}}}
+{"type":"response_item","timestamp":"2026-06-12T16:00:00Z","payload":{"role":"user","usage":{"input_tokens":120,"output_tokens":0}}}
+{"type":"response_item","timestamp":"2026-06-12T16:01:00Z","payload":{"role":"assistant","usage":{"input_tokens":80,"output_tokens":60}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":500,"output_tokens":150,"cached_input_tokens":100}}}}

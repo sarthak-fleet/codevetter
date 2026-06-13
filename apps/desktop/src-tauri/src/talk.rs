@@ -97,7 +97,11 @@ pub fn build_talk_from_fix(
     let summary = if files_modified.is_empty() {
         "Agent ran but no files were modified.".to_string()
     } else {
-        format!("Fixed issues in {} file(s): {}", files_modified.len(), files_modified.join(", "))
+        format!(
+            "Fixed issues in {} file(s): {}",
+            files_modified.len(),
+            files_modified.join(", ")
+        )
     };
 
     AgentTalkInput {
@@ -253,15 +257,24 @@ mod tests {
         });
 
         let talk = build_talk_from_review(
-            "claude", "/tmp/repo", "Review this", "raw output",
-            &parsed, Some("rev-1"), Some(5000), None,
+            "claude",
+            "/tmp/repo",
+            "Review this",
+            "raw output",
+            &parsed,
+            Some("rev-1"),
+            Some(5000),
+            None,
         );
 
         assert_eq!(talk.agent_type, "claude");
         assert_eq!(talk.role, Some("reviewer".to_string()));
         assert_eq!(talk.review_id, Some("rev-1".to_string()));
         assert_eq!(talk.files_read, Some(r#"["src/main.rs"]"#.to_string()));
-        assert_eq!(talk.actions_summary, Some("Reviewed main module".to_string()));
+        assert_eq!(
+            talk.actions_summary,
+            Some("Reviewed main module".to_string())
+        );
         assert_eq!(talk.key_decisions, Some("No issues found".to_string()));
         assert_eq!(talk.duration_ms, Some(5000));
     }
@@ -275,8 +288,14 @@ mod tests {
         });
 
         let talk = build_talk_from_review(
-            "gemini", "/tmp/repo", "Review", "output",
-            &parsed, None, None, None,
+            "gemini",
+            "/tmp/repo",
+            "Review",
+            "output",
+            &parsed,
+            None,
+            None,
+            None,
         );
 
         // Should still succeed with defaults
@@ -295,8 +314,14 @@ mod tests {
         });
 
         let talk = build_talk_from_review(
-            "claude", "/tmp/repo", "prompt", "raw",
-            &parsed, None, None, None,
+            "claude",
+            "/tmp/repo",
+            "prompt",
+            "raw",
+            &parsed,
+            None,
+            None,
+            None,
         );
 
         let structured: serde_json::Value =
@@ -311,8 +336,15 @@ mod tests {
     fn fix_talk_with_modified_files() {
         let files = vec!["src/lib.rs".to_string(), "src/main.rs".to_string()];
         let talk = build_talk_from_fix(
-            "claude", "/tmp/repo", "Fix issues", "agent output",
-            &files, Some("rev-1"), Some(3000), Some(0), None,
+            "claude",
+            "/tmp/repo",
+            "Fix issues",
+            "agent output",
+            &files,
+            Some("rev-1"),
+            Some(3000),
+            Some(0),
+            None,
         );
 
         assert_eq!(talk.role, Some("fixer".to_string()));
@@ -324,8 +356,15 @@ mod tests {
     #[test]
     fn fix_talk_no_files_modified() {
         let talk = build_talk_from_fix(
-            "gemini", "/tmp/repo", "Fix it", "described changes only",
-            &[], None, Some(1000), Some(0), None,
+            "gemini",
+            "/tmp/repo",
+            "Fix it",
+            "described changes only",
+            &[],
+            None,
+            Some(1000),
+            Some(0),
+            None,
         );
 
         assert_eq!(
@@ -338,11 +377,21 @@ mod tests {
     #[test]
     fn fix_talk_preserves_input_context() {
         let talk = build_talk_from_fix(
-            "claude", "/tmp/repo", "Fix", "out",
-            &[], None, None, None, Some("previous talk context"),
+            "claude",
+            "/tmp/repo",
+            "Fix",
+            "out",
+            &[],
+            None,
+            None,
+            None,
+            Some("previous talk context"),
         );
 
-        assert_eq!(talk.input_context, Some("previous talk context".to_string()));
+        assert_eq!(
+            talk.input_context,
+            Some("previous talk context".to_string())
+        );
     }
 
     // ── render_talk_for_prompt ────────────────────────────────────

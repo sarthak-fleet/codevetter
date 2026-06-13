@@ -1,19 +1,30 @@
 import {
   Activity,
+  ArrowRight,
   BarChart3,
+  BrainCircuit,
+  CheckCircle2,
+  FileClock,
+  GitBranch,
+  Map as MapIcon,
+  MonitorPlay,
+  Network,
   RefreshCw,
+  SearchCheck,
   Terminal,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type {
   AccountUsage,
-  IndexStats,
   LiveUsageResult,
   ProviderAccount,
+  SessionAdapterRun,
+  SessionScorecard,
   TokenUsageStats,
   TriggerIndexResult,
 } from "@/lib/tauri-ipc";
@@ -22,7 +33,6 @@ import {
   checkLiveUsage,
   deleteProviderAccount,
   detectProviderAccounts,
-  getIndexStats,
   getTokenUsageStats,
   isTauriAvailable,
   listProviderAccounts,
@@ -36,6 +46,18 @@ function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
   return String(n);
+}
+
+function formatShortDateTime(value: string | null | undefined): string {
+  if (!value) return "not indexed";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function planLabel(plan: string | null): string {
@@ -573,7 +595,6 @@ function AccountUsageRow({
 
 // Module-level cache so data persists across tab switches
 let _cachedDashboard: {
-  stats: IndexStats | null;
   tokenUsage: TokenUsageStats | null;
   accounts: ProviderAccount[];
   usages: Record<string, AccountUsage>;
@@ -938,13 +959,475 @@ function WeeklyAgentSplit({
   );
 }
 
+function scoreTone(score: number): string {
+  if (score >= 80) return "text-emerald-300";
+  if (score >= 60) return "text-amber-300";
+  return "text-red-300";
+}
+
+const ROADMAP_RELEASE_VERSION = "1.1.51";
+
+const ROADMAP_RELEASE_ITEMS = [
+  {
+    label: "Archive search",
+    detail: "Search normalized local agent messages and tool calls from Roadmap.",
+    href: "/roadmap",
+  },
+  {
+    label: "Live archive refresh",
+    detail: "Startup, periodic, and manual indexes emit archive events for active search refresh.",
+    href: "/roadmap",
+  },
+  {
+    label: "Transcript replay packets",
+    detail: "Evidence rows now group adjacent transcript command events into bounded multi-turn replay packets.",
+    href: "/review",
+  },
+];
+
+export function RoadmapReleaseBanner() {
+  return (
+    <section className="cv-panel overflow-hidden border-[var(--cv-accent)]/35 bg-[#090806]">
+      <div className="grid gap-px bg-[#2b2414] lg:grid-cols-[1.2fr_2fr]">
+        <div className="bg-[#0b0a08] px-4 py-4">
+          <div className="flex items-center gap-2">
+            <Badge
+              variant="outline"
+              className="rounded-full border-[var(--cv-accent)]/35 bg-[var(--cv-accent)]/10 px-2 py-0 text-[10px] uppercase text-[var(--cv-accent)]"
+            >
+              v{ROADMAP_RELEASE_VERSION}
+            </Badge>
+            <span className="cv-label text-slate-400">latest installed build</span>
+          </div>
+          <h2 className="mt-3 text-lg font-semibold tracking-normal text-slate-100">
+            Verification work is now visible from launch.
+          </h2>
+          <p className="mt-2 max-w-xl text-xs leading-5 text-slate-500">
+            The recent roadmap slices are no longer only buried inside Review state. Roadmap exposes the shipped verification spine, archive search, and live source-health surfaces while Home opens directly into usage telemetry.
+          </p>
+        </div>
+        <div className="grid gap-px bg-[#18130b] md:grid-cols-3">
+          {ROADMAP_RELEASE_ITEMS.map((item) => (
+            <Link
+              key={item.label}
+              to={item.href}
+              className="group flex min-h-36 flex-col justify-between bg-[#08090a] px-3 py-3 transition-colors hover:bg-[#0d1012]"
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <CheckCircle2 size={14} className="text-emerald-300" />
+                  <ArrowRight
+                    size={13}
+                    className="text-slate-700 transition-colors group-hover:text-[var(--cv-accent)]"
+                  />
+                </div>
+                <div className="mt-3 text-sm font-medium text-slate-200">{item.label}</div>
+              </div>
+              <p className="mt-3 text-[11px] leading-4 text-slate-500">{item.detail}</p>
+            </Link>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function VerificationWorkbenchPanel({
+  scorecard,
+}: {
+  scorecard: SessionScorecard | null;
+}) {
+  const sessionCount = scorecard?.sessions_analyzed ?? 0;
+  const tools = [
+    {
+      id: "evidence",
+      label: "Evidence search",
+      surface: "Review",
+      href: "/review",
+      Icon: SearchCheck,
+      status: "Risk candidates",
+    },
+    {
+      id: "timeline",
+      label: "Agent timeline",
+      surface: "Review",
+      href: "/review",
+      Icon: GitBranch,
+      status: "Command anchors",
+    },
+    {
+      id: "qa",
+      label: "Synthetic QA",
+      surface: "Review",
+      href: "/review",
+      Icon: MonitorPlay,
+      status: "Post-fix compare",
+    },
+    {
+      id: "graph",
+      label: "Memory graph",
+      surface: "Repo Unpacked",
+      href: "/unpack",
+      Icon: Network,
+      status: "JSON + sidecar",
+    },
+    {
+      id: "history",
+      label: "History brief",
+      surface: "Repo Unpacked",
+      href: "/unpack",
+      Icon: FileClock,
+      status: "Cited local context",
+    },
+    {
+      id: "sessions",
+      label: "AI sessions",
+      surface: "Home",
+      href: "/",
+      Icon: BrainCircuit,
+      status: sessionCount > 0 ? `${sessionCount} indexed` : "Index ready",
+    },
+  ];
+
+  return (
+    <div className="cv-panel overflow-hidden">
+      <div className="grid gap-px bg-[#151515] md:grid-cols-3 xl:grid-cols-6">
+        {tools.map(({ id, label, surface, href, Icon, status }) => (
+          <Link
+            key={id}
+            to={href}
+            className="group min-h-28 bg-[#08090a] px-3 py-3 transition-colors hover:bg-[#0d1012]"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <Icon size={15} className="text-[var(--cv-accent)]" />
+              <ArrowRight
+                size={13}
+                className="text-slate-700 transition-colors group-hover:text-[var(--cv-accent)]"
+              />
+            </div>
+            <div className="mt-4 text-sm font-medium text-slate-200">{label}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <Badge
+                variant="outline"
+                className="rounded-full border-[#252525] px-1.5 py-0 text-[9px] uppercase text-slate-500"
+              >
+                {surface}
+              </Badge>
+              <span className="min-w-0 truncate text-[10px] text-slate-500">{status}</span>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function SessionScorecardPanel({ scorecard }: { scorecard: SessionScorecard | null }) {
+  if (!scorecard || scorecard.sessions_analyzed === 0) return null;
+  const adapters = scorecard.adapters ?? [];
+  const topDimensions = [...scorecard.dimensions]
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 3);
+  const topRecommendation = scorecard.recommendations[0];
+  const adapterWarningCount = adapters.reduce(
+    (sum, adapter) => sum + adapter.parse_warnings.length,
+    0,
+  );
+
+  return (
+    <div className="cv-panel px-4 py-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Activity size={15} className="shrink-0 text-cyan-300" />
+          <div className="min-w-0">
+            <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+              AI session intelligence
+            </div>
+            <div className="truncate text-xs text-slate-400">
+              {scorecard.sessions_analyzed} indexed session
+              {scorecard.sessions_analyzed === 1 ? "" : "s"} · schema v
+              {scorecard.schema_version}
+            </div>
+          </div>
+        </div>
+        <div className={`font-mono text-2xl font-semibold ${scoreTone(scorecard.overall_score)}`}>
+          {scorecard.overall_score}
+        </div>
+      </div>
+
+      {adapters.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          {adapters.map((adapter) => (
+            <Badge
+              key={adapter.adapter_id}
+              variant="outline"
+              className="rounded-full border-[#252525] px-2 py-0.5 text-[10px] font-normal text-slate-400"
+              title={`${adapter.evidence_archive} · ${adapter.messages_indexed} indexed messages`}
+            >
+              {adapter.adapter_id}: {adapter.sessions_indexed}
+            </Badge>
+          ))}
+          {adapterWarningCount > 0 && (
+            <span className="text-[10px] text-amber-300/80">
+              {adapterWarningCount} adapter warning{adapterWarningCount === 1 ? "" : "s"}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="grid gap-2 md:grid-cols-3">
+        {topDimensions.map((dimension) => (
+          <div
+            key={dimension.id}
+            className="rounded border border-[#1a1a1a] bg-[#050505] px-2.5 py-2"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-[11px] text-slate-300">{dimension.label}</span>
+              <span className={`font-mono text-xs ${scoreTone(dimension.score)}`}>
+                {dimension.score}
+              </span>
+            </div>
+            <div className="mt-1 h-1 overflow-hidden rounded-full bg-slate-800">
+              <div
+                className="h-full rounded-full bg-cyan-300/70"
+                style={{ width: `${Math.max(3, Math.min(100, dimension.score))}%` }}
+              />
+            </div>
+            <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-slate-500">
+              {dimension.next_action}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {topRecommendation && (
+        <div className="mt-3 flex items-start gap-2 border-t border-[#1a1a1a] pt-2">
+          <Badge variant="outline" className="mt-0.5 rounded-full px-1.5 py-0 text-[9px] uppercase">
+            {topRecommendation.severity}
+          </Badge>
+          <div className="min-w-0">
+            <div className="truncate text-xs text-slate-300">{topRecommendation.title}</div>
+            <p className="line-clamp-2 text-[10px] leading-4 text-slate-500">
+              {topRecommendation.next_action}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatSignedDelta(value: number): string {
+  if (value > 0) return `+${formatTokens(value)}`;
+  if (value < 0) return `-${formatTokens(Math.abs(value))}`;
+  return "0";
+}
+
+function adapterRunTimestamp(run: SessionAdapterRun): string {
+  return run.last_indexed_at ?? run.created_at;
+}
+
+function adapterRunHistories(runs: SessionAdapterRun[]): Array<{
+  adapterId: string;
+  latest: SessionAdapterRun;
+  history: SessionAdapterRun[];
+}> {
+  const byAdapter = new Map<string, SessionAdapterRun[]>();
+  for (const run of runs) {
+    byAdapter.set(run.adapter_id, [...(byAdapter.get(run.adapter_id) ?? []), run]);
+  }
+  return [...byAdapter.entries()]
+    .flatMap(([adapterId, history]) => {
+      const sorted = [...history].sort((a, b) =>
+        adapterRunTimestamp(b).localeCompare(adapterRunTimestamp(a)),
+      );
+      const latest = sorted[0];
+      if (!latest) return [];
+      return [{ adapterId, latest, history: sorted }];
+    })
+    .sort((a, b) => a.adapterId.localeCompare(b.adapterId));
+}
+
+export function AdapterSourceHealthPanel({ runs }: { runs: SessionAdapterRun[] }) {
+  const histories = adapterRunHistories(runs);
+  if (histories.length === 0) return null;
+
+  const latestRuns = histories.map((entry) => entry.latest);
+  const totalWarnings = latestRuns.reduce((sum, run) => sum + run.parse_warnings.length, 0);
+  const totalSessions = latestRuns.reduce((sum, run) => sum + run.sessions_indexed, 0);
+  const totalMessages = latestRuns.reduce((sum, run) => sum + run.messages_indexed, 0);
+  const trackedRuns = histories.reduce((sum, entry) => sum + entry.history.length, 0);
+
+  return (
+    <div className="cv-panel overflow-hidden">
+      <div className="grid gap-px bg-[#151515] lg:grid-cols-[0.9fr_2.1fr]">
+        <div className="bg-[#08090a] px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Activity size={15} className="text-emerald-300" />
+            <div className="cv-label text-slate-500">source health</div>
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <div>
+              <div className="font-mono text-lg text-slate-100">{latestRuns.length}</div>
+              <div className="text-[10px] text-slate-600">adapters</div>
+            </div>
+            <div>
+              <div className="font-mono text-lg text-slate-100">{totalSessions}</div>
+              <div className="text-[10px] text-slate-600">sessions</div>
+            </div>
+            <div>
+              <div className="font-mono text-lg text-slate-100">{formatTokens(totalMessages)}</div>
+              <div className="text-[10px] text-slate-600">messages</div>
+            </div>
+          </div>
+          <div className="mt-2 text-[10px] text-slate-600">
+            {trackedRuns} recent run{trackedRuns === 1 ? "" : "s"} tracked for trend checks
+          </div>
+          {totalWarnings > 0 && (
+            <div className="mt-2 text-[10px] text-amber-300/80">
+              {totalWarnings} parse warning{totalWarnings === 1 ? "" : "s"}
+            </div>
+          )}
+        </div>
+
+        <div className="grid gap-px bg-[#151515] md:grid-cols-3">
+          {histories.map(({ adapterId, latest, history }) => {
+            const previous = history[1];
+            const firstWarning = latest.parse_warnings[0];
+            const samplePath = latest.sample_source_paths[0] ?? latest.source_roots[0] ?? "";
+            const recentRuns = history.slice(0, 4);
+            const maxMessages = Math.max(1, ...recentRuns.map((run) => run.messages_indexed));
+            const warningDelta = previous
+              ? latest.parse_warnings.length - previous.parse_warnings.length
+              : latest.parse_warnings.length;
+            const sessionsDelta = previous
+              ? latest.sessions_indexed - previous.sessions_indexed
+              : latest.sessions_indexed;
+            const messagesDelta = previous
+              ? latest.messages_indexed - previous.messages_indexed
+              : latest.messages_indexed;
+            let healthLabel = "ok";
+            if (firstWarning) {
+              healthLabel = warningDelta > 0 ? "watch" : "warn";
+            }
+            return (
+              <div key={latest.id} className="min-w-0 bg-[#08090a] px-3 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-slate-200">
+                      {adapterId}
+                    </div>
+                    <div className="mt-0.5 truncate text-[10px] text-slate-600">
+                      {formatShortDateTime(adapterRunTimestamp(latest))}
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={`shrink-0 rounded-full px-1.5 py-0 text-[9px] uppercase ${
+                      firstWarning
+                        ? "border-amber-500/25 text-amber-300/80"
+                        : "border-emerald-500/25 text-emerald-300/80"
+                    }`}
+                  >
+                    {healthLabel}
+                  </Badge>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] text-slate-500">
+                  <span>{latest.sessions_indexed} sessions</span>
+                  <span>{formatTokens(latest.messages_indexed)} messages</span>
+                  <span>{latest.supports_incremental ? "incremental" : "full scan"}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-slate-600">
+                  <span title="Latest run compared with the previous adapter run">
+                    {formatSignedDelta(sessionsDelta)} sessions
+                  </span>
+                  <span>{formatSignedDelta(messagesDelta)} messages</span>
+                  <span
+                    className={warningDelta > 0 ? "text-amber-300/80" : "text-emerald-300/70"}
+                  >
+                    {formatSignedDelta(warningDelta)} warnings
+                  </span>
+                </div>
+                <div className="mt-3 flex h-10 items-end gap-1" aria-label={`${adapterId} recent runs`}>
+                  {recentRuns.map((run) => {
+                    const height = 10 + Math.round((run.messages_indexed / maxMessages) * 30);
+                    const hasWarnings = run.parse_warnings.length > 0;
+                    return (
+                      <div
+                        key={run.id}
+                        className={`min-w-0 flex-1 rounded-sm ${
+                          hasWarnings ? "bg-amber-300/45" : "bg-emerald-300/45"
+                        }`}
+                        style={{ height }}
+                        title={`${formatShortDateTime(adapterRunTimestamp(run))}: ${run.sessions_indexed} sessions, ${formatTokens(run.messages_indexed)} messages, ${run.parse_warnings.length} warnings`}
+                      />
+                    );
+                  })}
+                </div>
+                {samplePath && (
+                  <div className="mt-2 truncate font-mono text-[10px] text-slate-600" title={samplePath}>
+                    {samplePath}
+                  </div>
+                )}
+                {firstWarning && (
+                  <div className="mt-2 line-clamp-2 text-[10px] leading-4 text-amber-200/70">
+                    {firstWarning}
+                  </div>
+                )}
+                <details className="mt-2 border-t border-[#171717] pt-2">
+                  <summary className="cursor-pointer list-none text-[10px] uppercase text-slate-500 hover:text-slate-300">
+                    recent runs
+                  </summary>
+                  <div className="mt-2 space-y-1.5">
+                    {history.slice(0, 3).map((run) => {
+                      const detailPath = run.sample_source_paths[0] ?? run.source_roots[0] ?? "";
+                      return (
+                        <div
+                          key={run.id}
+                          className="min-w-0 rounded border border-[#171717] bg-[#050505] px-2 py-1.5"
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[10px]">
+                            <span className="truncate text-slate-400">
+                              {formatShortDateTime(adapterRunTimestamp(run))}
+                            </span>
+                            <span className="shrink-0 text-slate-600">
+                              {run.parse_warnings.length} warn
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-slate-600">
+                            <span>{run.sessions_indexed} sessions</span>
+                            <span>{formatTokens(run.messages_indexed)} messages</span>
+                            {run.sample_session_ids[0] && (
+                              <span className="max-w-full truncate font-mono">
+                                {run.sample_session_ids[0]}
+                              </span>
+                            )}
+                          </div>
+                          {detailPath && (
+                            <div className="mt-1 truncate font-mono text-[9px] text-slate-700" title={detailPath}>
+                              {detailPath}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </details>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
 
 export default function Home() {
   const isInitialLoad = useRef(true);
 
   // Data state — initialize from cache if available
-  const [stats, setStats] = useState<IndexStats | null>(_cachedDashboard?.stats ?? null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageStats | null>(_cachedDashboard?.tokenUsage ?? null);
   const [accounts, setAccounts] = useState<ProviderAccount[]>(_cachedDashboard?.accounts ?? []);
   const [accountUsages, setAccountUsages] = useState<Record<string, AccountUsage>>(_cachedDashboard?.usages ?? {});
@@ -978,15 +1461,10 @@ export default function Home() {
       );
 
       const [
-        statsResult,
         tokenUsageResult,
         accountsResult,
         cachedUsagesResult,
       ] = await Promise.all([
-        getIndexStats().then(
-          (v) => ({ status: "fulfilled" as const, value: v }),
-          (e) => ({ status: "rejected" as const, reason: e })
-        ),
         getTokenUsageStats().then(
           (v) => ({ status: "fulfilled" as const, value: v }),
           (e) => ({ status: "rejected" as const, reason: e })
@@ -1001,9 +1479,6 @@ export default function Home() {
         cachedUsagePromise,
       ]);
 
-      if (statsResult.status === "fulfilled") {
-        setStats(statsResult.value);
-      }
       if (tokenUsageResult.status === "fulfilled") {
         setTokenUsage(tokenUsageResult.value);
       }
@@ -1043,12 +1518,12 @@ export default function Home() {
 
       // If critical reads failed, surface a friendly message — full detail
       // goes to the console, never the raw IPC error to the user.
-      if (statsResult.status === "rejected") {
-        console.error("[CodeVetter] Dashboard stats load failed:", statsResult.reason);
+      if (tokenUsageResult.status === "rejected") {
+        console.error("[CodeVetter] Usage load failed:", tokenUsageResult.reason);
         const msg =
-          statsResult.reason instanceof Error
-            ? statsResult.reason.message
-            : String(statsResult.reason);
+          tokenUsageResult.reason instanceof Error
+            ? tokenUsageResult.reason.message
+            : String(tokenUsageResult.reason);
         if (msg === "TAURI_NOT_AVAILABLE") {
           setError(
             "Tauri APIs not available. Run inside the desktop app to see live data."
@@ -1074,14 +1549,13 @@ export default function Home() {
   useEffect(() => {
     if (loading) return;
     _cachedDashboard = {
-      stats,
       tokenUsage,
       accounts,
       usages: accountUsages,
       liveUsages,
       fetchedAt: Date.now(),
     };
-  }, [loading, stats, tokenUsage, accounts, accountUsages, liveUsages]);
+  }, [loading, tokenUsage, accounts, accountUsages, liveUsages]);
 
   // Refresh without showing loading spinners (for background event updates)
   const refreshDashboard = useCallback(() => {
@@ -1094,7 +1568,10 @@ export default function Home() {
       // Cache is fresh, no fetch needed
       return;
     }
-    loadDashboard();
+    const timeout = setTimeout(() => {
+      void loadDashboard();
+    }, 0);
+    return () => clearTimeout(timeout);
   }, [loadDashboard]);
 
   // ─── Periodic background sync every 60s ───────────────────────────────
@@ -1139,14 +1616,19 @@ export default function Home() {
     if (accounts.length === 0) return;
 
     // Fetch immediately on first load
-    refreshLiveUsage(accounts);
+    const initialTimeout = setTimeout(() => {
+      void refreshLiveUsage(accounts);
+    }, 0);
 
     // Then every 60 seconds
     const interval = setInterval(() => {
-      refreshLiveUsage(accounts);
+      void refreshLiveUsage(accounts);
     }, 60_000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
   }, [accounts, refreshLiveUsage]);
 
   // Tray title + menu are managed globally by `useTrayMonitor` in App so they
@@ -1172,20 +1654,57 @@ export default function Home() {
   // ─── Render ────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-full overflow-y-auto overflow-x-hidden px-5 pb-8 pt-20">
-      <div className="mx-auto flex max-w-7xl flex-col gap-5">
-        <div className="flex justify-end">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleTriggerIndex}
-            disabled={indexing}
-            className="h-10 shrink-0 justify-center gap-2 border-white/70 bg-white px-5 text-black shadow-[0_0_0_1px_rgba(125,211,252,0.08),0_18px_40px_-30px_rgba(125,211,252,0.85)] transition-all duration-150 hover:border-[var(--cv-accent)] hover:bg-[var(--cv-accent)] hover:text-[#031016] hover:shadow-[0_0_0_1px_rgba(125,211,252,0.32),0_0_28px_rgba(125,211,252,0.24)] focus-visible:ring-1 focus-visible:ring-[var(--cv-accent)] active:translate-y-px disabled:border-white/20 disabled:bg-white/45 disabled:text-black/55 disabled:shadow-none"
-          >
-            <RefreshCw size={15} className={indexing ? "animate-spin" : ""} />
-            {indexing ? "Indexing..." : "Re-index local data"}
-          </Button>
-        </div>
+    <div className="min-h-full overflow-y-auto overflow-x-hidden px-5 pb-8 pt-16">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4">
+        <section className="cv-frame overflow-hidden bg-[#07090b]">
+          <div className="flex flex-col gap-3 border-b border-[#1c1c1c] px-4 py-3 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0">
+              <div className="cv-label text-slate-500">usage</div>
+              <h1 className="mt-1 truncate text-lg font-semibold tracking-normal text-slate-100">
+                Usage dashboard
+              </h1>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleTriggerIndex}
+                disabled={indexing}
+                className="h-10 shrink-0 justify-center gap-2 border-white/70 bg-white px-5 text-black shadow-[0_0_0_1px_rgba(125,211,252,0.08),0_18px_40px_-30px_rgba(125,211,252,0.85)] transition-all duration-150 hover:border-[var(--cv-accent)] hover:bg-[var(--cv-accent)] hover:text-[#031016] hover:shadow-[0_0_0_1px_rgba(125,211,252,0.32),0_0_28px_rgba(125,211,252,0.24)] focus-visible:ring-1 focus-visible:ring-[var(--cv-accent)] active:translate-y-px disabled:border-white/20 disabled:bg-white/45 disabled:text-black/55 disabled:shadow-none"
+              >
+                <RefreshCw size={15} className={indexing ? "animate-spin" : ""} />
+                {indexing ? "Indexing..." : "Re-index local data"}
+              </Button>
+              <Link
+                to="/roadmap"
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 border border-[#262626] bg-[#08090a] px-4 text-xs font-medium text-slate-500 transition-colors hover:border-[var(--cv-accent)]/40 hover:text-slate-100"
+              >
+                <MapIcon size={14} />
+                Roadmap
+              </Link>
+            </div>
+          </div>
+
+          {/* Token period cards */}
+          <div className="grid grid-cols-2 gap-px bg-[#171717] lg:grid-cols-4">
+            {[
+              { label: "Today", value: tokenUsage?.today ?? 0, color: "text-cyan-400" },
+              { label: "This week", value: tokenUsage?.this_week ?? 0, color: "text-emerald-400" },
+              { label: "This month", value: tokenUsage?.this_month ?? 0, color: "text-yellow-400" },
+              { label: "This year", value: tokenUsage?.this_year ?? 0, color: "text-rose-400" },
+            ].map((stat) => (
+              <div
+                key={stat.label}
+                className="flex min-h-20 items-center justify-between bg-[#090a0b] px-4 py-4"
+              >
+                <span className="cv-label mr-2 truncate">{stat.label}</span>
+                <span className={`shrink-0 text-base font-semibold tabular-nums ${stat.color}`}>
+                  {loading && !tokenUsage ? "--" : formatTokens(stat.value)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
 
       {/* Index result banner */}
       {indexResult && (
@@ -1218,26 +1737,6 @@ export default function Home() {
           </button>
         </div>
       )}
-
-      {/* Token period cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          { label: "Today", value: tokenUsage?.today ?? 0, color: "text-cyan-400" },
-          { label: "This week", value: tokenUsage?.this_week ?? 0, color: "text-emerald-400" },
-          { label: "This month", value: tokenUsage?.this_month ?? 0, color: "text-yellow-400" },
-          { label: "This year", value: tokenUsage?.this_year ?? 0, color: "text-rose-400" },
-        ].map((stat) => (
-          <Card
-            key={stat.label}
-            className="cv-frame flex items-center justify-between overflow-hidden rounded-none px-4 py-4"
-          >
-            <span className="cv-label mr-2 truncate">{stat.label}</span>
-            <span className={`text-sm font-semibold tabular-nums shrink-0 ${stat.color}`}>
-              {loading && !tokenUsage ? "--" : formatTokens(stat.value)}
-            </span>
-          </Card>
-        ))}
-      </div>
 
       {/* Token usage chart */}
       {tokenUsage && (
@@ -1349,6 +1848,7 @@ export default function Home() {
           </Card>
         )}
       </div>
+
       </div>
     </div>
   );

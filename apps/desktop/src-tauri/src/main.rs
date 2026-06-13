@@ -38,6 +38,7 @@ fn main() {
             // the DB write lock. VACUUM is intentionally omitted here — it
             // takes minutes and holds an exclusive lock, freezing the UI.
             let bg_data_dir = app_data_dir;
+            let bg_handle = app.handle().clone();
             std::thread::Builder::new()
                 .name("initial-index".into())
                 .spawn(move || {
@@ -49,7 +50,12 @@ fn main() {
 
                     log::info!("Starting full index...");
                     match run_full_index(bg_data_dir.clone()) {
-                        Ok(msg) => log::info!("Full index complete: {msg}"),
+                        Ok(summary) => {
+                            log::info!("Full index complete: {}", summary.log_message());
+                            crate::commands::history::emit_session_archive_updated(
+                                &bg_handle, &summary,
+                            );
+                        }
                         Err(e) => log::error!("Full index failed: {e}"),
                     }
 
@@ -84,8 +90,19 @@ fn main() {
                         log::info!("Periodic re-index starting...");
                         match db::init_db(periodic_data_dir.clone()) {
                             Ok(conn) => {
-                                match crate::commands::history::run_full_index_with_conn(&conn) {
-                                    Ok(msg) => log::info!("Periodic re-index complete: {msg}"),
+                                match crate::commands::history::run_full_index_summary_with_conn(
+                                    &conn,
+                                ) {
+                                    Ok(summary) => {
+                                        log::info!(
+                                            "Periodic re-index complete: {}",
+                                            summary.log_message()
+                                        );
+                                        crate::commands::history::emit_session_archive_updated(
+                                            &periodic_handle,
+                                            &summary,
+                                        );
+                                    }
                                     Err(e) => log::error!("Periodic re-index failed: {e}"),
                                 }
 
@@ -93,7 +110,8 @@ fn main() {
                                 // tray title with today's tokens. Decoupled
                                 // from the UI so it updates even when the app
                                 // window is hidden or on a non-Home page.
-                                if let Ok(stats) = crate::db::queries::get_token_usage_stats(&conn) {
+                                if let Ok(stats) = crate::db::queries::get_token_usage_stats(&conn)
+                                {
                                     let text = format_tokens_compact(stats.today);
                                     if let Some(tray) = periodic_handle.tray_by_id("main") {
                                         let _ = tray.set_title(Some(&text));
@@ -165,11 +183,20 @@ fn main() {
             commands::review::discard_fix,
             commands::review::revert_files,
             commands::review::revert_diff_hunk,
+            commands::procedure_events::record_review_procedure_event,
+            commands::procedure_events::list_review_procedure_events,
+            commands::procedure_events::suggest_review_verification_commands,
+            commands::procedure_events::run_review_verification_command,
+            commands::procedure_events::cancel_review_verification_command,
             // Blast radius (graph-aware PR analysis)
             commands::blast_radius::analyze_blast_radius,
             // Sessions (used by Home for index stats)
             commands::sessions::list_sessions,
+            commands::sessions::list_session_message_archive,
+            commands::sessions::search_session_message_archive,
             commands::sessions::merge_projects,
+            commands::session_intelligence::get_ai_session_scorecard,
+            commands::session_intelligence::list_ai_session_adapter_runs,
             // History / indexer
             commands::history::trigger_index,
             commands::history::get_index_stats,
@@ -224,9 +251,12 @@ fn main() {
             commands::unpack::get_repo_unpack_report,
             commands::unpack::delete_repo_unpack_report,
             commands::unpack::export_repo_unpack_report,
+            commands::unpack::import_repo_graph_json,
             // Synthetic user QA
             commands::synthetic_qa::run_synthetic_qa,
             commands::synthetic_qa::discover_playwright_specs,
+            commands::synthetic_qa::record_synthetic_qa_run,
+            commands::synthetic_qa::list_synthetic_qa_runs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -308,9 +338,7 @@ fn run_initial_index(app_data_dir: std::path::PathBuf) -> Result<String, String>
                 .and_then(|m| m.modified().ok())
                 .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
 
-            if let Ok(Some(existing)) =
-                queries::get_session_by_jsonl_path(&conn, &jsonl_path_str)
-            {
+            if let Ok(Some(existing)) = queries::get_session_by_jsonl_path(&conn, &jsonl_path_str) {
                 if existing.file_mtime.as_deref() == file_mtime_str.as_deref() {
                     skipped += 1;
                     continue;
@@ -366,10 +394,12 @@ fn run_initial_index(app_data_dir: std::path::PathBuf) -> Result<String, String>
     ))
 }
 
-fn run_full_index(app_data_dir: std::path::PathBuf) -> Result<String, String> {
+fn run_full_index(
+    app_data_dir: std::path::PathBuf,
+) -> Result<crate::commands::history::FullIndexSummary, String> {
     use crate::commands::history;
     let conn = db::init_db(app_data_dir).map_err(|e| e.to_string())?;
-    history::run_full_index_with_conn(&conn)
+    history::run_full_index_summary_with_conn(&conn)
 }
 
 struct QuickMeta {
@@ -382,69 +412,48 @@ struct QuickMeta {
 }
 
 fn quick_parse_session_meta(path: &std::path::Path) -> (String, QuickMeta) {
+    use crate::commands::session_adapters::{ClaudeCodeAdapter, SessionSourceAdapter};
     use std::io::BufRead;
-
-    let mut meta = QuickMeta {
-        version: None,
-        git_branch: None,
-        cwd: None,
-        slug: None,
-        model: None,
-        first_timestamp: None,
-    };
-
-    let mut session_id = uuid::Uuid::new_v4().to_string();
 
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
-        Err(_) => return (session_id, meta),
+        Err(_) => {
+            return (
+                uuid::Uuid::new_v4().to_string(),
+                QuickMeta {
+                    version: None,
+                    git_branch: None,
+                    cwd: None,
+                    slug: None,
+                    model: None,
+                    first_timestamp: None,
+                },
+            );
+        }
     };
 
     let reader = std::io::BufReader::new(file);
+    let raw = reader
+        .lines()
+        .take(10)
+        .filter_map(Result::ok)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let summary = ClaudeCodeAdapter.parse_raw(&path.to_string_lossy(), &raw);
 
-    for line in reader.lines().take(10) {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => break,
-        };
-        let line = line.trim().to_string();
-        if line.is_empty() {
-            continue;
-        }
-
-        let parsed: serde_json::Value = match serde_json::from_str(&line) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        if let Some(sid) = parsed.get("sessionId").and_then(|v| v.as_str()) {
-            session_id = sid.to_string();
-        }
-        if meta.version.is_none() {
-            meta.version = parsed.get("version").and_then(|v| v.as_str()).map(String::from);
-        }
-        if meta.git_branch.is_none() {
-            meta.git_branch = parsed.get("gitBranch").and_then(|v| v.as_str()).map(String::from);
-        }
-        if meta.cwd.is_none() {
-            meta.cwd = parsed.get("cwd").and_then(|v| v.as_str()).map(String::from);
-        }
-        if meta.slug.is_none() {
-            meta.slug = parsed.get("slug").and_then(|v| v.as_str()).map(String::from);
-        }
-        if meta.model.is_none() {
-            meta.model = parsed.get("message").and_then(|m| m.get("model")).and_then(|v| v.as_str()).map(String::from);
-        }
-        if meta.first_timestamp.is_none() {
-            meta.first_timestamp = parsed.get("timestamp").and_then(|v| v.as_str()).map(String::from);
-        }
-
-        if meta.version.is_some() && meta.git_branch.is_some() && meta.cwd.is_some() && meta.first_timestamp.is_some() {
-            break;
-        }
-    }
-
-    (session_id, meta)
+    (
+        summary
+            .stable_id
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        QuickMeta {
+            version: summary.cli_version,
+            git_branch: summary.git_branch,
+            cwd: summary.cwd,
+            slug: summary.slug,
+            model: summary.model_used,
+            first_timestamp: summary.first_timestamp,
+        },
+    )
 }
 
 fn resolve_all_claude_projects_dirs() -> Vec<std::path::PathBuf> {
@@ -455,7 +464,11 @@ fn resolve_all_claude_projects_dirs() -> Vec<std::path::PathBuf> {
     let mut dirs = Vec::new();
 
     if let Ok(config_dirs) = std::env::var("CLAUDE_CONFIG_DIR") {
-        for raw in config_dirs.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        for raw in config_dirs
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             let projects_dir = std::path::PathBuf::from(raw).join("projects");
             if projects_dir.exists() && !dirs.contains(&projects_dir) {
                 dirs.push(projects_dir);

@@ -39,10 +39,7 @@ pub async fn list_directory_tree(
 
 /// Read the first N lines of a file and detect language from extension.
 #[tauri::command]
-pub async fn read_file_preview(
-    file_path: String,
-    max_lines: Option<u32>,
-) -> Result<Value, String> {
+pub async fn read_file_preview(file_path: String, max_lines: Option<u32>) -> Result<Value, String> {
     let path = Path::new(&file_path);
     if !path.is_file() {
         return Err(format!("Not a file: {file_path}"));

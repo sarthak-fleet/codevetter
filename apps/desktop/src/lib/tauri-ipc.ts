@@ -102,6 +102,95 @@ export interface SearchResult {
   rank: number;
 }
 
+export interface SessionEvidenceRef {
+  kind: string;
+  session_id: string;
+  label: string;
+  detail?: string | null;
+}
+
+export interface SessionScoreDimension {
+  id: string;
+  label: string;
+  score: number;
+  status: "strong" | "watch" | "needs_work" | string;
+  evidence_refs: SessionEvidenceRef[];
+  anti_gaming: string;
+  next_action: string;
+}
+
+export interface SessionRecommendation {
+  id: string;
+  severity: "high" | "medium" | "low" | string;
+  target: "developer" | "repo_readiness" | string;
+  title: string;
+  next_action: string;
+  evidence_refs: SessionEvidenceRef[];
+}
+
+export interface SessionSourceAdapterSummary {
+  adapter_id: string;
+  agent_type: string;
+  source_roots: string[];
+  sample_source_paths: string[];
+  evidence_archive: string;
+  sessions_indexed: number;
+  messages_indexed: number;
+  last_indexed_at?: string | null;
+  sample_session_ids: string[];
+  parse_warnings: string[];
+  supports_incremental: boolean;
+}
+
+export interface SessionAdapterRun {
+  id: string;
+  project?: string | null;
+  adapter_id: string;
+  agent_type?: string | null;
+  source_roots: string[];
+  sample_source_paths: string[];
+  evidence_archive: string;
+  sessions_indexed: number;
+  messages_indexed: number;
+  last_indexed_at?: string | null;
+  sample_session_ids: string[];
+  parse_warnings: string[];
+  supports_incremental: boolean;
+  created_at: string;
+}
+
+export interface SessionMessageArchiveRow {
+  id: string;
+  session_id: string;
+  adapter_id: string;
+  agent_type: string;
+  source_ref: string;
+  source_line?: number | null;
+  message_index: number;
+  role?: string | null;
+  kind: string;
+  timestamp?: string | null;
+  content_text?: string | null;
+  tool_name?: string | null;
+  tool_call_id?: string | null;
+  raw_type?: string | null;
+  created_at: string;
+}
+
+export interface SessionMessageArchiveSearchRow extends SessionMessageArchiveRow {
+  rank: number;
+}
+
+export interface SessionScorecard {
+  schema_version: number;
+  project?: string | null;
+  sessions_analyzed: number;
+  overall_score: number;
+  adapters: SessionSourceAdapterSummary[];
+  dimensions: SessionScoreDimension[];
+  recommendations: SessionRecommendation[];
+}
+
 /** Matches the Rust `LocalReviewRow` struct exactly. */
 export interface LocalReviewRow {
   id: string;
@@ -150,7 +239,17 @@ export interface IndexStats {
 export interface TriggerIndexResult {
   indexed_sessions: number;
   indexed_messages: number;
+  skipped_sessions?: number;
+  archive_search_rows_indexed?: number;
   projects_scanned: number;
+}
+
+export interface SessionArchiveUpdatedEvent {
+  indexed_sessions: number;
+  indexed_messages: number;
+  skipped_sessions: number;
+  archive_search_rows_indexed: number;
+  indexed_at: string;
 }
 
 export interface DayBucket {
@@ -183,6 +282,14 @@ interface SessionsResponse {
 interface SessionDetailResponse {
   session: SessionRow;
   messages: MessageRow[];
+}
+
+interface SessionMessageArchiveResponse {
+  messages: SessionMessageArchiveRow[];
+}
+
+interface SessionMessageArchiveSearchResponse {
+  results: SessionMessageArchiveSearchRow[];
 }
 
 interface ReviewsResponse {
@@ -273,6 +380,87 @@ export interface CliReviewFinding {
   confidence?: number;
 }
 
+export interface EvidenceCandidate {
+  id: string;
+  kind: string;
+  severity_hint: string;
+  confidence: number;
+  affected_files: string[];
+  evidence_refs: Array<{
+    kind: string;
+    label: string;
+    detail?: string | null;
+  }>;
+  scale: string;
+  why_it_matters: string;
+  caveats: string[];
+  open_questions: string[];
+  suggested_checks: string[];
+}
+
+export interface EvidenceProcedureStep {
+  id: string;
+  procedure: string;
+  status: string;
+  candidate_ids: string[];
+  input: string;
+  action: string;
+  output: string;
+  artifact: string;
+  gate: string;
+  blocked_on: string[];
+}
+
+export interface ReviewProcedureEvent {
+  id: string;
+  review_id: string;
+  step_id: string;
+  status: "satisfied" | "blocked" | "observed";
+  source: string;
+  summary: string;
+  artifact?: string | null;
+  metadata?: string | null;
+  created_at: string;
+}
+
+export interface ReviewMemoryGraphNode {
+  id: string;
+  kind: string;
+  label: string;
+  file_path?: string | null;
+  detail?: string | null;
+}
+
+export interface ReviewMemoryGraphEdge {
+  from: string;
+  to: string;
+  kind: string;
+  confidence: number;
+}
+
+export interface ReviewMemoryGraph {
+  schema_version: number;
+  scope: string;
+  nodes: ReviewMemoryGraphNode[];
+  edges: ReviewMemoryGraphEdge[];
+  truncated: boolean;
+}
+
+export interface ReviewQaRunEvidence {
+  created_at?: string;
+  loop_id: string;
+  runner_type: string;
+  base_url?: string;
+  goal: string;
+  route?: string;
+  pass: boolean;
+  duration_ms: number;
+  notes?: string;
+  screenshot_path?: string | null;
+  artifacts?: string[];
+  console_errors?: number;
+}
+
 export interface CliReviewResult {
   review_id: string;
   score: number;
@@ -288,6 +476,109 @@ export interface CliReviewResult {
   specialists?: string[];
   sensitive_paths?: string[];
   coordinator_used?: boolean;
+  review_memory_graph?: ReviewMemoryGraph;
+  qa_evidence?: ReviewQaRunEvidence[];
+  evidence_candidates?: EvidenceCandidate[];
+  evidence_procedure_steps?: EvidenceProcedureStep[];
+}
+
+export async function recordReviewProcedureEvent(input: {
+  reviewId: string;
+  stepId: string;
+  status: ReviewProcedureEvent["status"];
+  source: string;
+  summary: string;
+  artifact?: string | null;
+  metadata?: Record<string, unknown> | null;
+}): Promise<ReviewProcedureEvent> {
+  return safeInvoke("record_review_procedure_event", {
+    reviewId: input.reviewId,
+    stepId: input.stepId,
+    status: input.status,
+    source: input.source,
+    summary: input.summary,
+    artifact: input.artifact ?? null,
+    metadata: input.metadata ?? null,
+  });
+}
+
+export async function listReviewProcedureEvents(
+  reviewId: string,
+): Promise<ReviewProcedureEvent[]> {
+  const resp = await safeInvoke<{ events: ReviewProcedureEvent[] }>(
+    "list_review_procedure_events",
+    { reviewId },
+  );
+  return resp.events;
+}
+
+export interface ReviewVerificationCommandResult {
+  event: ReviewProcedureEvent;
+  run_id: string;
+  exit_code: number;
+  duration_ms: number;
+  timeout_ms: number;
+  timed_out: boolean;
+  canceled: boolean;
+  passed: boolean;
+  artifact: string;
+  stdout_tail: string;
+  stderr_tail: string;
+}
+
+export interface ReviewVerificationCommandSuggestion {
+  command: string;
+  reason: string;
+  source?: string;
+  score?: number;
+}
+
+export async function suggestReviewVerificationCommands(input: {
+  repoPath: string;
+  changedFiles?: string[];
+  findingFilePath?: string | null;
+  historyCommands?: Array<{
+    command: string;
+    date?: string;
+    source?: string;
+    status?: "passed" | "failed" | "stale" | "unknown";
+    artifacts?: string[];
+  }>;
+}): Promise<ReviewVerificationCommandSuggestion[]> {
+  const resp = await safeInvoke<{ commands: ReviewVerificationCommandSuggestion[] }>(
+    "suggest_review_verification_commands",
+    {
+      repoPath: input.repoPath,
+      changedFiles: input.changedFiles ?? null,
+      findingFilePath: input.findingFilePath ?? null,
+      historyCommands: input.historyCommands ?? null,
+    },
+  );
+  return resp.commands;
+}
+
+export async function runReviewVerificationCommand(input: {
+  repoPath: string;
+  reviewId: string;
+  command: string;
+  stepId?: string | null;
+  timeoutMs?: number | null;
+  runId?: string | null;
+}): Promise<ReviewVerificationCommandResult> {
+  return safeInvoke("run_review_verification_command", {
+    repoPath: input.repoPath,
+    reviewId: input.reviewId,
+    command: input.command,
+    stepId: input.stepId ?? null,
+    timeoutMs: input.timeoutMs ?? null,
+    runId: input.runId ?? null,
+  });
+}
+
+export async function cancelReviewVerificationCommand(
+  runId: string,
+): Promise<{ run_id: string; canceled: boolean; reason?: string; pid?: number }> {
+  return safeInvoke("cancel_review_verification_command", { runId });
 }
 
 // History context signals for review intent (recent commits on touched files,
@@ -407,6 +698,9 @@ export async function runCliReview(
   projectDescription: string,
   changeDescription: string,
   agent?: string,
+  options?: {
+    qaRuns?: ReviewQaRunEvidence[];
+  },
 ): Promise<CliReviewResult> {
   const standardsContext = buildActiveStandardsContext();
   const projectWithStandards = projectDescription.trim()
@@ -419,6 +713,7 @@ export async function runCliReview(
     projectDescription: projectWithStandards,
     changeDescription,
     agent: agent ?? null,
+    qaRuns: options?.qaRuns ?? null,
   });
 }
 
@@ -551,6 +846,46 @@ export async function listSessions(
   return resp.sessions;
 }
 
+export async function listSessionMessageArchive(
+  sessionId: string,
+  limit?: number,
+): Promise<SessionMessageArchiveRow[]> {
+  const resp = await safeInvoke<SessionMessageArchiveResponse>(
+    "list_session_message_archive",
+    {
+      sessionId,
+      limit: limit ?? 200,
+    },
+  );
+  return resp.messages;
+}
+
+export async function searchSessionMessageArchive(
+  query: string,
+  adapterId?: string,
+  kind?: string,
+  limit?: number,
+): Promise<SessionMessageArchiveSearchRow[]> {
+  const resp = await safeInvoke<SessionMessageArchiveSearchResponse>(
+    "search_session_message_archive",
+    {
+      query,
+      adapterId: adapterId ?? null,
+      kind: kind ?? null,
+      limit: limit ?? 50,
+    },
+  );
+  return resp.results;
+}
+
+export async function listenToSessionArchiveUpdates(
+  handler: (event: SessionArchiveUpdatedEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<SessionArchiveUpdatedEvent>("session_archive_updated", (event) => {
+    handler(event.payload);
+  });
+}
+
 export async function getSession(
   id: string
 ): Promise<{ session: SessionRow; messages: MessageRow[] }> {
@@ -560,6 +895,30 @@ export async function getSession(
 export async function searchMessages(query: string): Promise<SearchResult[]> {
   const resp = await safeInvoke<SearchResponse>("search_messages", { query });
   return resp.results;
+}
+
+export async function getAiSessionScorecard(input?: {
+  project?: string | null;
+  limit?: number | null;
+}): Promise<SessionScorecard> {
+  return safeInvoke("get_ai_session_scorecard", {
+    project: input?.project ?? null,
+    limit: input?.limit ?? 50,
+  });
+}
+
+export async function listAiSessionAdapterRuns(input?: {
+  project?: string | null;
+  limit?: number | null;
+}): Promise<SessionAdapterRun[]> {
+  const resp = await safeInvoke<{ runs: SessionAdapterRun[] }>(
+    "list_ai_session_adapter_runs",
+    {
+      project: input?.project ?? null,
+      limit: input?.limit ?? 20,
+    },
+  );
+  return resp.runs;
 }
 
 // ─── Session Subagent Commands ───────────────────────────────────────────────
@@ -1225,6 +1584,88 @@ export interface UnpackDirSummary {
   bytes: number;
 }
 
+export interface UnpackQaReadinessSignal {
+  id: string;
+  label: string;
+  status: "ready" | "partial" | "missing" | string;
+  detail: string;
+  sources: string[];
+}
+
+export interface UnpackQaSuggestedFlow {
+  id: string;
+  route: string;
+  goal: string;
+  sources: string[];
+}
+
+export interface UnpackQaReadiness {
+  score: number;
+  status: "ready" | "partial" | "missing" | string;
+  summary: string;
+  signals: UnpackQaReadinessSignal[];
+  suggested_flows: UnpackQaSuggestedFlow[];
+}
+
+export interface UnpackRepoGraphNode {
+  id: string;
+  kind: string;
+  label: string;
+  path?: string | null;
+  detail?: string | null;
+  sources: string[];
+}
+
+export interface UnpackRepoGraphEdge {
+  from: string;
+  to: string;
+  kind: string;
+  evidence: string;
+  sources: string[];
+}
+
+export interface UnpackRepoGraph {
+  schema_version: number;
+  nodes: UnpackRepoGraphNode[];
+  edges: UnpackRepoGraphEdge[];
+  truncated: boolean;
+}
+
+export interface ImportRepoGraphResult {
+  graph: UnpackRepoGraph;
+  source_kind: string;
+  node_count: number;
+  edge_count: number;
+  warnings: string[];
+}
+
+export interface UnpackRepoHistoryCommit {
+  sha: string;
+  date?: string | null;
+  subject: string;
+}
+
+export interface UnpackRepoHistoryDecision {
+  marker: string;
+  text: string;
+  source: string;
+}
+
+export interface UnpackRepoHistoryTestHint {
+  path: string;
+  reason: string;
+}
+
+export interface UnpackRepoHistoryBrief {
+  schema_version: number;
+  summary: string;
+  recent_commits: UnpackRepoHistoryCommit[];
+  decisions: UnpackRepoHistoryDecision[];
+  test_hints: UnpackRepoHistoryTestHint[];
+  sources: string[];
+  truncated: boolean;
+}
+
 export interface UnpackRepoInventory {
   repo_path: string;
   repo_name: string;
@@ -1242,6 +1683,9 @@ export interface UnpackRepoInventory {
   docs: UnpackDocFile[];
   config_files: string[];
   stack_tags: string[];
+  qa_readiness?: UnpackQaReadiness | null;
+  repo_graph?: UnpackRepoGraph | null;
+  history_brief?: UnpackRepoHistoryBrief | null;
   all_files: string[];
   ignored_dirs: string[];
 }
@@ -1347,9 +1791,15 @@ export async function deleteRepoUnpackReport(
 
 export async function exportRepoUnpackReport(
   id: string,
-  format: "markdown" | "html",
+  format: "markdown" | "html" | "repo_graph_json" | "agent_context_markdown",
 ): Promise<{ content: string; format: string }> {
   return safeInvoke("export_repo_unpack_report", { id, format });
+}
+
+export async function importRepoGraphJson(
+  content: string,
+): Promise<ImportRepoGraphResult> {
+  return safeInvoke("import_repo_graph_json", { content });
 }
 
 // ─── Synthetic user QA ─────────────────────────────────────────────────────
@@ -1374,6 +1824,26 @@ export interface SyntheticQaRunResult {
   runner_type?: string | null;
 }
 
+export interface StoredSyntheticQaRun {
+  id: string;
+  review_id?: string | null;
+  repo_path?: string | null;
+  loop_id: string;
+  runner_type: string;
+  base_url?: string | null;
+  route?: string | null;
+  goal?: string | null;
+  pass: boolean;
+  duration_ms: number;
+  notes?: string | null;
+  screenshot_path?: string | null;
+  artifacts: string[];
+  console_errors: number;
+  error?: string | null;
+  trace_json?: string | null;
+  created_at: string;
+}
+
 export interface PlaywrightSpecCandidate {
   path: string;
   reason: string;
@@ -1383,6 +1853,37 @@ export async function discoverPlaywrightSpecs(
   repoPath: string,
 ): Promise<{ specs: PlaywrightSpecCandidate[] }> {
   return safeInvoke("discover_playwright_specs", { repoPath });
+}
+
+export async function recordSyntheticQaRun(input: {
+  reviewId?: string | null;
+  repoPath?: string | null;
+  baseUrl?: string | null;
+  run: SyntheticQaRunResult;
+}): Promise<StoredSyntheticQaRun> {
+  const resp = await safeInvoke<{ run: StoredSyntheticQaRun }>("record_synthetic_qa_run", {
+    input: {
+      review_id: input.reviewId ?? null,
+      repo_path: input.repoPath ?? null,
+      base_url: input.baseUrl ?? null,
+      run: input.run,
+    },
+  });
+  return resp.run;
+}
+
+export async function listSyntheticQaRuns(
+  reviewId: string,
+  limit?: number,
+): Promise<StoredSyntheticQaRun[]> {
+  const resp = await safeInvoke<{ runs: StoredSyntheticQaRun[] }>(
+    "list_synthetic_qa_runs",
+    {
+      reviewId,
+      limit: limit ?? 8,
+    },
+  );
+  return resp.runs;
 }
 
 export async function runSyntheticQa(

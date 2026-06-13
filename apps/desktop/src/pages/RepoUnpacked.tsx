@@ -29,7 +29,7 @@ import {
   Workflow,
   Wrench,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,6 +56,7 @@ import {
   type GenerateUnpackResult,
   getPreference,
   getRepoUnpackReport,
+  importRepoGraphJson,
   isTauriAvailable,
   listRepoUnpackReports,
   openInApp,
@@ -64,6 +65,9 @@ import {
   setPreference,
   type UnpackDirSummary,
   type UnpackLanguageCount,
+  type UnpackQaReadiness,
+  type UnpackRepoGraph,
+  type UnpackRepoHistoryBrief,
   type UnpackRepoInventory,
   type UnpackReport,
   type UnpackReportRecord,
@@ -75,6 +79,11 @@ import { cn } from "@/lib/utils";
 const REPO_PATH_KEY = "repo_unpacked_last_repo";
 
 type Phase = "idle" | "scanning" | "generating" | "ready" | "error";
+type RepoUnpackExportFormat =
+  | "markdown"
+  | "html"
+  | "repo_graph_json"
+  | "agent_context_markdown";
 
 interface ActiveReportState {
   inventory: UnpackRepoInventory;
@@ -84,6 +93,13 @@ interface ActiveReportState {
   agentUsed?: string | null;
   modelUsed?: string | null;
   createdAt?: string;
+}
+
+interface ImportedGraphState {
+  fileName: string;
+  sourceKind: string;
+  graph: UnpackRepoGraph;
+  warnings: string[];
 }
 
 const SECTION_META: Array<{
@@ -224,6 +240,9 @@ export default function RepoUnpacked() {
   const [timelineRepoName, setTimelineRepoName] = useState<string>("");
   const [timelineRows, setTimelineRows] = useState<UnpackReportSummary[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
+  const [importedGraph, setImportedGraph] = useState<ImportedGraphState | null>(null);
+  const [graphImporting, setGraphImporting] = useState(false);
+  const graphImportInputRef = useRef<HTMLInputElement | null>(null);
 
   // Restore last repo path
   useEffect(() => {
@@ -313,6 +332,7 @@ export default function RepoUnpacked() {
     const picked = await pickDirectory("Select a repository to unpack");
     if (picked) {
       setRepoPath(picked);
+      setImportedGraph(null);
       void persistRepoPath(picked);
     }
   }, [persistRepoPath]);
@@ -329,6 +349,7 @@ export default function RepoUnpacked() {
     setError(null);
     setPhase("scanning");
     setActive(null);
+    setImportedGraph(null);
     try {
       const inv = await scanRepoInventory(repoPath);
       setActive({ inventory: inv });
@@ -351,6 +372,7 @@ export default function RepoUnpacked() {
     }
     setError(null);
     setActive(null);
+    setImportedGraph(null);
     setPhase("scanning");
     try {
       // Show inventory eagerly — gives the user something to read while the
@@ -409,6 +431,7 @@ export default function RepoUnpacked() {
         modelUsed: row.model_used,
         createdAt: row.created_at,
       });
+      setImportedGraph(null);
       setRepoPath(row.repo_path);
       setPhase("ready");
     } catch (err: unknown) {
@@ -436,20 +459,36 @@ export default function RepoUnpacked() {
   );
 
   const handleExport = useCallback(
-    async (format: "markdown" | "html") => {
+    async (format: RepoUnpackExportFormat) => {
       if (!active?.reportId) return;
       try {
         const { content } = await exportRepoUnpackReport(
           active.reportId,
           format,
         );
-        const ext = format === "html" ? "html" : "md";
-        const mime = format === "html" ? "text/html" : "text/markdown";
+        const ext =
+          format === "html"
+            ? "html"
+            : format === "repo_graph_json"
+              ? "json"
+              : "md";
+        const mime =
+          format === "html"
+            ? "text/html"
+            : format === "repo_graph_json"
+              ? "application/json"
+              : "text/markdown";
+        const suffix =
+          format === "repo_graph_json"
+            ? "repo-graph"
+            : format === "agent_context_markdown"
+              ? "agent-context"
+              : "repo-unpacked";
         const blob = new Blob([content], { type: mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `repo-unpacked-${active.inventory.repo_name}.${ext}`;
+        a.download = `${suffix}-${active.inventory.repo_name}.${ext}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -471,6 +510,48 @@ export default function RepoUnpacked() {
       /* ignore */
     }
   }, [active]);
+
+  const handleImportGraphClick = useCallback(() => {
+    if (!active?.inventory) {
+      setError("Scan or load a repo before importing graph JSON.");
+      return;
+    }
+    graphImportInputRef.current?.click();
+  }, [active]);
+
+  const handleImportGraphFile = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      if (!active?.inventory) {
+        setError("Scan or load a repo before importing graph JSON.");
+        return;
+      }
+      if (!isTauriAvailable()) {
+        setError("Graph import requires the desktop app.");
+        return;
+      }
+
+      setError(null);
+      setGraphImporting(true);
+      try {
+        const result = await importRepoGraphJson(await file.text());
+        setImportedGraph({
+          fileName: file.name,
+          sourceKind: result.source_kind,
+          graph: result.graph,
+          warnings: result.warnings,
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(msg);
+      } finally {
+        setGraphImporting(false);
+      }
+    },
+    [active],
+  );
 
   const isBusy = phase === "scanning" || phase === "generating";
 
@@ -504,6 +585,7 @@ export default function RepoUnpacked() {
           repoPath={repoPath}
           setRepoPath={(p) => {
             setRepoPath(p);
+            setImportedGraph(null);
             void persistRepoPath(p);
           }}
           agent={agent}
@@ -512,6 +594,14 @@ export default function RepoUnpacked() {
           onScan={handleScanOnly}
           onGenerate={handleGenerate}
           phase={phase}
+        />
+
+        <input
+          ref={graphImportInputRef}
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          onChange={handleImportGraphFile}
         />
 
         {error && (
@@ -544,6 +634,9 @@ export default function RepoUnpacked() {
             model={active.modelUsed ?? null}
             runtimeMs={active.runtimeMs}
             createdAt={active.createdAt}
+            importedGraph={importedGraph}
+            onImportGraph={handleImportGraphClick}
+            graphImporting={graphImporting}
           />
         )}
 
@@ -1039,18 +1132,378 @@ function DirectoryTree({ files }: { files: string[] }) {
   );
 }
 
+function qaStatusTone(status: string | null | undefined): string {
+  const s = (status ?? "").toLowerCase();
+  if (s === "ready") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
+  if (s === "partial") return "border-yellow-500/30 bg-yellow-500/10 text-yellow-200";
+  return "border-red-500/30 bg-red-500/10 text-red-200";
+}
+
+function QaReadinessPanel({
+  readiness,
+  repoPath,
+}: {
+  readiness?: UnpackQaReadiness | null;
+  repoPath: string;
+}) {
+  if (!readiness) return null;
+  const topSignals = readiness.signals.slice(0, 6);
+  const suggestedFlows = readiness.suggested_flows.slice(0, 5);
+  return (
+    <div className="rounded-md border border-[var(--cv-line)] bg-[var(--bg-raised)]/45 p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
+            <FlaskConical size={14} className="text-[var(--cv-accent)]" />
+            Synthetic QA readiness
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-[var(--text-secondary)]">
+            {readiness.summary}
+          </p>
+        </div>
+        <Badge
+          variant="outline"
+          className={cn(
+            "shrink-0 border text-[10px] uppercase tracking-wider",
+            qaStatusTone(readiness.status),
+          )}
+        >
+          {readiness.score}/100 · {readiness.status}
+        </Badge>
+      </div>
+
+      {topSignals.length > 0 && (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {topSignals.map((signal) => (
+            <div
+              key={signal.id}
+              className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/50 p-2"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-primary)]">
+                  {signal.status === "ready" ? (
+                    <CheckCircle2 size={12} className="text-emerald-300" />
+                  ) : signal.status === "partial" ? (
+                    <AlertTriangle size={12} className="text-yellow-300" />
+                  ) : (
+                    <AlertTriangle size={12} className="text-red-300" />
+                  )}
+                  {signal.label}
+                </div>
+                <span className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+                  {signal.status}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-secondary)]">
+                {signal.detail}
+              </p>
+              {signal.sources.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {signal.sources.slice(0, 3).map((source) => (
+                    <SourceLink key={source} path={source} repoPath={repoPath} />
+                  ))}
+                  {signal.sources.length > 3 && (
+                    <span className="text-[10px] text-[var(--text-muted)]">
+                      +{signal.sources.length - 3}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {suggestedFlows.length > 0 && (
+        <div className="mt-3">
+          <div className="cv-label mb-1.5">Suggested local QA flows</div>
+          <div className="grid gap-1.5">
+            {suggestedFlows.map((flow) => (
+              <div
+                key={flow.id}
+                className="flex flex-col gap-1 rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/50 px-2 py-1.5 text-xs sm:flex-row sm:items-center sm:justify-between"
+              >
+                <span className="font-mono text-[var(--cv-accent)]">
+                  {flow.route}
+                </span>
+                <span className="text-[var(--text-secondary)]">
+                  {flow.goal}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RepoMemoryGraphPanel({
+  graph,
+  repoPath,
+  title = "Repo memory graph",
+  description = "Local graph artifact over files, package scripts, routes, commands, tables, tests, and decision markers. Edges are navigation leads, not proof by themselves.",
+  meta,
+  warnings = [],
+}: {
+  graph?: UnpackRepoGraph | null;
+  repoPath: string;
+  title?: string;
+  description?: string;
+  meta?: string;
+  warnings?: string[];
+}) {
+  if (!graph || graph.nodes.length === 0) return null;
+  const nodeKinds = graph.nodes.reduce<Record<string, number>>((acc, node) => {
+    acc[node.kind] = (acc[node.kind] ?? 0) + 1;
+    return acc;
+  }, {});
+  const topKinds = Object.entries(nodeKinds)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+  const sampleNodes = graph.nodes.slice(0, 8);
+  const sampleEdges = graph.edges.slice(0, 5);
+
+  return (
+    <div className="rounded-md border border-[var(--cv-line)] bg-[var(--bg-raised)]/45 p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
+            <Network size={14} className="text-[var(--cv-accent)]" />
+            {title}
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-[var(--text-secondary)]">
+            {description}
+          </p>
+          {meta && (
+            <p className="mt-1 font-mono text-[10px] text-[var(--text-muted)]">
+              {meta}
+            </p>
+          )}
+        </div>
+        <Badge
+          variant="outline"
+          className="shrink-0 border border-cyan-500/30 bg-cyan-500/10 text-[10px] uppercase tracking-wider text-cyan-200"
+        >
+          v{graph.schema_version} · {graph.nodes.length} nodes ·{" "}
+          {graph.edges.length} edges{graph.truncated ? " · truncated" : ""}
+        </Badge>
+      </div>
+
+      {warnings.length > 0 && (
+        <div className="mt-3 rounded border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-[11px] text-yellow-100">
+          {warnings.slice(0, 3).map((warning) => (
+            <div key={warning}>{warning}</div>
+          ))}
+        </div>
+      )}
+
+      {topKinds.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {topKinds.map(([kind, count]) => (
+            <Badge
+              key={kind}
+              variant="secondary"
+              className="border border-[var(--cv-line)] bg-[var(--bg-main)] text-[10px] uppercase tracking-wider text-[var(--text-secondary)]"
+            >
+              {kind}: {count}
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-3 grid gap-2 lg:grid-cols-2">
+        <div>
+          <div className="cv-label mb-1.5">Nodes</div>
+          <div className="space-y-1.5">
+            {sampleNodes.map((node) => (
+              <div
+                key={node.id}
+                className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/50 p-2 text-xs"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-medium text-[var(--text-primary)]">
+                    {node.label}
+                  </span>
+                  <span className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+                    {node.kind}
+                  </span>
+                </div>
+                {node.detail && (
+                  <div className="mt-1 text-[11px] text-[var(--text-secondary)]">
+                    {node.detail}
+                  </div>
+                )}
+                {node.path && (
+                  <div className="mt-1">
+                    <SourceLink path={node.path} repoPath={repoPath} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {sampleEdges.length > 0 && (
+          <div>
+            <div className="cv-label mb-1.5">Edges</div>
+            <div className="space-y-1.5">
+              {sampleEdges.map((edge) => (
+                <div
+                  key={`${edge.from}-${edge.to}-${edge.kind}`}
+                  className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/50 p-2 text-xs"
+                >
+                  <div className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+                    {edge.kind}
+                  </div>
+                  <div className="mt-1 break-all text-[var(--text-secondary)]">
+                    {edge.from} {"->"} {edge.to}
+                  </div>
+                  <div className="mt-1 text-[11px] text-[var(--text-muted)]">
+                    {edge.evidence}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CodebaseHistoryBriefPanel({
+  historyBrief,
+  repoPath,
+}: {
+  historyBrief?: UnpackRepoHistoryBrief | null;
+  repoPath: string;
+}) {
+  if (
+    !historyBrief ||
+    (historyBrief.recent_commits.length === 0 &&
+      historyBrief.decisions.length === 0 &&
+      historyBrief.test_hints.length === 0)
+  ) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-md border border-[var(--cv-line)] bg-[var(--bg-raised)]/45 p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
+            <GitCommit size={14} className="text-[var(--cv-accent)]" />
+            Codebase history brief
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-[var(--text-secondary)]">
+            {historyBrief.summary}
+          </p>
+        </div>
+        <Badge
+          variant="outline"
+          className="shrink-0 border border-violet-500/30 bg-violet-500/10 text-[10px] uppercase tracking-wider text-violet-200"
+        >
+          v{historyBrief.schema_version} ·{" "}
+          {historyBrief.recent_commits.length} commits ·{" "}
+          {historyBrief.decisions.length} decisions
+          {historyBrief.truncated ? " · truncated" : ""}
+        </Badge>
+      </div>
+
+      <div className="mt-3 grid gap-2 lg:grid-cols-3">
+        {historyBrief.recent_commits.length > 0 && (
+          <div>
+            <div className="cv-label mb-1.5">Recent commits</div>
+            <div className="space-y-1.5">
+              {historyBrief.recent_commits.slice(0, 5).map((commit) => (
+                <div
+                  key={`${commit.sha}-${commit.subject}`}
+                  className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/50 p-2 text-xs"
+                >
+                  <div className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+                    {commit.sha}
+                    {commit.date ? ` · ${commit.date}` : ""}
+                  </div>
+                  <div className="mt-1 text-[var(--text-secondary)]">
+                    {commit.subject}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {historyBrief.decisions.length > 0 && (
+          <div>
+            <div className="cv-label mb-1.5">Decision markers</div>
+            <div className="space-y-1.5">
+              {historyBrief.decisions.slice(0, 5).map((decision) => (
+                <div
+                  key={`${decision.source}-${decision.text}`}
+                  className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/50 p-2 text-xs"
+                >
+                  <div className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+                    {decision.marker}
+                  </div>
+                  <div className="mt-1 text-[var(--text-secondary)]">
+                    {decision.text}
+                  </div>
+                  <div className="mt-1">
+                    <SourceLink
+                      path={decision.source}
+                      repoPath={repoPath}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {historyBrief.test_hints.length > 0 && (
+          <div>
+            <div className="cv-label mb-1.5">Verification hints</div>
+            <div className="space-y-1.5">
+              {historyBrief.test_hints.slice(0, 5).map((hint) => (
+                <div
+                  key={`${hint.path}-${hint.reason}`}
+                  className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/50 p-2 text-xs"
+                >
+                  <div className="text-[var(--text-secondary)]">
+                    {hint.reason}
+                  </div>
+                  <div className="mt-1">
+                    <SourceLink path={hint.path} repoPath={repoPath} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function InventorySummary({
   inventory,
   agent,
   model,
   runtimeMs,
   createdAt,
+  importedGraph,
+  onImportGraph,
+  graphImporting,
 }: {
   inventory: UnpackRepoInventory;
   agent?: string | null;
   model?: string | null;
   runtimeMs?: number;
   createdAt?: string;
+  importedGraph?: ImportedGraphState | null;
+  onImportGraph: () => void;
+  graphImporting: boolean;
 }) {
   const stat = (label: string, value: ReactNode) => (
     <div className="flex flex-col">
@@ -1064,15 +1517,32 @@ function InventorySummary({
   return (
     <Card className="mt-4 border-[var(--cv-line)] bg-[var(--bg-surface)]">
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Layers size={16} className="text-[var(--cv-accent)]" />
-          {inventory.repo_name}
-          {inventory.commit_sha && (
-            <span className="ml-2 font-mono text-[11px] text-[var(--text-muted)]">
-              {inventory.commit_sha.slice(0, 8)}
-            </span>
-          )}
-        </CardTitle>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Layers size={16} className="text-[var(--cv-accent)]" />
+            {inventory.repo_name}
+            {inventory.commit_sha && (
+              <span className="ml-2 font-mono text-[11px] text-[var(--text-muted)]">
+                {inventory.commit_sha.slice(0, 8)}
+              </span>
+            )}
+          </CardTitle>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onImportGraph}
+            disabled={graphImporting}
+            className="shrink-0"
+          >
+            {graphImporting ? (
+              <Loader2 size={14} className="mr-1.5 animate-spin" />
+            ) : (
+              <FilePlus2 size={14} className="mr-1.5" />
+            )}
+            Import graph
+          </Button>
+        </div>
         <CardDescription className="break-all text-xs">
           {inventory.repo_path}
         </CardDescription>
@@ -1119,6 +1589,32 @@ function InventorySummary({
           </div>
         )}
 
+        <QaReadinessPanel
+          readiness={inventory.qa_readiness}
+          repoPath={inventory.repo_path}
+        />
+
+        <RepoMemoryGraphPanel
+          graph={inventory.repo_graph}
+          repoPath={inventory.repo_path}
+        />
+
+        {importedGraph && (
+          <RepoMemoryGraphPanel
+            graph={importedGraph.graph}
+            repoPath={inventory.repo_path}
+            title="Imported memory graph"
+            description="Explicitly imported graph JSON for comparison or agent handoff. This preview does not mutate the saved Repo Unpacked report."
+            meta={`${importedGraph.fileName} · ${importedGraph.sourceKind}`}
+            warnings={importedGraph.warnings}
+          />
+        )}
+
+        <CodebaseHistoryBriefPanel
+          historyBrief={inventory.history_brief}
+          repoPath={inventory.repo_path}
+        />
+
         <LanguageBars languages={inventory.languages} />
 
         <TopDirsBars dirs={inventory.top_level_dirs} />
@@ -1161,7 +1657,7 @@ function ReportView({
 }: {
   report: UnpackReport;
   inventory: UnpackRepoInventory;
-  onExport: (format: "markdown" | "html") => void;
+  onExport: (format: RepoUnpackExportFormat) => void;
   onCopyPrompt: () => void;
   disabled: boolean;
 }) {
@@ -1206,6 +1702,26 @@ function ReportView({
           >
             <Download size={14} className="mr-1.5" />
             HTML
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled || !inventory.repo_graph?.nodes.length}
+            onClick={() => onExport("repo_graph_json")}
+          >
+            <Download size={14} className="mr-1.5" />
+            Graph JSON
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            onClick={() => onExport("agent_context_markdown")}
+          >
+            <Download size={14} className="mr-1.5" />
+            Agent context
           </Button>
           {report.agent_prompt && (
             <Button

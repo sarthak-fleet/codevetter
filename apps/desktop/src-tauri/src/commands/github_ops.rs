@@ -27,9 +27,7 @@ fn ensure_gh_available() -> Result<(), String> {
     );
 
     if !auth.status.success() && !combined.contains("Logged in to") {
-        return Err(
-            "GitHub CLI is not authenticated. Run `gh auth login` first.".to_string(),
-        );
+        return Err("GitHub CLI is not authenticated. Run `gh auth login` first.".to_string());
     }
 
     Ok(())
@@ -201,7 +199,11 @@ pub async fn merge_pull_request(
         "squash" => "--squash",
         "rebase" => "--rebase",
         "merge" => "--merge",
-        _ => return Err(format!("Invalid merge method: {method}. Use squash, merge, or rebase.")),
+        _ => {
+            return Err(format!(
+                "Invalid merge method: {method}. Use squash, merge, or rebase."
+            ))
+        }
     };
 
     let output = StdCommand::new("gh")
@@ -259,13 +261,7 @@ pub async fn rerun_failed_checks(repo_path: String, pr_number: i64) -> Result<Va
 
     // First, get the PR's head commit SHA
     let pr_output = StdCommand::new("gh")
-        .args([
-            "pr",
-            "view",
-            &pr_number.to_string(),
-            "--json",
-            "headRefOid",
-        ])
+        .args(["pr", "view", &pr_number.to_string(), "--json", "headRefOid"])
         .current_dir(&repo_path)
         .output()
         .map_err(|e| format!("Failed to get PR head: {e}"))?;
@@ -275,10 +271,8 @@ pub async fn rerun_failed_checks(repo_path: String, pr_number: i64) -> Result<Va
         return Err(format!("Failed to get PR head commit: {stderr}"));
     }
 
-    let pr_json: Value = serde_json::from_str(
-        &String::from_utf8_lossy(&pr_output.stdout),
-    )
-    .map_err(|e| format!("Failed to parse PR head: {e}"))?;
+    let pr_json: Value = serde_json::from_str(&String::from_utf8_lossy(&pr_output.stdout))
+        .map_err(|e| format!("Failed to parse PR head: {e}"))?;
 
     let head_sha = pr_json
         .get("headRefOid")
@@ -306,32 +300,19 @@ pub async fn rerun_failed_checks(repo_path: String, pr_number: i64) -> Result<Va
         return Err(format!("Failed to list workflow runs: {stderr}"));
     }
 
-    let runs: Value = serde_json::from_str(
-        &String::from_utf8_lossy(&runs_output.stdout),
-    )
-    .map_err(|e| format!("Failed to parse runs: {e}"))?;
+    let runs: Value = serde_json::from_str(&String::from_utf8_lossy(&runs_output.stdout))
+        .map_err(|e| format!("Failed to parse runs: {e}"))?;
 
     let mut rerun_count = 0;
 
     if let Some(arr) = runs.as_array() {
         for run in arr {
-            let conclusion = run
-                .get("conclusion")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let run_id = run
-                .get("databaseId")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
+            let conclusion = run.get("conclusion").and_then(|v| v.as_str()).unwrap_or("");
+            let run_id = run.get("databaseId").and_then(|v| v.as_i64()).unwrap_or(0);
 
             if conclusion == "failure" && run_id > 0 {
                 let rerun = StdCommand::new("gh")
-                    .args([
-                        "run",
-                        "rerun",
-                        &run_id.to_string(),
-                        "--failed",
-                    ])
+                    .args(["run", "rerun", &run_id.to_string(), "--failed"])
                     .current_dir(&repo_path)
                     .output();
 

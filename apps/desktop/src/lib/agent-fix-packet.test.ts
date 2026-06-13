@@ -62,6 +62,34 @@ describe("buildAgentFixPacket", () => {
           qaArtifacts: "artifacts/report.html",
         },
       ],
+      timelineReplay: {
+        segmentId: "claim-check",
+        label: "Claim check",
+        phase: "evidence",
+        status: "blocked",
+        detail: "1 blocking, 0 need proof",
+        jumpKind: "command_source",
+        jumpPath: "/tmp/session.jsonl",
+        jumpLine: 42,
+        anchors: [
+          {
+            label: "Claim/test mismatch: npm run test",
+            source: "raw_session",
+            status: "failed",
+            sourcePath: "/tmp/session.jsonl",
+            sourceLine: 42,
+            eventId: "session:raw_session:42",
+            sessionId: "session-1",
+            artifact: "artifacts/test.log",
+            jumpKind: "command_source",
+            jumpPath: "/tmp/session.jsonl",
+            contextExcerpt: [
+              "assistant: ran npm run test after wiring the timeline packet",
+              "tool: assertion failed in checkout replay",
+            ],
+          },
+        ],
+      },
       createdAt: "2026-06-09T00:00:00.000Z",
     });
 
@@ -75,6 +103,11 @@ describe("buildAgentFixPacket", () => {
 
     const markdown = renderAgentFixPacketMarkdown(packet);
     assert.match(markdown, /Route advice:/);
+    assert.match(markdown, /Timeline replay:/);
+    assert.match(markdown, /Claim check \(evidence\/blocked\): 1 blocking, 0 need proof/);
+    assert.match(markdown, /Claim\/test mismatch: npm run test/);
+    assert.match(markdown, /event=session:raw_session:42/);
+    assert.match(markdown, /transcript: assistant: ran npm run test after wiring the timeline packet/);
     assert.match(markdown, /screenshot=artifacts\/crop\.png/);
     assert.match(markdown, /1 console errors/);
   });

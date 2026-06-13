@@ -35,6 +35,7 @@
             "matched_ground_truth": []
           }
         ],
+        "codevetter_no_evidence": [],
         "baseline": []
       }
     },
@@ -69,6 +70,15 @@
             "title": "Backend command trusts client-side authorization",
             "matched_ground_truth": ["client-only-authz"],
             "match_rationale": "The finding flags the same backend authorization boundary failure."
+          }
+        ],
+        "codevetter_no_evidence": [
+          {
+            "severity": "medium",
+            "filePath": "src-tauri/src/commands/review.rs",
+            "title": "Add a backend command authorization regression test",
+            "matched_ground_truth": ["missing-regression-test"],
+            "match_rationale": "Without evidence candidates, the review notices missing test coverage but misses the stronger auth-boundary bug."
           }
         ],
         "baseline": [
@@ -120,6 +130,15 @@
             "title": "Finding cards lost their per-file history evidence",
             "matched_ground_truth": ["missing-file-history-proof"],
             "match_rationale": "The finding matches the missing file-linked history proof in the Review UI."
+          }
+        ],
+        "codevetter_no_evidence": [
+          {
+            "severity": "medium",
+            "filePath": "src/pages/QuickReview.tsx",
+            "title": "Finding cards should retain file history details",
+            "matched_ground_truth": ["missing-file-history-proof"],
+            "match_rationale": "The no-evidence run identifies the UI proof omission but misses the prompt-level prior-decision omission."
           }
         ],
         "baseline": [
