@@ -32,50 +32,11 @@ fn main() {
             let conn = db::init_db(app_data_dir.clone()).expect("failed to initialize database");
             app.manage(DbState(Arc::new(Mutex::new(conn))));
 
-            // ── Trigger initial index on startup ─────────────────
-            // Storage cleanup (one-time purge of cruft message rows) runs at
-            // the end of this thread so it never races with the indexer for
-            // the DB write lock. VACUUM is intentionally omitted here — it
-            // takes minutes and holds an exclusive lock, freezing the UI.
-            let bg_data_dir = app_data_dir;
-            let bg_handle = app.handle().clone();
-            std::thread::Builder::new()
-                .name("initial-index".into())
-                .spawn(move || {
-                    log::info!("Starting quick index on startup...");
-                    match run_initial_index(bg_data_dir.clone()) {
-                        Ok(msg) => log::info!("Quick index complete: {msg}"),
-                        Err(e) => log::error!("Quick index failed: {e}"),
-                    }
-
-                    log::info!("Starting full index...");
-                    match run_full_index(bg_data_dir.clone()) {
-                        Ok(summary) => {
-                            log::info!("Full index complete: {}", summary.log_message());
-                            crate::commands::history::emit_session_archive_updated(
-                                &bg_handle, &summary,
-                            );
-                        }
-                        Err(e) => log::error!("Full index failed: {e}"),
-                    }
-
-                    match db::init_db(bg_data_dir) {
-                        Ok(conn) => {
-                            log::info!("Storage cleanup starting...");
-                            db::schema::purge_message_cruft_once(&conn);
-                            db::schema::purge_content_text_once(&conn);
-                            db::schema::purge_messages_to_buckets_once(&conn);
-                            log::info!("Storage cleanup done.");
-                        }
-                        Err(e) => log::error!("Storage cleanup DB init failed: {e}"),
-                    }
-                })
-                .expect("failed to spawn initial-index thread");
-
-            // ── Periodic re-index (every 60 seconds) ─────────────
-            // Indexing is incremental (mtime + byte-offset skip), so a tight
-            // loop is cheap and keeps token-usage stats near-realtime instead
-            // of "frozen until restart".
+            // ── Lightweight tray usage refresh ──────────────────
+            // Keep the menu-bar usage indicator alive without walking Claude,
+            // Codex, or Cursor transcript stores in the background. Full
+            // session indexing is intentionally explicit via `trigger_index`;
+            // idle "usage only" mode should be a cheap SQLite aggregate read.
             let periodic_data_dir = app
                 .path()
                 .app_data_dir()
@@ -83,33 +44,11 @@ fn main() {
             let periodic_handle = app.handle().clone();
 
             std::thread::Builder::new()
-                .name("periodic-index".into())
+                .name("usage-tray-refresh".into())
                 .spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(15));
                     loop {
-                        log::info!("Periodic re-index starting...");
                         match db::init_db(periodic_data_dir.clone()) {
                             Ok(conn) => {
-                                match crate::commands::history::run_full_index_summary_with_conn(
-                                    &conn,
-                                ) {
-                                    Ok(summary) => {
-                                        log::info!(
-                                            "Periodic re-index complete: {}",
-                                            summary.log_message()
-                                        );
-                                        crate::commands::history::emit_session_archive_updated(
-                                            &periodic_handle,
-                                            &summary,
-                                        );
-                                    }
-                                    Err(e) => log::error!("Periodic re-index failed: {e}"),
-                                }
-
-                                // After each index pass, refresh the menu-bar
-                                // tray title with today's tokens. Decoupled
-                                // from the UI so it updates even when the app
-                                // window is hidden or on a non-Home page.
                                 if let Ok(stats) = crate::db::queries::get_token_usage_stats(&conn)
                                 {
                                     let text = format_tokens_compact(stats.today);
@@ -122,13 +61,13 @@ fn main() {
                                 }
                             }
                             Err(e) => {
-                                log::error!("Periodic re-index DB init failed: {e}");
+                                log::error!("Usage tray refresh DB init failed: {e}");
                             }
                         }
-                        std::thread::sleep(std::time::Duration::from_secs(30));
+                        std::thread::sleep(std::time::Duration::from_secs(120));
                     }
                 })
-                .expect("failed to spawn periodic-index thread");
+                .expect("failed to spawn usage-tray-refresh thread");
 
             // ── Menu-bar tray icon ───────────────────────────────
             // Surfaces token-usage stats next to volume/battery on macOS.
@@ -272,293 +211,4 @@ fn format_tokens_compact(n: i64) -> String {
     } else {
         n.to_string()
     }
-}
-
-/// Run a lightweight startup index using its own database connection.
-fn run_initial_index(app_data_dir: std::path::PathBuf) -> Result<String, String> {
-    use crate::db::queries;
-
-    let conn = db::init_db(app_data_dir).map_err(|e| e.to_string())?;
-
-    let all_bases = resolve_all_claude_projects_dirs();
-
-    let project_dirs: Vec<_> = all_bases
-        .iter()
-        .filter(|b| b.exists())
-        .flat_map(|b| std::fs::read_dir(b).ok().into_iter())
-        .flatten()
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.path().is_dir())
-        .collect();
-
-    if project_dirs.is_empty() {
-        return Ok("No Claude project directories found".to_string());
-    }
-
-    let mut indexed_sessions = 0u64;
-    let mut skipped = 0u64;
-
-    for project_entry in &project_dirs {
-        let project_path = project_entry.path();
-        let project_dir_name = project_path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-
-        let display_name = resolve_project_display_name(&project_dir_name);
-        let dir_path_str = project_path.to_string_lossy().to_string();
-
-        let project_id = queries::get_project_id_by_dir(&conn, &dir_path_str)
-            .map_err(|e| e.to_string())?
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-
-        let now = chrono::Utc::now().to_rfc3339();
-
-        queries::upsert_project(
-            &conn,
-            &queries::ProjectInput {
-                id: project_id.clone(),
-                display_name,
-                dir_path: dir_path_str,
-                session_count: None,
-                last_activity: Some(now.clone()),
-                created_at: now.clone(),
-            },
-        )
-        .map_err(|e| e.to_string())?;
-
-        let jsonl_files = walkdir(&project_path, "jsonl");
-
-        for jsonl_path in &jsonl_files {
-            let jsonl_path_str = jsonl_path.to_string_lossy().to_string();
-            let file_meta = std::fs::metadata(jsonl_path).ok();
-            let file_mtime_str = file_meta
-                .as_ref()
-                .and_then(|m| m.modified().ok())
-                .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
-
-            if let Ok(Some(existing)) = queries::get_session_by_jsonl_path(&conn, &jsonl_path_str) {
-                if existing.file_mtime.as_deref() == file_mtime_str.as_deref() {
-                    skipped += 1;
-                    continue;
-                }
-            }
-
-            let (session_id, meta) = quick_parse_session_meta(jsonl_path);
-
-            queries::upsert_session(
-                &conn,
-                &queries::SessionInput {
-                    id: session_id,
-                    project_id: project_id.clone(),
-                    agent_type: Some("claude-code".to_string()),
-                    jsonl_path: Some(jsonl_path_str),
-                    git_branch: meta.git_branch,
-                    cwd: meta.cwd,
-                    cli_version: meta.version,
-                    first_message: meta.first_timestamp,
-                    last_message: None,
-                    message_count: None,
-                    total_input_tokens: None,
-                    total_output_tokens: None,
-                    model_used: meta.model,
-                    slug: meta.slug,
-                    file_size_bytes: None,
-                    indexed_at: None,
-                    file_mtime: None,
-                    cache_read_tokens: None,
-                    cache_creation_tokens: None,
-                    compaction_count: None,
-                    estimated_cost_usd: None,
-                },
-            )
-            .map_err(|e| e.to_string())?;
-
-            indexed_sessions += 1;
-        }
-
-        let session_count = jsonl_files.len() as i64;
-        conn.execute(
-            "UPDATE cc_projects SET session_count = ?2 WHERE id = ?1",
-            rusqlite::params![project_id, session_count],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-
-    Ok(format!(
-        "projects={}, indexed={}, skipped={}",
-        project_dirs.len(),
-        indexed_sessions,
-        skipped
-    ))
-}
-
-fn run_full_index(
-    app_data_dir: std::path::PathBuf,
-) -> Result<crate::commands::history::FullIndexSummary, String> {
-    use crate::commands::history;
-    let conn = db::init_db(app_data_dir).map_err(|e| e.to_string())?;
-    history::run_full_index_summary_with_conn(&conn)
-}
-
-struct QuickMeta {
-    version: Option<String>,
-    git_branch: Option<String>,
-    cwd: Option<String>,
-    slug: Option<String>,
-    model: Option<String>,
-    first_timestamp: Option<String>,
-}
-
-fn quick_parse_session_meta(path: &std::path::Path) -> (String, QuickMeta) {
-    use crate::commands::session_adapters::{ClaudeCodeAdapter, SessionSourceAdapter};
-    use std::io::BufRead;
-
-    let file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => {
-            return (
-                uuid::Uuid::new_v4().to_string(),
-                QuickMeta {
-                    version: None,
-                    git_branch: None,
-                    cwd: None,
-                    slug: None,
-                    model: None,
-                    first_timestamp: None,
-                },
-            );
-        }
-    };
-
-    let reader = std::io::BufReader::new(file);
-    let raw = reader
-        .lines()
-        .take(10)
-        .filter_map(Result::ok)
-        .collect::<Vec<_>>()
-        .join("\n");
-    let summary = ClaudeCodeAdapter.parse_raw(&path.to_string_lossy(), &raw);
-
-    (
-        summary
-            .stable_id
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-        QuickMeta {
-            version: summary.cli_version,
-            git_branch: summary.git_branch,
-            cwd: summary.cwd,
-            slug: summary.slug,
-            model: summary.model_used,
-            first_timestamp: summary.first_timestamp,
-        },
-    )
-}
-
-fn resolve_all_claude_projects_dirs() -> Vec<std::path::PathBuf> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-    let home_path = std::path::PathBuf::from(&home);
-    let mut dirs = Vec::new();
-
-    if let Ok(config_dirs) = std::env::var("CLAUDE_CONFIG_DIR") {
-        for raw in config_dirs
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            let projects_dir = std::path::PathBuf::from(raw).join("projects");
-            if projects_dir.exists() && !dirs.contains(&projects_dir) {
-                dirs.push(projects_dir);
-            }
-        }
-        return dirs;
-    }
-
-    let default_dirs = [
-        home_path.join(".config").join("claude").join("projects"),
-        home_path.join(".claude").join("projects"),
-    ];
-
-    for projects_dir in default_dirs {
-        if projects_dir.exists() && !dirs.contains(&projects_dir) {
-            dirs.push(projects_dir);
-        }
-    }
-
-    if let Ok(entries) = std::fs::read_dir(&home_path) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.starts_with(".claude-") && entry.path().is_dir() {
-                let projects_dir = entry.path().join("projects");
-                if projects_dir.exists() && !dirs.contains(&projects_dir) {
-                    dirs.push(projects_dir);
-                }
-            }
-        }
-    }
-
-    dirs
-}
-
-fn resolve_project_display_name(dir_name: &str) -> String {
-    let trimmed = dir_name.trim_start_matches('-');
-    if trimmed.is_empty() {
-        return dir_name.to_string();
-    }
-
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_default();
-
-    if !home.is_empty() {
-        let home_encoded = home.trim_start_matches('/').replace('/', "-");
-        if let Some(remainder) = trimmed.strip_prefix(&home_encoded) {
-            let remainder = remainder.trim_start_matches('-');
-            if remainder.is_empty() {
-                return dir_name.to_string();
-            }
-            let parts: Vec<&str> = remainder.split('-').collect();
-            let mut current_dir = std::path::PathBuf::from(&home);
-            let mut consumed = 0usize;
-            for start in 0..parts.len() {
-                let candidate = parts[start];
-                let test_path = current_dir.join(candidate);
-                if test_path.is_dir() && start + 1 < parts.len() {
-                    current_dir = test_path;
-                    consumed = start + 1;
-                } else {
-                    break;
-                }
-            }
-            let project_name = parts[consumed..].join("-");
-            if !project_name.is_empty() {
-                return project_name;
-            }
-        }
-    }
-
-    let reconstructed = trimmed.replace('-', "/");
-    std::path::Path::new(&reconstructed)
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| dir_name.to_string())
-}
-
-fn walkdir(dir: &std::path::Path, ext: &str) -> Vec<std::path::PathBuf> {
-    let mut results = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                results.extend(walkdir(&path, ext));
-            } else if path.extension().map(|e| e == ext).unwrap_or(false) {
-                results.push(path);
-            }
-        }
-    }
-    results
 }

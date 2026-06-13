@@ -23,6 +23,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
 /// One-time cleanup: remove non-message metadata rows that used to be indexed
 /// and reclaim disk space. Guarded by a preference flag so it only runs once.
 /// Expensive on large databases — run on a background thread after startup.
+#[allow(dead_code)]
 pub fn purge_message_cruft_once(conn: &Connection) {
     let already: Option<String> = conn
         .query_row(
@@ -91,6 +92,7 @@ pub fn purge_message_cruft_once(conn: &Connection) {
 /// One-time cleanup: NULL out cc_messages.content_text and drop the FTS index.
 /// We only need per-message timestamps + counts to compute token usage; the
 /// stored JSONL bodies were ballooning the DB to 4 GB. Saves ~75% disk.
+#[allow(dead_code)]
 pub fn purge_content_text_once(conn: &Connection) {
     let already: Option<String> = conn
         .query_row(
@@ -140,6 +142,7 @@ pub fn purge_content_text_once(conn: &Connection) {
 /// then DROP cc_messages entirely. UI only needs per-day token attribution
 /// which is computable from `(session_id, day, msg_count)` tuples — typically
 /// thousands of rows instead of millions of per-message rows.
+#[allow(dead_code)]
 pub fn purge_messages_to_buckets_once(conn: &Connection) {
     let already: Option<String> = conn
         .query_row(

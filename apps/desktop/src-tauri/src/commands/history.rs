@@ -41,18 +41,6 @@ pub struct FullIndexSummary {
     pub indexed_at: String,
 }
 
-impl FullIndexSummary {
-    pub fn log_message(&self) -> String {
-        format!(
-            "sessions={}, messages={}, skipped={}, archive_search_rows_indexed={}",
-            self.indexed_sessions,
-            self.indexed_messages,
-            self.skipped_sessions,
-            self.archive_search_rows_indexed
-        )
-    }
-}
-
 impl ProductionAdapterRunStats {
     fn new(
         adapter_id: &str,
@@ -142,17 +130,6 @@ fn persist_production_adapter_run(
 /// the last index are skipped entirely.  Files that have grown (append-only)
 /// are read starting from the previously stored byte offset so that only new
 /// lines are parsed.
-/// Run the full index directly with a connection reference.
-/// Used by the startup background thread.
-pub fn run_full_index_summary_with_conn(
-    conn: &rusqlite::Connection,
-) -> Result<FullIndexSummary, String> {
-    let _index_guard = FULL_INDEX_LOCK
-        .lock()
-        .map_err(|e| format!("full index lock poisoned: {e}"))?;
-    run_full_index_unlocked(conn)
-}
-
 fn run_full_index_unlocked(conn: &rusqlite::Connection) -> Result<FullIndexSummary, String> {
     let (indexed_sessions, indexed_messages, skipped_sessions) = full_index_impl(conn)?;
     let archive_search_rows_indexed =

@@ -1574,9 +1574,9 @@ export default function Home() {
     return () => clearTimeout(timeout);
   }, [loadDashboard]);
 
-  // ─── Periodic background sync every 60s ───────────────────────────────
-  // Tight loop keeps token-usage counters near-realtime. Backend indexer
-  // also runs every 60s so fresh JSONL bytes land in the DB before we read.
+  // ─── Periodic usage refresh every 60s ─────────────────────────────────
+  // This only reads already-indexed local data and provider telemetry. Full
+  // transcript/session indexing stays behind the explicit button above.
 
   useEffect(() => {
     if (!isTauriAvailable()) return;
@@ -1765,11 +1765,7 @@ export default function Home() {
               className="h-auto px-1.5 py-0.5 text-[11px] text-slate-500 hover:text-slate-300"
               onClick={async () => {
                 try {
-                  // Re-detect accounts AND re-index sessions
-                  const [result] = await Promise.all([
-                    detectProviderAccounts(),
-                    triggerIndex(),
-                  ]);
+                  const result = await detectProviderAccounts();
                   setAccounts(result.accounts);
                   if (result.accounts.length > 0) {
                     const usageResults = await Promise.allSettled(
@@ -1783,7 +1779,6 @@ export default function Home() {
                     });
                     setAccountUsages(usageMap);
                   }
-                  // Refresh dashboard data after index
                   refreshDashboard();
                 } catch (err) {
                   console.error("Detection failed:", err);
