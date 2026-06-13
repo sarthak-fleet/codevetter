@@ -1,8 +1,8 @@
 # PRD: Synthetic User QA Workflows
 
-Status: in progress
+Status: finished PRD; first local QA workflow slice shipped
 Owner: unassigned
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 ## Summary
 
@@ -134,11 +134,26 @@ Acceptance:
 - Require explicit user action before any remote target is tested.
 - Keep artifacts local unless the user opts to export them.
 
-## Open Questions
+## Resolved Decisions
 
-- Should flows be authored manually or inferred from prior agent sessions first?
-- What is the smallest default artifact set that is still useful for debugging?
-- Should QA runs live under Review, History, or a dedicated surface?
+- Flow authoring: start with manual/named local workflows plus Repo Unpacked suggested flow seeds. Infer flows from prior sessions only after the explicit workflow model is stable.
+- Default artifacts: each run should keep step status, final summary, console/network errors where available, screenshot or trace refs when produced by the runner, raw log/report paths, and bounded text previews for text-like artifacts.
+- Surface placement: QA runs live inside Review for fix/review loops, with Repo Unpacked providing readiness and suggested smoke paths. A dedicated QA surface is deferred until there are enough reusable workflows to manage outside Review.
+
+## Next Implementation Slice
+
+The next slice is reliability metadata for stored QA runs.
+
+Acceptance:
+
+- Add an explicit flaky/hidden/blocked field to QA step or run records instead of inferring it from free-text summaries.
+- Show same-flow post-fix comparison state prominently: fixed, still broken, regressed, still passing, or needs rerun.
+- Keep remote-target execution opt-in and visible in proof export.
+- Preserve local artifact bounds and avoid raw private screen capture by default.
+
+## Feature Completion Boundary
+
+This feature is complete when a reviewer can create/select a local workflow, run it against an approved target, attach artifacts to findings, rerun the same flow after a fix, and export before/after proof without leaving CodeVetter.
 
 ## Pickup Checklist
 

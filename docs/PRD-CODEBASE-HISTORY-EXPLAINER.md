@@ -1,8 +1,8 @@
 # PRD: Codebase History Explainer
 
-Status: in progress
+Status: finished PRD; first file-level/history-brief slice shipped
 Owner: unassigned
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 ## Summary
 
@@ -126,11 +126,26 @@ Acceptance:
 - Do not surface secret-bearing files or paths.
 - Avoid drawing conclusions from commit volume alone.
 
-## Open Questions
+## Resolved Decisions
 
-- Should explanations prioritize files, modules, or user-facing features?
-- How much of the graph should be persisted versus recomputed?
-- What citation format is best for repo briefs versus review side panels?
+- Priority: start file-first because Review is diff-first. Module and user-facing feature explanations should be derived from file neighborhoods later, not introduced as a separate product surface.
+- Persistence: persist bounded derived artifacts with schema versions (`history_brief`, graph nodes/edges, citations) and recompute raw git/log scans on refresh. Do not persist full transcript or git-log dumps.
+- Citation format: repo briefs should use compact path/line or commit-subject bullets; Review side panels should use short source labels with jump targets where available. Proof exports should include enough path/event metadata for another reviewer to reopen the evidence.
+
+## Next Implementation Slice
+
+The next slice is a queryable local history graph over the already-shipped file-level explanations and Repo Unpacked `history_brief`.
+
+Acceptance:
+
+- A selected file can answer "why is this shaped this way?" using cited commits, decision markers, nearby tests, and recurring findings.
+- Review can distinguish a local code defect from an intent regression against a prior decision.
+- Repo Unpacked exports the same bounded history graph without mutating target repos.
+- Thin evidence is labeled explicitly rather than summarized as certainty.
+
+## Feature Completion Boundary
+
+This feature is complete when changed files in Review consistently show concise cited history context, the context appears in proof export, and Repo Unpacked can refresh/export a bounded local history artifact for the repo.
 
 ## Pickup Checklist
 

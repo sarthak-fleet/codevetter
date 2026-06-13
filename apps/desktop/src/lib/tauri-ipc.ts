@@ -652,6 +652,9 @@ export interface RawSessionContextItem {
   text: string;
   status?: "passed" | "failed" | "stale" | "unknown";
   artifacts?: string[];
+  relative_position?: "before" | "target" | "after";
+  distance_to_target?: number;
+  nearest_command_line?: number | null;
   highlight: boolean;
 }
 

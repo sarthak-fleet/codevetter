@@ -965,7 +965,7 @@ function scoreTone(score: number): string {
   return "text-red-300";
 }
 
-const ROADMAP_RELEASE_VERSION = "1.1.51";
+const ROADMAP_RELEASE_VERSION = "1.1.52";
 
 const ROADMAP_RELEASE_ITEMS = [
   {
@@ -979,8 +979,8 @@ const ROADMAP_RELEASE_ITEMS = [
     href: "/roadmap",
   },
   {
-    label: "Transcript replay packets",
-    detail: "Evidence rows now group adjacent transcript command events into bounded multi-turn replay packets.",
+    label: "Conversation replay context",
+    detail: "Transcript previews now label before/target/after turns and nearest command lines.",
     href: "/review",
   },
 ];

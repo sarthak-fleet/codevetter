@@ -5673,6 +5673,17 @@ export default function QuickReview() {
                                         {item.status && item.status !== "unknown" ? (
                                           <span className="text-slate-500"> · {item.status}</span>
                                         ) : null}
+                                        {item.relative_position ? (
+                                          <span className="text-slate-500">
+                                            {" · "}
+                                            {item.relative_position === "target"
+                                              ? "target"
+                                              : `${item.relative_position} ${item.distance_to_target ?? 0}l`}
+                                            {item.nearest_command_line
+                                              ? ` · cmd:${item.nearest_command_line}`
+                                              : ""}
+                                          </span>
+                                        ) : null}
                                         {item.artifacts && item.artifacts.length > 0 ? (
                                           <span className="text-slate-500"> · {item.artifacts.length} artifact</span>
                                         ) : null}

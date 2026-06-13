@@ -1,8 +1,8 @@
 # PRD: AI Session Intelligence
 
-Status: in progress
+Status: finished PRD; first local scorecard/archive slice shipped
 Owner: unassigned
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 ## Summary
 
@@ -346,13 +346,28 @@ Skip:
 - Do not process secrets, env files, SSH keys, cloud credentials, kube configs, or production configs.
 - Do not infer individual productivity from message counts, token counts, or hours alone.
 
-## Open Questions
+## Resolved Decisions
 
-- Should this live under History, Repo Unpacked, Dashboard, or a new Insights tab?
-- What minimum evidence is required before showing a score?
-- Should scores decay when old sessions no longer match current repo state?
-- How should recommendations handle pair programming or multiple agents in the same repo?
-- Is the eventual buyer an individual AI-heavy developer, a tech lead, or both?
+- Surface placement: keep the first shipped surfaces split by workflow instead of adding a new Insights tab. Roadmap owns source-health and scorecard panels, History owns transcript/archive search and drilldown, Repo Unpacked owns repo-readiness output, and Review owns run-specific session-quality warnings.
+- Minimum evidence: do not show a confident score unless each scored dimension has at least one cited local evidence ref or an explicit "insufficient evidence" state. Empty dimensions should lower confidence, not invent recommendations.
+- Staleness: scores should carry source freshness and repo fingerprint metadata. Old session evidence remains inspectable but should be labeled stale when the repo branch/HEAD or adapter schema changes materially.
+- Multiple agents or pair work: attribute findings to sessions, source adapters, repos, and evidence refs first. Avoid person-level attribution unless a future opt-in team mode defines identity and consent rules.
+- Buyer sequence: individual AI-heavy developers are the first buyer and product proof point. Tech lead/team packaging is only explored after local individual and repo-readiness recommendations produce repeated cited value.
+
+## Next Implementation Slice
+
+The next slice is Phase 2 usage/stats contracts over the existing archive, then Phase 3 deterministic recommendations.
+
+Acceptance:
+
+- A local JSON contract reports daily and per-session usage with schema version, agent/model mix, missing-price states, and bounded date filters.
+- Roadmap or History consumes the same contract rather than duplicating usage math.
+- Recommendation fixtures cover skipped-test claims, failed-command contradictions, and over-broad edits using the archived message/tool-call rows already persisted by the adapter layer.
+- No team/cloud sync is introduced in this slice.
+
+## Feature Completion Boundary
+
+This feature is complete when CodeVetter can produce cited local recommendations from archived sessions, feed the relevant recommendation subset into Review/fix packets, and copy a repo-readiness report without network access. Team dashboards, billing, SSO, and cloud sync stay deferred until that local loop is demonstrably useful.
 
 ## Pickup Checklist
 

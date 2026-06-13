@@ -1,8 +1,8 @@
 # PRD: Evidence Pattern Search
 
-Status: in progress
+Status: finished PRD; first deterministic evidence-search slice shipped
 Owner: unassigned
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 ## Summary
 
@@ -194,13 +194,13 @@ Acceptance:
 
 ### Phase 5: Benchmark Claim
 
-Status: partially implemented. The catch-rate benchmark harness can now compare stored review outputs with and without deterministic evidence candidates via `--evidence-comparison=with_evidence:without_evidence`. Reports include caught/rate/precision/F1 deltas, false-positive and redundant-match deltas, plus per-case newly caught and regressed ground-truth IDs. Real public fixture curation and time/cost measurements remain before any external quality claim.
+Status: partially implemented. The catch-rate benchmark harness can now compare stored review outputs with and without deterministic evidence candidates via `--evidence-comparison=codevetter:codevetter_no_evidence` or any other `with_evidence_reviewer:without_evidence_reviewer` pair. Reports include caught/rate/precision/F1 deltas, false-positive and redundant-match deltas, plus per-case newly caught and regressed ground-truth IDs. Real public fixture curation and time/cost measurements remain before any external quality claim.
 
 Measure whether evidence search improves CodeVetter's real outcomes.
 
 Acceptance:
 
-- Benchmark harness can compare review with and without candidate search. Implemented for stored reviewer-output fixtures through `--evidence-comparison=with:without`.
+- Benchmark harness can compare review with and without candidate search. Implemented for stored reviewer-output fixtures through `--evidence-comparison=codevetter:codevetter_no_evidence` or another reviewer-pair argument.
 - Metrics include missed regressions, false positives, unverified fixes, and time/cost impact. Partially implemented: catch-rate, precision, F1, false-positive, redundant-match, newly caught, and regressed IDs are measured; unverified-fix and time/cost fields remain.
 - Claims are not published until fixture quality is credible.
 
@@ -251,13 +251,28 @@ Skip:
 - writeback into enterprise analytics systems
 - claims based on scale CodeVetter has not measured
 
-## Open Questions
+## Resolved Decisions
 
-- Which candidate categories catch real bugs fastest?
-- Should candidates be generated before or after blast-radius analysis?
-- How many candidates can the Review UI show before it becomes noise?
-- Should candidate status affect final review score?
-- How should dismissed candidates train future local preferences without becoming stale?
+- First candidate priorities: claim/evidence contradictions, sensitive boundary changes, UI route changes without browser proof, stale or missing verification for touched files, and scope drift in fix worktrees. These are closest to CodeVetter's wedge because they turn missing proof into actionable review packets.
+- Ordering: run cheap changed-file and blast-radius collection first, then candidate generation, then LLM review. Candidate generation should remain pre-prompt so the model validates or rejects packets instead of inventing its own search plan.
+- UI bounds: show at most five primary candidates in the default Review panel, with at most three per category and the rest behind an expand action or proof export. The prompt can use a similarly bounded top-N list.
+- Score impact: candidate status should affect review confidence and proof completeness, not automatically become a code defect. Confirmed defects can influence score; unresolved verification gaps should be labeled separately.
+- Dismissal learning: dismissed candidates can become local, repo-scoped preferences only when keyed by a stable evidence signature and optional expiry. A dismissal must not suppress a future candidate with new files, new failed commands, or newer QA evidence.
+
+## Next Implementation Slice
+
+The next slice is benchmark hardening, not more candidate categories.
+
+Acceptance:
+
+- Add benchmark fields for unverified-fix count and time/cost impact when review artifacts expose those values consistently.
+- Curate 20-30 real public agent-generated PR cases with hand-labeled ground truth before making external catch-rate claims.
+- Keep deterministic candidates and procedure gates dependency-free except for optional PATH-detected tools such as `ast-grep`.
+- Publish benchmark reports only with fixture provenance, false-positive counts, redundant-match counts, and caveats.
+
+## Feature Completion Boundary
+
+This feature is complete when candidate search demonstrably improves review outcomes on curated fixtures without hiding caveats: better catch rate or proof quality, bounded false positives, preserved open questions, and no network dependency.
 
 ## Pickup Checklist
 

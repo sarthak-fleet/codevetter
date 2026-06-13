@@ -7,9 +7,9 @@ use docs only for durable reference, design, research, and runbooks.
 
 ## Product PRDs
 
-- [Evidence Pattern Search](./PRD-EVIDENCE-PATTERN-SEARCH.md) - Unsupervised-inspired candidate risk search, ranked evidence packets, caveats, open questions, and quality gates before AI review.
-- [AI Session Intelligence](./PRD-AI-SESSION-INTELLIGENCE.md) - Team Cadence-inspired session analysis, repo AI-readiness scoring, developer recommendations, and future active-dev team packaging.
-- [Review Memory Graph](./PRD-REVIEW-MEMORY-GRAPH.md) - Hunk-inspired review navigation plus Graphify-inspired local graph context, scoped to CodeVetter's evidence-backed review loop.
-- [Synthetic User QA Workflows](./PRD-SYNTHETIC-USER-QA-WORKFLOWS.md) - Local-first QA runs that turn user goals, screenshots, traces, and console failures into reviewable evidence.
-- [Agent Verification Timeline](./PRD-AGENT-VERIFICATION-TIMELINE.md) - A step-through timeline that connects prompts, commands, edits, tests, findings, and fixes.
-- [Codebase History Explainer](./PRD-CODEBASE-HISTORY-EXPLAINER.md) - A local history and decision graph for answering why code is shaped the way it is.
+- [Evidence Pattern Search](./PRD-EVIDENCE-PATTERN-SEARCH.md) - Finished PRD; first deterministic candidate/procedure slice shipped, benchmark hardening remains next.
+- [AI Session Intelligence](./PRD-AI-SESSION-INTELLIGENCE.md) - Finished PRD; first local scorecard/archive slice shipped, usage JSON and deterministic recommendations remain next.
+- [Review Memory Graph](./PRD-REVIEW-MEMORY-GRAPH.md) - Finished PRD; first local/review graph slice shipped, hunk-like navigation remains next.
+- [Synthetic User QA Workflows](./PRD-SYNTHETIC-USER-QA-WORKFLOWS.md) - Finished PRD; first local QA workflow slice shipped, reliability metadata remains next.
+- [Agent Verification Timeline](./PRD-AGENT-VERIFICATION-TIMELINE.md) - Finished PRD; first timeline/fix-packet slice shipped, cross-transcript reconstruction remains next.
+- [Codebase History Explainer](./PRD-CODEBASE-HISTORY-EXPLAINER.md) - Finished PRD; first file-level/history-brief slice shipped, queryable history graph remains next.

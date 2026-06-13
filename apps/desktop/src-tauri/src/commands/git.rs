@@ -1765,6 +1765,50 @@ fn normalized_raw_session_context_item(
     None
 }
 
+fn annotate_raw_session_context_items(items: &mut [Value], target_line: usize) {
+    let command_lines: Vec<usize> = items
+        .iter()
+        .filter(|item| item.get("kind").and_then(Value::as_str) == Some("command"))
+        .filter_map(|item| item.get("line").and_then(Value::as_u64).map(|line| line as usize))
+        .collect();
+
+    for item in items.iter_mut() {
+        let Some(line_no) = item.get("line").and_then(Value::as_u64).map(|line| line as usize)
+        else {
+            continue;
+        };
+        let relative_position = if line_no < target_line {
+            "before"
+        } else if line_no > target_line {
+            "after"
+        } else {
+            "target"
+        };
+        let distance = line_no.abs_diff(target_line);
+        let nearest_command = command_lines
+            .iter()
+            .min_by_key(|command_line| command_line.abs_diff(line_no))
+            .copied();
+
+        if let Some(object) = item.as_object_mut() {
+            object.insert(
+                "relative_position".to_string(),
+                Value::String(relative_position.to_string()),
+            );
+            object.insert(
+                "distance_to_target".to_string(),
+                Value::Number(serde_json::Number::from(distance)),
+            );
+            object.insert(
+                "nearest_command_line".to_string(),
+                nearest_command
+                    .map(|line| Value::Number(serde_json::Number::from(line)))
+                    .unwrap_or(Value::Null),
+            );
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn read_raw_session_context(
     file_path: String,
@@ -1817,6 +1861,8 @@ pub async fn read_raw_session_context(
             items.push(item);
         }
     }
+
+    annotate_raw_session_context_items(&mut items, target);
 
     Ok(json!({
         "file_path": file_path,
@@ -2504,6 +2550,48 @@ mod tests {
         assert_eq!(result_item["role"], "tool");
         assert_eq!(result_item["status"], "passed");
         assert_eq!(result_item["artifacts"][0], "artifacts/lint.log");
+    }
+
+    #[test]
+    fn annotates_raw_session_context_items_with_conversation_position() {
+        let mut items = vec![
+            json!({
+                "line": 9,
+                "role": "user",
+                "kind": "message",
+                "text": "Please fix checkout",
+                "status": "unknown",
+                "highlight": false,
+            }),
+            json!({
+                "line": 10,
+                "role": "assistant",
+                "kind": "command",
+                "text": "npm run test:checkout",
+                "status": "failed",
+                "highlight": true,
+            }),
+            json!({
+                "line": 13,
+                "role": "assistant",
+                "kind": "message",
+                "text": "I found the failing assertion.",
+                "status": "unknown",
+                "highlight": false,
+            }),
+        ];
+
+        annotate_raw_session_context_items(&mut items, 10);
+
+        assert_eq!(items[0]["relative_position"], "before");
+        assert_eq!(items[0]["distance_to_target"], 1);
+        assert_eq!(items[0]["nearest_command_line"], 10);
+        assert_eq!(items[1]["relative_position"], "target");
+        assert_eq!(items[1]["distance_to_target"], 0);
+        assert_eq!(items[1]["nearest_command_line"], 10);
+        assert_eq!(items[2]["relative_position"], "after");
+        assert_eq!(items[2]["distance_to_target"], 3);
+        assert_eq!(items[2]["nearest_command_line"], 10);
     }
 
     #[test]

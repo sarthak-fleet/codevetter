@@ -21,13 +21,13 @@ The near-term wedge is not beating Claude, Codex, or hosted PR bots at generic r
 
 | Capability | Current state | Main gap |
 |---|---|---|
-| Code review | Review tab runs local diffs through CLI agents and persists findings. | Needs multi-pass specialist review, better AGENTS.md/project-context ingestion, and benchmarked catch-rate evidence. |
-| Bug finding | Findings, severity, code viewer, and re-review loop exist. | Needs runtime evidence from tests/browser sessions/logs, not only static diff judgment. |
-| Agent-written code verification | Product is aimed at agent output and can fix/re-review selected findings. | Needs agent provenance: which agent changed what, prompt/task context, and whether the fix actually resolved the original user goal. |
-| Debugging/replay | History indexes Claude/Codex sessions and can replay conversations. | Replay is not connected to files, diffs, failures, screenshots, tests, or review findings. |
-| Synthetic user QA | Not implemented as a first-class workflow. | Needs browser/app automation that performs user tasks, captures screenshots/traces, and converts failures into review findings. |
-| AI step-through debugger | Not implemented. | Needs an execution timeline across agent actions, file edits, commands, test failures, and UI observations. |
-| Codebase history explainer | Repo Unpacked generates repo briefs; History indexes agent sessions. | Needs commit/decision mining tied to touched files so reviews can catch intent regressions. |
+| Code review | Review tab runs local diffs through CLI agents, persists findings, adds risk-tiered/specialist review metadata, and includes deterministic evidence packets. | Needs more curated public benchmark fixtures before making external catch-rate claims. |
+| Bug finding | Findings, severity, code viewer, fix/re-review loop, evidence candidates, procedure gates, and local verification-command capture exist. | Needs unverified-fix and time/cost metrics in benchmark reports once review artifacts capture them consistently. |
+| Agent-written code verification | Review links agent claims, command evidence, QA runs, fix worktrees, and proof export through the timeline/evidence model. | Needs cross-transcript reconstruction when one session preview cannot explain the agent's full path. |
+| Debugging/replay | History indexes Claude/Codex/Cursor-style sessions, archives normalized messages/tool calls, and feeds command anchors/replay packets into Review. | Needs broader session-source coverage and richer live-tail behavior if periodic indexing proves too coarse. |
+| Synthetic user QA | Review supports local named QA workflows, repo Playwright runs, persisted QA records, artifact display, and same-flow post-fix comparison. | Needs explicit flaky/hidden/blocked reliability metadata for stored QA steps and runs. |
+| AI step-through debugger | Review has a normalized task/review/QA/evidence/claim/fix/worktree timeline with jump targets, replay packets, and segment-scoped fix packets. | Needs bounded cross-transcript context reconstruction for multi-session tasks. |
+| Codebase history explainer | Repo Unpacked and Review surface bounded cited history from commits, decision markers, tests, recurring findings, and agent notes. | Needs a queryable local history graph over the shipped `history_brief` and file-level explanations. |
 
 The product should prefer narrow, evidence-backed loops over broad "code intelligence" surfaces. A feature is on-strategy when it helps answer: "What changed, why did the agent change it, what could break, can we reproduce it, and did the fix actually work?"
 

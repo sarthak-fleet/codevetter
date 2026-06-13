@@ -1,8 +1,8 @@
 # PRD: Review Memory Graph
 
-Status: in progress
+Status: finished PRD; first local/review graph slice shipped
 Owner: unassigned
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 ## Summary
 
@@ -211,13 +211,28 @@ Acceptance:
 - If an LLM-backed graph extraction mode exists later, require explicit provider/backend choice and show whether code leaves the machine.
 - Do not include secrets, env files, SSH keys, cloud credentials, kube configs, or production configs in graph artifacts.
 
-## Open Questions
+## Resolved Decisions
 
-- Should graph artifacts be stored in CodeVetter app data only, or optionally committed to target repos?
-- What is the smallest useful graph schema for React/Tauri/Rust apps?
-- Should graph context be generated before every review or refreshed manually from Repo Unpacked?
-- Should evidence graph nodes include raw transcript excerpts, or only source/event anchors?
-- What graph output size is acceptable before Review becomes slower than the current flow?
+- Storage: store graph artifacts in CodeVetter app data/local report inventory by default. Target repo writes are explicit export actions only.
+- Smallest useful schema: keep the first durable schema to files, package scripts, routes, Tauri commands, database tables, tests, decisions, evidence candidates, procedure gates, and history nodes. Add deeper call/import edges only when they improve review decisions.
+- Refresh model: Repo Unpacked owns full repo graph refresh. Review can generate a bounded review-scoped graph for the current diff before every review without forcing a full repo rescan.
+- Transcript evidence: graph nodes should carry source/event anchors and bounded excerpts only when they are already part of review evidence. Raw transcript content stays behind explicit open/preview actions.
+- Size bound: default Review graph context should stay under a small top-N neighborhood per changed file and must never make review prompt construction slower than the current local scan by more than a modest bounded overhead. Larger graph exports belong in Repo Unpacked, not the primary Review sidebar.
+
+## Next Implementation Slice
+
+The next slice is hunk-like Review navigation that consumes the shipped graph context without embedding Hunk.
+
+Acceptance:
+
+- The Review/fix diff has stable file and hunk navigation.
+- Findings focus the relevant file/hunk when path and line metadata exist.
+- Keyboard and click navigation work without breaking hunk-level revert.
+- Graph context remains a side panel for "what matters nearby," not a visual graph maze.
+
+## Feature Completion Boundary
+
+This feature is complete when Repo Unpacked can build/export the local graph, Review can use a bounded changed-file graph in prompts/UI/proof export, and hunk-level navigation makes the graph actionable during review.
 
 ## Pickup Checklist
 

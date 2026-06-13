@@ -1,8 +1,8 @@
 # PRD: Agent Verification Timeline
 
-Status: in progress
+Status: finished PRD; first timeline/fix-packet slice shipped
 Owner: unassigned
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 ## Summary
 
@@ -101,7 +101,7 @@ Acceptance:
 - Unverified edits or skipped checks are called out.
 - Good verification loops can be recognized and reused.
 
-Status: partially implemented. Timeline evidence rows now carry bounded command anchors from history command signals, including source, status, source path/line, event ID, session ID, artifact, transcript excerpt, jump target where available, and compact multi-turn replay packets that group adjacent command events from the same transcript. A dedicated Claim check row now flags failed/stale command claims, unknown verification-command outcomes, explicit extracted agent claims, positive test/check claims contradicted by failed/stale command evidence, findings without verification evidence, latest QA failures without a post-fix comparison, unresolved post-fix QA comparisons, successful fixes that lack same-flow QA reruns, evidence-count-only loops that have no passed verification command or passing QA proof, possible scope drift when a fix edits files outside reviewed findings, and broad repeated edits without evidence progress. Clean loops now call out passed verification-command and QA proof counts. Worktree rows carry bounded edit-origin anchors for files changed by fix attempts, including stable event IDs, session IDs, source paths, and file jumps. These anchors render in the Review sidebar, are clickable in-app, and are copied into reviewer proof.
+Status: partially implemented. Timeline evidence rows now carry bounded command anchors from history command signals, including source, status, source path/line, event ID, session ID, artifact, transcript excerpt, jump target where available, and compact multi-turn replay packets that group adjacent command events from the same transcript. Raw transcript previews now annotate non-command context with before/target/after position, distance from the target line, and nearest command line so surrounding conversation can be reconstructed without reading the whole file. A dedicated Claim check row now flags failed/stale command claims, unknown verification-command outcomes, explicit extracted agent claims, positive test/check claims contradicted by failed/stale command evidence, findings without verification evidence, latest QA failures without a post-fix comparison, unresolved post-fix QA comparisons, successful fixes that lack same-flow QA reruns, evidence-count-only loops that have no passed verification command or passing QA proof, possible scope drift when a fix edits files outside reviewed findings, and broad repeated edits without evidence progress. Clean loops now call out passed verification-command and QA proof counts. Worktree rows carry bounded edit-origin anchors for files changed by fix attempts, including stable event IDs, session IDs, source paths, and file jumps. These anchors render in the Review sidebar, are clickable in-app, and are copied into reviewer proof.
 
 ### Phase 3: Fix Loop Linkage
 
@@ -111,7 +111,7 @@ Acceptance:
 
 - A fix packet can be generated from a timeline segment. Implemented for Review, Evidence, QA, Fix packet, and Worktree timeline segments by deriving the relevant findings, selecting them in the patch queue, and copying a segment-scoped agent fix packet with clicked-row replay metadata, jump target, bounded source/event/artifact anchors, and transcript snippets.
 - The timeline shows whether the recheck actually improved evidence. Implemented for same-flow post-fix Synthetic QA comparisons through QA-row status/detail deltas plus before/after artifact anchors.
-- Review findings can reference earlier agent actions. Partially implemented through history command/claim summaries, first-class timeline jump metadata, transcript excerpts, edit-origin anchors for fix changed files, command-event replay packets, timeline-segment replay packets, and proof export; fuller non-command conversation reconstruction remains pending.
+- Review findings can reference earlier agent actions. Partially implemented through history command/claim summaries, first-class timeline jump metadata, transcript excerpts, annotated non-command conversation context, edit-origin anchors for fix changed files, command-event replay packets, timeline-segment replay packets, and proof export; fuller cross-transcript conversation reconstruction remains pending.
 
 ## UX Requirements
 
@@ -132,11 +132,26 @@ Acceptance:
 - Avoid surfacing secret material even if it appears in the source session.
 - Do not infer developer quality from volume metrics alone.
 
-## Open Questions
+## Resolved Decisions
 
-- Should the timeline be session-first or review-first?
-- How much raw transcript should remain hidden behind a click?
-- Should the spine be stored as a derived artifact or recomputed on demand?
+- Orientation: Review-first for the primary product flow. Session-first browsing remains a History affordance, while timeline rows in Review answer whether the current diff/fix loop has enough evidence.
+- Transcript detail: primary rows show bounded excerpts, anchors, and replay packets. Full transcript views stay behind explicit preview/open actions and should preserve before/target/after context labels.
+- Storage: store durable procedure/QA/fix evidence events and recompute the presentation spine on demand from versioned local records. Persist derived timeline artifacts only when needed for proof export or reproducible handoff snapshots.
+
+## Next Implementation Slice
+
+The next slice is cross-transcript conversation reconstruction for cases where a single raw preview window cannot explain a claim or command sequence.
+
+Acceptance:
+
+- Adjacent session fragments can be linked by repo, branch, review ID, command/event anchors, or time proximity without merging unrelated conversations.
+- The UI labels reconstructed context as inferred and shows source/session IDs.
+- Proof export includes enough anchors to reopen the contributing transcript fragments.
+- Reconstruction remains bounded and never requires cloud sync.
+
+## Feature Completion Boundary
+
+This feature is complete when Review can show the ordered task/review/QA/evidence/claim/fix/worktree spine, flag claim-vs-evidence discrepancies, generate segment-scoped fix packets, and export the same anchors in reviewer proof.
 
 ## Pickup Checklist
 
