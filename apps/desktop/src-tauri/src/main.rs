@@ -197,6 +197,8 @@ fn main() {
             commands::sessions::merge_projects,
             commands::session_intelligence::get_ai_session_scorecard,
             commands::session_intelligence::list_ai_session_adapter_runs,
+            commands::agent_memories::list_agent_memory_sources,
+            commands::agent_memories::read_agent_memory_source,
             // History / indexer
             commands::history::trigger_index,
             commands::history::get_index_stats,
@@ -225,6 +227,7 @@ fn main() {
             commands::accounts::delete_provider_account,
             commands::accounts::check_account_usage,
             commands::accounts::check_live_usage,
+            commands::accounts::list_provider_usage_ledger,
             commands::accounts::detect_provider_accounts,
             // Preferences
             commands::preferences::get_preference,

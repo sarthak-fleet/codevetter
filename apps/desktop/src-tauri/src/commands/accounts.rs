@@ -302,6 +302,53 @@ pub async fn check_account_usage(
     }))
 }
 
+#[tauri::command]
+pub async fn list_provider_usage_ledger(
+    db: State<'_, DbState>,
+    limit: Option<i64>,
+) -> Result<Value, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let limit = limit.unwrap_or(12).clamp(1, 100);
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, provider, source, source_detail, window_start, window_end,
+                    granularity, input_tokens, output_tokens, cached_tokens,
+                    reasoning_tokens, total_tokens, cost_usd, confidence,
+                    metadata_json, observed_at
+             FROM provider_usage_ledger
+             ORDER BY observed_at DESC
+             LIMIT ?1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(rusqlite::params![limit], |row| {
+            Ok(json!({
+                "id": row.get::<_, String>(0)?,
+                "provider": row.get::<_, String>(1)?,
+                "source": row.get::<_, String>(2)?,
+                "source_detail": row.get::<_, Option<String>>(3)?,
+                "window_start": row.get::<_, String>(4)?,
+                "window_end": row.get::<_, String>(5)?,
+                "granularity": row.get::<_, String>(6)?,
+                "input_tokens": row.get::<_, i64>(7)?,
+                "output_tokens": row.get::<_, i64>(8)?,
+                "cached_tokens": row.get::<_, i64>(9)?,
+                "reasoning_tokens": row.get::<_, i64>(10)?,
+                "total_tokens": row.get::<_, i64>(11)?,
+                "cost_usd": row.get::<_, Option<f64>>(12)?,
+                "confidence": row.get::<_, String>(13)?,
+                "metadata_json": row.get::<_, String>(14)?,
+                "observed_at": row.get::<_, String>(15)?,
+            }))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(json!({ "rows": rows }))
+}
+
 fn usage_profile_label(agent_type: &str, jsonl_path: Option<&str>) -> String {
     match agent_type {
         "claude-code" => claude_profile_label(jsonl_path),
@@ -848,10 +895,11 @@ fn read_keychain_account_info(service: &str) -> Option<(DetectedAccount, i64)> {
 /// (e.g. "Claude Code-credentials-f50ce9b7"). Defaults to "Claude Code-credentials".
 #[tauri::command]
 pub async fn check_live_usage(
+    db: State<'_, DbState>,
     provider: String,
     credential_key: Option<String>,
 ) -> Result<Value, String> {
-    match provider.as_str() {
+    let result = match provider.as_str() {
         "anthropic" => check_live_usage_anthropic(credential_key).await,
         "openai" => check_live_usage_openai().await,
         "cursor" => check_live_usage_cursor().await,
@@ -907,7 +955,201 @@ pub async fn check_live_usage(
             "supported": false,
             "reason": format!("Unknown provider: {}", provider)
         })),
+    };
+
+    if let Ok(value) = &result {
+        if let Ok(conn) = db.0.lock() {
+            if let Err(error) = persist_live_usage_ledger(&conn, &provider, value) {
+                log::warn!("Failed to persist {provider} usage ledger row: {error}");
+            }
+        }
     }
+
+    result
+}
+
+fn persist_live_usage_ledger(
+    conn: &rusqlite::Connection,
+    provider: &str,
+    value: &Value,
+) -> Result<(), rusqlite::Error> {
+    match provider {
+        "google" => persist_gemini_today_usage(conn, value),
+        "cursor" => persist_cursor_cycle_usage(conn, value),
+        _ => Ok(()),
+    }
+}
+
+fn persist_gemini_today_usage(
+    conn: &rusqlite::Connection,
+    value: &Value,
+) -> Result<(), rusqlite::Error> {
+    let Some(tokens) = value.pointer("/today/tokens") else {
+        return Ok(());
+    };
+
+    let today = chrono::Local::now().date_naive();
+    let Some(start_naive) = today.and_hms_opt(0, 0, 0) else {
+        return Ok(());
+    };
+    let Some(end_naive) = (today + chrono::Duration::days(1)).and_hms_opt(0, 0, 0) else {
+        return Ok(());
+    };
+    let Some(window_start) = start_naive
+        .and_local_timezone(chrono::Local)
+        .single()
+        .map(|dt| dt.to_rfc3339())
+    else {
+        return Ok(());
+    };
+    let Some(window_end) = end_naive
+        .and_local_timezone(chrono::Local)
+        .single()
+        .map(|dt| dt.to_rfc3339())
+    else {
+        return Ok(());
+    };
+
+    upsert_usage_ledger_row(
+        conn,
+        UsageLedgerInput {
+            provider: "google",
+            source: "gemini_local_sessions",
+            source_detail: value.get("source").and_then(Value::as_str),
+            window_start: &window_start,
+            window_end: &window_end,
+            granularity: "day",
+            input_tokens: tokens.get("input").and_then(Value::as_i64).unwrap_or(0),
+            output_tokens: tokens.get("output").and_then(Value::as_i64).unwrap_or(0),
+            cached_tokens: tokens.get("cached").and_then(Value::as_i64).unwrap_or(0),
+            reasoning_tokens: tokens.get("thoughts").and_then(Value::as_i64).unwrap_or(0),
+            total_tokens: tokens.get("total").and_then(Value::as_i64).unwrap_or(0),
+            cost_usd: None,
+            confidence: "local_session_tokens",
+            metadata_json: &value.to_string(),
+        },
+    )
+}
+
+fn persist_cursor_cycle_usage(
+    conn: &rusqlite::Connection,
+    value: &Value,
+) -> Result<(), rusqlite::Error> {
+    let Some(tokens) = value.get("cursor_tokens") else {
+        return Ok(());
+    };
+
+    let cycle_start_ms = value
+        .pointer("/cursor_plan/cycle_start_ms")
+        .and_then(Value::as_i64);
+    let cycle_end_ms = value
+        .pointer("/cursor_plan/cycle_end_ms")
+        .and_then(Value::as_i64);
+    let (Some(start_ms), Some(end_ms)) = (cycle_start_ms, cycle_end_ms) else {
+        return Ok(());
+    };
+    let Some(window_start) =
+        chrono::DateTime::from_timestamp_millis(start_ms).map(|dt| dt.to_rfc3339())
+    else {
+        return Ok(());
+    };
+    let Some(window_end) =
+        chrono::DateTime::from_timestamp_millis(end_ms).map(|dt| dt.to_rfc3339())
+    else {
+        return Ok(());
+    };
+
+    let cost_usd = tokens
+        .get("total_cost_cents")
+        .and_then(Value::as_f64)
+        .map(|cents| cents / 100.0);
+
+    upsert_usage_ledger_row(
+        conn,
+        UsageLedgerInput {
+            provider: "cursor",
+            source: "cursor_api_billing_cycle",
+            source_detail: Some("GetAggregatedUsageEvents"),
+            window_start: &window_start,
+            window_end: &window_end,
+            granularity: "billing_cycle",
+            input_tokens: tokens.get("input").and_then(Value::as_i64).unwrap_or(0),
+            output_tokens: tokens.get("output").and_then(Value::as_i64).unwrap_or(0),
+            cached_tokens: tokens
+                .get("cache_read")
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            reasoning_tokens: 0,
+            total_tokens: tokens.get("total").and_then(Value::as_i64).unwrap_or(0),
+            cost_usd,
+            confidence: "provider_api",
+            metadata_json: &value.to_string(),
+        },
+    )
+}
+
+struct UsageLedgerInput<'a> {
+    provider: &'a str,
+    source: &'a str,
+    source_detail: Option<&'a str>,
+    window_start: &'a str,
+    window_end: &'a str,
+    granularity: &'a str,
+    input_tokens: i64,
+    output_tokens: i64,
+    cached_tokens: i64,
+    reasoning_tokens: i64,
+    total_tokens: i64,
+    cost_usd: Option<f64>,
+    confidence: &'a str,
+    metadata_json: &'a str,
+}
+
+fn upsert_usage_ledger_row(
+    conn: &rusqlite::Connection,
+    input: UsageLedgerInput<'_>,
+) -> Result<(), rusqlite::Error> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let observed_at = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO provider_usage_ledger (
+            id, provider, source, source_detail, window_start, window_end,
+            granularity, input_tokens, output_tokens, cached_tokens,
+            reasoning_tokens, total_tokens, cost_usd, confidence, metadata_json,
+            observed_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+         ON CONFLICT(provider, source, window_start, window_end) DO UPDATE SET
+            source_detail = excluded.source_detail,
+            granularity = excluded.granularity,
+            input_tokens = excluded.input_tokens,
+            output_tokens = excluded.output_tokens,
+            cached_tokens = excluded.cached_tokens,
+            reasoning_tokens = excluded.reasoning_tokens,
+            total_tokens = excluded.total_tokens,
+            cost_usd = excluded.cost_usd,
+            confidence = excluded.confidence,
+            metadata_json = excluded.metadata_json,
+            observed_at = excluded.observed_at",
+        rusqlite::params![
+            id,
+            input.provider,
+            input.source,
+            input.source_detail,
+            input.window_start,
+            input.window_end,
+            input.granularity,
+            input.input_tokens,
+            input.output_tokens,
+            input.cached_tokens,
+            input.reasoning_tokens,
+            input.total_tokens,
+            input.cost_usd,
+            input.confidence,
+            input.metadata_json,
+            observed_at,
+        ],
+    )?;
+    Ok(())
 }
 
 /// Anthropic live usage: make a tiny API call, read rate-limit headers.

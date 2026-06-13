@@ -513,6 +513,29 @@ CREATE TABLE IF NOT EXISTS provider_accounts (
     updated_at     TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS provider_usage_ledger (
+    id               TEXT PRIMARY KEY,
+    provider         TEXT NOT NULL,
+    source           TEXT NOT NULL,
+    source_detail    TEXT,
+    window_start     TEXT NOT NULL,
+    window_end       TEXT NOT NULL,
+    granularity      TEXT NOT NULL,
+    input_tokens     INTEGER NOT NULL DEFAULT 0,
+    output_tokens    INTEGER NOT NULL DEFAULT 0,
+    cached_tokens    INTEGER NOT NULL DEFAULT 0,
+    reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens     INTEGER NOT NULL DEFAULT 0,
+    cost_usd         REAL,
+    confidence       TEXT NOT NULL,
+    metadata_json    TEXT NOT NULL DEFAULT '{}',
+    observed_at      TEXT NOT NULL,
+    UNIQUE(provider, source, window_start, window_end)
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_usage_ledger_provider_window
+    ON provider_usage_ledger(provider, window_start, window_end);
+
 -- ================================================================
 -- Preferences (key-value)
 -- ================================================================

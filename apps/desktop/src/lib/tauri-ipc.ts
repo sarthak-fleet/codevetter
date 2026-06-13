@@ -1199,6 +1199,35 @@ export async function checkLiveUsage(provider: string, credentialKey?: string): 
   return safeInvoke("check_live_usage", { provider, credentialKey: credentialKey ?? null });
 }
 
+export interface ProviderUsageLedgerRow {
+  id: string;
+  provider: string;
+  source: string;
+  source_detail: string | null;
+  window_start: string;
+  window_end: string;
+  granularity: string;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+  cost_usd: number | null;
+  confidence: string;
+  metadata_json: string;
+  observed_at: string;
+}
+
+export async function listProviderUsageLedger(
+  limit?: number,
+): Promise<ProviderUsageLedgerRow[]> {
+  const resp = await safeInvoke<{ rows: ProviderUsageLedgerRow[] }>(
+    "list_provider_usage_ledger",
+    { limit: limit ?? 12 },
+  );
+  return resp.rows;
+}
+
 export interface DetectedAccountInfo {
   provider: string;
   name: string;
@@ -1410,6 +1439,37 @@ export async function openInApp(
   path: string
 ): Promise<{ success: boolean }> {
   return safeInvoke("open_in_app", { appName: appName, path });
+}
+
+// ─── Agent Memories ────────────────────────────────────────────────────────
+
+export interface AgentMemorySource {
+  id: string;
+  tool: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  readable: boolean;
+  file_size_bytes: number | null;
+  modified_at: string | null;
+  source_kind: string;
+  preview: string;
+  note: string;
+}
+
+export interface AgentMemoryDocument {
+  source: AgentMemorySource;
+  content: string;
+  truncated: boolean;
+  extraction_note: string;
+}
+
+export async function listAgentMemorySources(): Promise<AgentMemorySource[]> {
+  return safeInvoke("list_agent_memory_sources");
+}
+
+export async function readAgentMemorySource(path: string): Promise<AgentMemoryDocument> {
+  return safeInvoke("read_agent_memory_source", { path });
 }
 
 // ─── GitHub PR & CI Operations ──────────────────────────────────────────────

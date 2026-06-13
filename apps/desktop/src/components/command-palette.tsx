@@ -78,6 +78,7 @@ export default function CommandPalette({ isOpen, onClose }: CommandPaletteProps)
       { id: "nav-home", label: "Go to Home", icon: "\u2302", shortcut: "g h", group: "Navigation", action: go("/") },
       { id: "nav-review", label: "Go to Review", icon: "\u2714", shortcut: "g r", group: "Navigation", action: go("/review") },
       { id: "nav-roadmap", label: "Go to Roadmap", icon: "\u25ce", shortcut: "g m", group: "Navigation", action: go("/roadmap") },
+      { id: "nav-agent-memories", label: "Go to Agent Memories", icon: "\u25A3", shortcut: "g a", group: "Navigation", action: go("/agent-memories") },
       { id: "nav-settings", label: "Go to Settings", icon: "\u2638", shortcut: "g ,", group: "Navigation", action: go("/settings") },
 
       // Actions

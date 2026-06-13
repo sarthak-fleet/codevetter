@@ -10,6 +10,7 @@ import { trackAppLaunch } from "@/lib/analytics";
 import { getPreference, isTauriAvailable } from "@/lib/tauri-ipc";
 import { useTrayMonitor } from "@/lib/use-tray-monitor";
 // Pages
+import AgentMemories from "@/pages/AgentMemories";
 import Home from "@/pages/Home";
 import IntentDebugger from "@/pages/IntentDebugger";
 import QaReplay from "@/pages/QaReplay";
@@ -172,6 +173,7 @@ export default function App() {
         <Route path="/roadmap" element={<Roadmap />} />
         <Route path="/rubrics" element={<Rubrics />} />
         <Route path="/unpack" element={<RepoUnpacked />} />
+        <Route path="/agent-memories" element={<AgentMemories />} />
         <Route path="/intent-debugger" element={<IntentDebugger />} />
         <Route path="/qa-replay" element={<QaReplay />} />
         <Route path="/settings" element={<Settings />} />
