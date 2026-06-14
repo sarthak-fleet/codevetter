@@ -1,0 +1,5 @@
+{"totalTokens":1000,"turnStartMs":100,"updateType":"AgentThoughtChunk"}
+{"totalTokens":1000,"turnStartMs":100,"updateType":"AgentMessageChunk"}
+{"totalTokens":3000,"turnStartMs":200,"updateType":"AgentMessageChunk"}
+{"totalTokens":5200,"turnStartMs":300,"updateType":"ToolCallUpdate"}
+{"totalTokens":5000,"turnStartMs":300,"updateType":"AgentMessageChunk"}

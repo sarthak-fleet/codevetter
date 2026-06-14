@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type {
   AccountUsage,
+  AgentUsageRow,
   LiveUsageResult,
   ProviderAccount,
   ProviderUsageLedgerRow,
@@ -34,6 +35,7 @@ import {
   checkLiveUsage,
   deleteProviderAccount,
   detectProviderAccounts,
+  getAgentUsageBreakdown,
   getTokenUsageStats,
   isTauriAvailable,
   listProviderAccounts,
@@ -865,70 +867,79 @@ function TokenUsageChart({
   );
 }
 
-// ─── WeeklyAgentSplit (stacked bar of this-week tokens by provider) ─────────
+// ─── WeeklyAgentSplit (stacked bar of this-week REAL compute by agent) ───────
+//
+// Keyed by indexed agent_type (not provider account) so every indexed agent —
+// including Grok and Cursor — appears. Uses real compute (input minus cache
+// reads, plus output) rather than the cache-inclusive input total: Claude and
+// Codex are ~96-98% cache reads, so the raw input total wildly overstates one
+// agent's share. Grok/Cursor token counts are per-turn-context estimates.
 
+// Provider-keyed palette for the live provider-telemetry ledger below.
 const PROVIDER_PALETTE: Record<string, { bar: string; dot: string; label: string }> = {
   anthropic: { bar: "#d6a947", dot: "bg-amber-400", label: "Claude" },
   openai: { bar: "#31c6b7", dot: "bg-emerald-400", label: "Codex" },
-  google: { bar: "#5da6f5", dot: "bg-blue-400", label: "Gemini" },
   cursor: { bar: "#a78bfa", dot: "bg-violet-400", label: "Cursor" },
 };
 
-function WeeklyAgentSplit({
-  accounts,
-  usages,
-}: {
-  accounts: ProviderAccount[];
-  usages: Record<string, AccountUsage>;
-}) {
-  // Collapse by provider — multiple accounts on the same provider share local stats.
-  const byProvider: Record<string, { tokens: number; sessions: number; accountId: string }> = {};
-  for (const acc of accounts) {
-    const u = usages[acc.id];
-    if (!u) continue;
-    const tokens = (u.week_input_tokens ?? 0) + (u.week_output_tokens ?? 0);
-    // First account per provider wins — sibling accounts mirror the same stats.
-    if (!byProvider[acc.provider]) {
-      byProvider[acc.provider] = {
-        tokens,
-        sessions: u.week_sessions ?? 0,
-        accountId: acc.id,
-      };
-    }
-  }
+const AGENT_PALETTE: Record<string, { bar: string; label: string; estimated?: boolean }> = {
+  "claude-code": { bar: "#d6a947", label: "Claude" },
+  codex: { bar: "#31c6b7", label: "Codex" },
+  cursor: { bar: "#a78bfa", label: "Cursor", estimated: true },
+  grok: { bar: "#5da6f5", label: "Grok", estimated: true },
+};
 
-  const segments = Object.entries(byProvider)
-    .filter(([, v]) => v.tokens > 0)
-    .sort((a, b) => b[1].tokens - a[1].tokens);
-  const grandTotal = segments.reduce((acc, [, v]) => acc + v.tokens, 0);
+function WeeklyAgentSplit() {
+  const [rows, setRows] = useState<AgentUsageRow[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAgentUsageBreakdown()
+      .then((r) => !cancelled && setRows(r))
+      .catch(() => !cancelled && setRows([]));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!rows) return null;
+
+  const segments = rows
+    .map((r) => ({
+      agent: r.agent_type,
+      tokens: r.week_real_input_tokens + r.week_output_tokens,
+    }))
+    .filter((s) => s.tokens > 0)
+    .sort((a, b) => b.tokens - a.tokens);
+  const grandTotal = segments.reduce((acc, s) => acc + s.tokens, 0);
 
   if (segments.length === 0 || grandTotal === 0) {
     return null;
   }
 
+  const paletteFor = (agent: string) =>
+    AGENT_PALETTE[agent] ?? { bar: "#64748b", label: agent };
+  const anyEstimated = segments.some((s) => paletteFor(s.agent).estimated);
+
   return (
     <Card className="rounded-none border-0 bg-transparent p-4 shadow-none">
       <div className="mb-2.5 flex items-end justify-between gap-3">
         <div>
-          <div className="text-[11px] text-slate-500">This week by agent</div>
+          <div className="text-[11px] text-slate-500">This week by agent · real compute</div>
           <div className="text-xs text-slate-400 tabular-nums">
-            {formatTokens(grandTotal)} tokens · {segments.length} agent{segments.length === 1 ? "" : "s"}
+            {formatTokens(grandTotal)} tokens · cache reads excluded · {segments.length} agent{segments.length === 1 ? "" : "s"}
           </div>
         </div>
       </div>
       {/* Stacked bar */}
       <div className="flex h-2.5 w-full overflow-hidden rounded-sm bg-[#0b0d12] ring-1 ring-[#1a1a1a]">
-        {segments.map(([provider, v]) => {
-          const palette = PROVIDER_PALETTE[provider] ?? {
-            bar: "#64748b",
-            dot: "bg-slate-400",
-            label: provider,
-          };
-          const pct = (v.tokens / grandTotal) * 100;
+        {segments.map((s) => {
+          const palette = paletteFor(s.agent);
+          const pct = (s.tokens / grandTotal) * 100;
           return (
             <div
-              key={provider}
-              title={`${palette.label}: ${formatTokens(v.tokens)} (${pct.toFixed(0)}%)`}
+              key={s.agent}
+              title={`${palette.label}: ${formatTokens(s.tokens)} (${pct.toFixed(0)}%)${palette.estimated ? " · est." : ""}`}
               style={{ width: `${pct}%`, backgroundColor: palette.bar }}
               className="h-full transition-all"
             />
@@ -937,27 +948,28 @@ function WeeklyAgentSplit({
       </div>
       {/* Legend */}
       <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5">
-        {segments.map(([provider, v]) => {
-          const palette = PROVIDER_PALETTE[provider] ?? {
-            bar: "#64748b",
-            dot: "bg-slate-400",
-            label: provider,
-          };
-          const pct = (v.tokens / grandTotal) * 100;
+        {segments.map((s) => {
+          const palette = paletteFor(s.agent);
+          const pct = (s.tokens / grandTotal) * 100;
           return (
-            <div key={provider} className="flex items-center gap-1.5 text-[11px]">
+            <div key={s.agent} className="flex items-center gap-1.5 text-[11px]">
               <span
                 className="h-2 w-2 rounded-full"
                 style={{ backgroundColor: palette.bar }}
               />
-              <span className="text-slate-300">{palette.label}</span>
+              <span className="text-slate-300">{palette.label}{palette.estimated ? "*" : ""}</span>
               <span className="tabular-nums text-slate-500">
-                {formatTokens(v.tokens)} · {pct.toFixed(0)}%
+                {formatTokens(s.tokens)} · {pct.toFixed(0)}%
               </span>
             </div>
           );
         })}
       </div>
+      {anyEstimated && (
+        <div className="mt-2 text-[10px] text-slate-600">
+          * estimated from per-turn context — agent logs no cumulative token billing
+        </div>
+      )}
     </Card>
   );
 }
@@ -1831,7 +1843,7 @@ export default function Home() {
             daily={tokenUsage.daily_series}
             weekly={tokenUsage.weekly_series}
           />
-          <WeeklyAgentSplit accounts={accounts} usages={accountUsages} />
+          <WeeklyAgentSplit />
           <ProviderUsageLedgerPreview rows={usageLedger} />
         </div>
       )}

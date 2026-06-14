@@ -495,6 +495,18 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
         }
     }
 
+    // ── Phase 4: Scan Grok CLI sessions (~/.grok/sessions) ───
+    match index_grok_sessions(&conn) {
+        Ok((grok_indexed, grok_messages, grok_skipped)) => {
+            indexed_sessions += grok_indexed;
+            indexed_messages += grok_messages;
+            skipped_sessions += grok_skipped;
+        }
+        Err(error) => {
+            log::warn!("Grok session index failed; continuing with archive backfill: {error}");
+        }
+    }
+
     let backfilled_archives = backfill_missing_session_archives(&conn)?;
     if backfilled_archives > 0 {
         log::info!("Backfilled normalized session archive for {backfilled_archives} sessions");
@@ -523,6 +535,14 @@ pub async fn get_token_usage_stats(
 ) -> Result<queries::TokenUsageStats, String> {
     let conn = conn_lock(&db)?;
     queries::get_token_usage_stats(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_agent_usage_breakdown(
+    db: State<'_, DbState>,
+) -> Result<Vec<queries::AgentUsageRow>, String> {
+    let conn = conn_lock(&db)?;
+    queries::get_agent_usage_breakdown(&conn).map_err(|e| e.to_string())
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1044,6 +1064,247 @@ pub fn read_cursor_item_table(key: &str) -> Option<String> {
 /// Older workspace-storage `state.vscdb` ItemTable entries (composerData,
 /// workbench.panel.aichat, etc.) are no longer produced and have been
 /// dropped from this indexer.
+fn resolve_grok_sessions_dir() -> std::path::PathBuf {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home).join(".grok").join("sessions")
+}
+
+/// Decode the percent-encoded cwd Grok uses as a session project dir name
+/// (e.g. `%2FUsers%2Fsarthak%2Fproj` -> `/Users/sarthak/proj`).
+fn percent_decode_path(encoded: &str) -> String {
+    let bytes = encoded.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
+/// Estimate a Grok session's usage from its on-disk logs. Grok records only a
+/// per-turn *context-window size* (`totalTokens` in updates.jsonl), not
+/// cumulative billing — so summing the peak context per turn approximates the
+/// cumulative input burn (each turn re-sends ~its whole context), the same way
+/// Codex's cumulative `total_token_usage` accrues. Output/cache aren't logged.
+fn parse_grok_session_dir(
+    sess_dir: &std::path::Path,
+    cwd: &str,
+) -> Result<RawSessionAdapterSummary, String> {
+    let source_ref = sess_dir.to_string_lossy().to_string();
+    let summary_raw = std::fs::read_to_string(sess_dir.join("summary.json"))
+        .map_err(|e| format!("cannot read summary.json: {e}"))?;
+    let meta: Value =
+        serde_json::from_str(&summary_raw).map_err(|e| format!("bad summary.json: {e}"))?;
+
+    let stable_id = meta
+        .get("info")
+        .and_then(|i| i.get("id"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let model_used = meta
+        .get("current_model_id")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let slug = meta
+        .get("generated_title")
+        .or_else(|| meta.get("session_summary"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let git_branch = meta
+        .get("head_branch")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let first_ts = meta
+        .get("created_at")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let last_ts = meta
+        .get("last_active_at")
+        .or_else(|| meta.get("updated_at"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let message_count = meta
+        .get("num_chat_messages")
+        .or_else(|| meta.get("num_messages"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    // Peak context size per turn (keyed by turn start), summed = input estimate.
+    let mut per_turn: std::collections::BTreeMap<i64, i64> = std::collections::BTreeMap::new();
+    if let Ok(file) = std::fs::File::open(sess_dir.join("updates.jsonl")) {
+        for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Ok(v) = serde_json::from_str::<Value>(line) {
+                let total = v.get("totalTokens").and_then(|t| t.as_i64());
+                let turn = v
+                    .get("turnStartMs")
+                    .and_then(|t| t.as_i64())
+                    .or_else(|| v.get("agentTimestampMs").and_then(|t| t.as_i64()));
+                if let (Some(total), Some(turn)) = (total, turn) {
+                    let slot = per_turn.entry(turn).or_insert(0);
+                    if total > *slot {
+                        *slot = total;
+                    }
+                }
+            }
+        }
+    }
+    let estimated_input: i64 = per_turn.values().sum();
+
+    let mut day_counts: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    if let Some(ts) = first_ts.as_deref() {
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
+            let day = dt
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d")
+                .to_string();
+            day_counts.insert(day, message_count.max(1));
+        }
+    }
+
+    Ok(RawSessionAdapterSummary {
+        adapter_id: "grok".to_string(),
+        agent_type: "grok".to_string(),
+        stable_id,
+        source_ref,
+        cwd: Some(cwd.to_string()),
+        git_branch,
+        cli_version: None,
+        model_used,
+        first_timestamp: first_ts,
+        last_timestamp: last_ts,
+        message_count,
+        total_input_tokens: estimated_input,
+        total_output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_creation_tokens: 0,
+        compaction_count: 0,
+        slug,
+        day_counts,
+        archive_messages: Vec::new(),
+        parse_warnings: Vec::new(),
+    })
+}
+
+/// Phase 4: index Grok CLI sessions from ~/.grok/sessions. Token counts are
+/// per-turn-context estimates (see `parse_grok_session_dir`), not exact billing.
+fn index_grok_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), String> {
+    let base = resolve_grok_sessions_dir();
+    if !base.exists() {
+        return Ok((0, 0, 0));
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    let (mut indexed, mut messages, mut skipped) = (0u64, 0u64, 0u64);
+
+    let project_dirs = match std::fs::read_dir(&base) {
+        Ok(rd) => rd,
+        Err(_) => return Ok((0, 0, 0)),
+    };
+    for proj_entry in project_dirs.filter_map(|e| e.ok()) {
+        let proj_dir = proj_entry.path();
+        if !proj_dir.is_dir() {
+            continue;
+        }
+        let encoded = proj_dir
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let cwd = percent_decode_path(&encoded);
+        let project_id = queries::get_project_id_by_dir(conn, &cwd)
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| {
+                let pid = uuid::Uuid::new_v4().to_string();
+                let display = std::path::Path::new(&cwd)
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| cwd.clone());
+                let _ = queries::upsert_project(
+                    conn,
+                    &queries::ProjectInput {
+                        id: pid.clone(),
+                        display_name: display,
+                        dir_path: cwd.clone(),
+                        session_count: None,
+                        last_activity: Some(now.clone()),
+                        created_at: now.clone(),
+                    },
+                );
+                pid
+            });
+
+        let session_dirs = match std::fs::read_dir(&proj_dir) {
+            Ok(rd) => rd,
+            Err(_) => continue,
+        };
+        for sess_entry in session_dirs.filter_map(|e| e.ok()) {
+            let sess_dir = sess_entry.path();
+            if !sess_dir.is_dir() {
+                continue; // skip per-project prompt_history.jsonl etc.
+            }
+            let summary_path = sess_dir.join("summary.json");
+            if !summary_path.exists() {
+                continue;
+            }
+            let source_ref = sess_dir.to_string_lossy().to_string();
+            let file_meta = std::fs::metadata(&summary_path).ok();
+            let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
+            let file_mtime = file_meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
+
+            let existing = queries::get_session_by_jsonl_path(conn, &source_ref)
+                .map_err(|e| e.to_string())?;
+            if let Some(ref meta) = existing {
+                if meta.file_mtime.as_deref() == file_mtime.as_deref() && meta.message_count > 0 {
+                    skipped += 1;
+                    continue;
+                }
+            }
+
+            match parse_grok_session_dir(&sess_dir, &cwd) {
+                Ok(summary) => {
+                    let msg = summary.message_count.max(0) as u64;
+                    match upsert_adapter_summary_session(
+                        conn,
+                        &project_id,
+                        summary,
+                        file_size,
+                        file_mtime,
+                        &now,
+                        existing.as_ref().map(|m| m.id.as_str()),
+                    ) {
+                        Ok(_) => {
+                            indexed += 1;
+                            messages += msg;
+                        }
+                        Err(e) => log::warn!("grok upsert failed for {source_ref}: {e}"),
+                    }
+                }
+                Err(e) => log::warn!("grok parse failed for {source_ref}: {e}"),
+            }
+        }
+    }
+
+    Ok((indexed, messages, skipped))
+}
+
 fn index_cursor_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), String> {
     let db_path = resolve_cursor_global_db();
     let index_started_at = chrono::Utc::now().to_rfc3339();
@@ -1657,5 +1918,37 @@ mod tests {
             .iter()
             .any(|warning| warning.contains("not valid JSON")));
         assert!(rows[0].supports_incremental);
+    }
+
+    #[test]
+    fn grok_session_estimates_input_from_per_turn_context() {
+        let dir = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/session_adapters/grok-session"
+        ));
+        let summary =
+            parse_grok_session_dir(dir, "/repo/codevetter").expect("grok session parses");
+
+        assert_eq!(summary.agent_type, "grok");
+        assert_eq!(summary.adapter_id, "grok");
+        assert_eq!(summary.stable_id.as_deref(), Some("grok-session-1"));
+        assert_eq!(summary.model_used.as_deref(), Some("grok-build"));
+        assert_eq!(summary.message_count, 4);
+        // Input estimate = sum of the peak context size per turn:
+        // turn 100 -> 1000, turn 200 -> 3000, turn 300 -> 5200 (max of 5200/5000).
+        assert_eq!(summary.total_input_tokens, 9200);
+        // Grok logs no cumulative output or cache figures.
+        assert_eq!(summary.total_output_tokens, 0);
+        assert_eq!(summary.cache_read_tokens, 0);
+    }
+
+    #[test]
+    fn percent_decode_path_restores_cwd() {
+        assert_eq!(
+            percent_decode_path("%2FUsers%2Fsarthak%2FDesktop%2Ffleet%2Freader"),
+            "/Users/sarthak/Desktop/fleet/reader"
+        );
+        // Non-encoded input is returned unchanged.
+        assert_eq!(percent_decode_path("plain-name"), "plain-name");
     }
 }

@@ -1509,6 +1509,62 @@ pub struct TokenUsageStats {
     pub weekly_series: Vec<WeekBucket>,
 }
 
+/// Per-agent usage that separates *real compute* (input minus cache reads)
+/// from cache-read tokens. Claude/Codex are ~96-98% cache reads, so the
+/// cache-inclusive input total wildly overstates one agent's real share; the
+/// dashboard leads with `real_input_tokens + output_tokens` for a fair split.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentUsageRow {
+    pub agent_type: String,
+    pub sessions: i64,
+    pub real_input_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub output_tokens: i64,
+    pub week_real_input_tokens: i64,
+    pub week_output_tokens: i64,
+}
+
+pub fn get_agent_usage_breakdown(
+    conn: &Connection,
+) -> Result<Vec<AgentUsageRow>, rusqlite::Error> {
+    use chrono::{Datelike, Duration, Local};
+    let today = Local::now().date_naive();
+    let monday = today - Duration::days(today.weekday().num_days_from_monday() as i64);
+    let week_start = format!("{}T00:00:00Z", monday.format("%Y-%m-%d"));
+
+    // MAX(x, 0) guards the rare case where cache_read exceeds recorded input.
+    let mut stmt = conn.prepare(
+        "SELECT agent_type,
+                COUNT(*),
+                COALESCE(SUM(MAX(total_input_tokens - cache_read_tokens, 0)), 0),
+                COALESCE(SUM(cache_read_tokens), 0),
+                COALESCE(SUM(total_output_tokens), 0),
+                COALESCE(SUM(CASE WHEN last_message >= ?1
+                    THEN MAX(total_input_tokens - cache_read_tokens, 0) ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN last_message >= ?1
+                    THEN total_output_tokens ELSE 0 END), 0)
+         FROM cc_sessions
+         GROUP BY agent_type
+         ORDER BY 3 DESC",
+    )?;
+
+    let rows = stmt
+        .query_map(params![week_start], |r| {
+            Ok(AgentUsageRow {
+                agent_type: r.get(0)?,
+                sessions: r.get(1)?,
+                real_input_tokens: r.get(2)?,
+                cache_read_tokens: r.get(3)?,
+                output_tokens: r.get(4)?,
+                week_real_input_tokens: r.get(5)?,
+                week_output_tokens: r.get(6)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(rows)
+}
+
 pub fn get_token_usage_stats(conn: &Connection) -> Result<TokenUsageStats, rusqlite::Error> {
     use chrono::{Datelike, Duration, Local, NaiveDate};
 

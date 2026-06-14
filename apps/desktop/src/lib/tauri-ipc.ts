@@ -271,6 +271,17 @@ export interface TokenUsageStats {
   weekly_series: WeekBucket[];
 }
 
+/** Per-agent usage split into real compute vs cache reads. */
+export interface AgentUsageRow {
+  agent_type: string;
+  sessions: number;
+  real_input_tokens: number;
+  cache_read_tokens: number;
+  output_tokens: number;
+  week_real_input_tokens: number;
+  week_output_tokens: number;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // BACKEND RESPONSE WRAPPERS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -979,6 +990,10 @@ export async function triggerIndex(): Promise<TriggerIndexResult> {
 
 export async function getTokenUsageStats(): Promise<TokenUsageStats> {
   return safeInvoke<TokenUsageStats>("get_token_usage_stats");
+}
+
+export async function getAgentUsageBreakdown(): Promise<AgentUsageRow[]> {
+  return safeInvoke<AgentUsageRow[]>("get_agent_usage_breakdown");
 }
 
 export async function setTrayText(text: string): Promise<void> {
