@@ -904,21 +904,19 @@ function WeeklyAgentSplit() {
 
   if (!rows) return null;
 
-  // All-time real compute so every indexed agent shows — Grok/Cursor sessions
-  // are often older than the current week and would vanish from a week-only view.
-  // The bar splits by real compute (input − cache + output) for a fair
-  // cross-agent comparison; the with-cache total is surfaced alongside so the
-  // headline magnitude isn't lost (cache reads are ~98% of Claude's input).
+  // Total tokens (cache-inclusive) all-time — the metric that matches how usage
+  // reads everywhere else (Claude dominant, big numbers). Cursor is excluded
+  // here: it's shown accurately via its own provider account/ledger, so the
+  // rough local estimate was redundant clutter.
   const segments = rows
+    .filter((r) => r.agent_type !== "cursor")
     .map((r) => ({
       agent: r.agent_type,
-      tokens: r.real_input_tokens + r.output_tokens,
-      withCache: r.real_input_tokens + r.cache_read_tokens + r.output_tokens,
+      tokens: r.real_input_tokens + r.cache_read_tokens + r.output_tokens,
     }))
     .filter((s) => s.tokens > 0)
     .sort((a, b) => b.tokens - a.tokens);
   const grandTotal = segments.reduce((acc, s) => acc + s.tokens, 0);
-  const grandWithCache = segments.reduce((acc, s) => acc + s.withCache, 0);
 
   if (segments.length === 0 || grandTotal === 0) {
     return null;
@@ -932,9 +930,9 @@ function WeeklyAgentSplit() {
     <Card className="rounded-none border-0 bg-transparent p-4 shadow-none">
       <div className="mb-2.5 flex items-end justify-between gap-3">
         <div>
-          <div className="text-[11px] text-slate-500">By agent · real compute (all time)</div>
+          <div className="text-[11px] text-slate-500">By agent · all time</div>
           <div className="text-xs text-slate-400 tabular-nums">
-            {formatTokens(grandTotal)} real · {formatTokens(grandWithCache)} with cache reads · {segments.length} agent{segments.length === 1 ? "" : "s"}
+            {formatTokens(grandTotal)} tokens · {segments.length} agent{segments.length === 1 ? "" : "s"}
           </div>
         </div>
       </div>
