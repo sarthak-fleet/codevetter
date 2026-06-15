@@ -268,9 +268,12 @@ impl Browser {
     }
 }
 
-/// Format the JSON element list (emitted by EXTRACT_ELEMENTS_JS) into a
-/// compact textual representation the brain consumes. Falls back to the
-/// raw JSON on parse error so we don't lose information.
+/// Format the element list emitted by the injected JS into a compact
+/// textual representation the brain consumes. Tight format ("0 button
+/// \"Download\" #dl") saves ~50 chars/element vs the older fixed-width
+/// layout — meaningful on dense pages where output tokens are 215x more
+/// expensive than input tokens. Falls back to the raw JSON on parse error
+/// so we don't lose information.
 fn format_element_list(json_str: &str) -> String {
     #[derive(serde::Deserialize)]
     struct Item {
@@ -278,6 +281,7 @@ fn format_element_list(json_str: &str) -> String {
         role: String,
         label: String,
         selector: Option<String>,
+        #[allow(dead_code)]
         top: i32,
     }
     let parsed: Result<Vec<Item>, _> = serde_json::from_str(json_str);
@@ -285,11 +289,16 @@ fn format_element_list(json_str: &str) -> String {
         Ok(items) => {
             let mut out = String::new();
             for it in items {
-                let sel = it.selector.as_deref().unwrap_or("(no-stable-selector)");
-                out.push_str(&format!(
-                    "[{:>2}] {:<10} top={:>4}  {:<60}  selector={}\n",
-                    it.idx, it.role, it.top, it.label, sel,
-                ));
+                // "0 button \"Download for macOS\" #dl\n"
+                // Selector is optional — omitted when we don't have a stable one.
+                let label = it.label.replace('"', "'");
+                match it.selector.as_deref() {
+                    Some(sel) => out.push_str(&format!(
+                        "{} {} \"{}\" {}\n",
+                        it.idx, it.role, label, sel
+                    )),
+                    None => out.push_str(&format!("{} {} \"{}\"\n", it.idx, it.role, label)),
+                }
             }
             if out.is_empty() {
                 "(no interactable elements visible)".into()
@@ -312,10 +321,23 @@ mod tests {
             {"idx":1,"role":"a","label":"Pricing","selector":"a[href=\"/pricing\"]","top":80}
         ]"##;
         let out = format_element_list(json);
-        assert!(out.contains("[ 0]"), "missing index padding: {out}");
-        assert!(out.contains("Download"));
-        assert!(out.contains("selector=#dl"), "{out}");
-        assert!(out.contains("Pricing"));
+        // New compact format: `0 button "Download" #dl\n1 a "Pricing" a[href=...]`
+        assert!(out.contains("0 button \"Download\" #dl"), "{out}");
+        assert!(out.contains("1 a \"Pricing\""), "{out}");
+    }
+
+    #[test]
+    fn format_element_list_omits_selector_when_absent() {
+        let json = r##"[{"idx":0,"role":"button","label":"Click","selector":null,"top":0}]"##;
+        let out = format_element_list(json);
+        assert_eq!(out.trim(), "0 button \"Click\"");
+    }
+
+    #[test]
+    fn format_element_list_escapes_inner_quotes() {
+        let json = r##"[{"idx":0,"role":"button","label":"Press \"Go\"","selector":"#g","top":0}]"##;
+        let out = format_element_list(json);
+        assert!(out.contains("\"Press 'Go'\""), "{out}");
     }
 
     #[test]
