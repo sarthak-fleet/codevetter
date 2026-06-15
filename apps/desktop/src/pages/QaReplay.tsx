@@ -70,7 +70,7 @@ export default function QaReplay() {
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
               {isFixture
                 ? "Deterministic replays of recorded user flows against captured DOM snapshots. No live browser, no network. Use this surface to triage whether an app flow still produces the expected observations."
-                : "An AI agent drives the user's installed Chrome through a real flow. Brain calls route through ../local-ai (no API key). Use this to find where a real visitor — or another agent — would actually get stuck."}
+                : "An AI agent drives the user's installed Chrome through a real flow. Brain calls spawn the user's local `claude` / `codex` CLI directly — no server, no API key. Use this to find where a real visitor — or another agent — would actually get stuck."}
             </p>
           </div>
           {isFixture && (

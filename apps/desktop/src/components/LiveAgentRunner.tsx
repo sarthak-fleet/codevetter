@@ -110,7 +110,7 @@ export function LiveAgentRunner({
               Live agent
             </p>
             <p className="text-xs text-slate-500">
-              Real Chrome · auto-routes to local-ai or bundled CLI
+              Real Chrome · spawns claude/codex CLI directly
             </p>
           </div>
         </div>
@@ -225,7 +225,6 @@ export function LiveAgentRunner({
             <p className="mt-1 text-xs text-slate-500 font-mono">
               {steps.length} step{steps.length === 1 ? "" : "s"}
               {result && ` · ${(result.duration_ms / 1000).toFixed(1)}s`}
-              {result && ` · brain:${result.brain_used}`}
             </p>
           </div>
           {result && (

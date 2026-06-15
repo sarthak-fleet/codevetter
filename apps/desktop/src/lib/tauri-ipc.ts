@@ -2050,9 +2050,6 @@ export interface AgentRunResult {
   duration_ms: number;
   steps: AgentStep[];
   error: string | null;
-  /** "local-ai" when the HTTP gateway answered, "cli" when CodeVetter spawned
-   *  the CLI directly (e.g. in the shipped DMG with no Node runtime). */
-  brain_used: "local-ai" | "cli";
 }
 
 export async function agentRunTask(input: AgentRunInput): Promise<AgentRunResult> {

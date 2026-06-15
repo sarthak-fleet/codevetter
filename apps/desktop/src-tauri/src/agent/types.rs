@@ -74,8 +74,4 @@ pub struct AgentRunResult {
     pub duration_ms: u64,
     pub steps: Vec<AgentStep>,
     pub error: Option<String>,
-    /// Which brain backend actually answered the loop: "local-ai" when the
-    /// HTTP gateway is reachable, "cli" when the runner spawned the CLI
-    /// directly (e.g. in the shipped DMG).
-    pub brain_used: String,
 }
