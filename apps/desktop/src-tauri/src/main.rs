@@ -205,6 +205,9 @@ fn main() {
             commands::history::get_index_stats,
             commands::history::get_token_usage_stats,
             commands::history::get_agent_usage_breakdown,
+            // Engineering Intelligence (/intel)
+            commands::intel::attribute_repo_commits,
+            commands::intel::get_tool_breakdown,
             // Git
             commands::git::list_git_branches,
             commands::git::get_git_remote_info,

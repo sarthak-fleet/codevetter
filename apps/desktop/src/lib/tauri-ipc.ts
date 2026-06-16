@@ -996,6 +996,62 @@ export async function getAgentUsageBreakdown(): Promise<AgentUsageRow[]> {
   return safeInvoke<AgentUsageRow[]>("get_agent_usage_breakdown");
 }
 
+// ─── Engineering Intelligence (/intel) ──────────────────────────────────────
+
+export interface ToolCount {
+  tool: string;
+  commits: number;
+  additions: number;
+  deletions: number;
+}
+
+export interface DailyAttribution {
+  date: string;
+  ai_commits: number;
+  human_commits: number;
+}
+
+export interface RepoAttributionReport {
+  repo_path: string;
+  since_days: number | null;
+  total_commits: number;
+  ai_commits: number;
+  human_commits: number;
+  automation_commits: number;
+  ai_additions: number;
+  ai_deletions: number;
+  human_additions: number;
+  human_deletions: number;
+  by_tool: ToolCount[];
+  daily_series: DailyAttribution[];
+}
+
+export interface ToolBreakdownRow {
+  tool: string;
+  sessions: number;
+  real_input_tokens: number;
+  cache_read_tokens: number;
+  output_tokens: number;
+  estimated_cost_usd: number;
+  avg_session_seconds: number | null;
+}
+
+export async function attributeRepoCommits(
+  repoPath: string,
+  sinceDays: number | null,
+): Promise<RepoAttributionReport> {
+  return safeInvoke<RepoAttributionReport>("attribute_repo_commits", {
+    repoPath,
+    sinceDays,
+  });
+}
+
+export async function getToolBreakdown(
+  sinceDays: number | null,
+): Promise<ToolBreakdownRow[]> {
+  return safeInvoke<ToolBreakdownRow[]>("get_tool_breakdown", { sinceDays });
+}
+
 export async function setTrayText(text: string): Promise<void> {
   return safeInvoke<void>("set_tray_text", { text });
 }

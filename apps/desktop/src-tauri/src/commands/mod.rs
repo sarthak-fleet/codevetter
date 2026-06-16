@@ -7,6 +7,7 @@ pub mod files;
 pub mod git;
 pub mod github_ops;
 pub mod history;
+pub mod intel;
 pub mod preferences;
 pub mod procedure_events;
 pub mod review;

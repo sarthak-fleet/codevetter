@@ -13,6 +13,7 @@ import { useTrayMonitor } from "@/lib/use-tray-monitor";
 // review/unpack screens — only the route the user lands on is fetched.
 const AgentMemories = lazy(() => import("@/pages/AgentMemories"));
 const Home = lazy(() => import("@/pages/Home"));
+const Intel = lazy(() => import("@/pages/Intel"));
 const IntentDebugger = lazy(() => import("@/pages/IntentDebugger"));
 const QaReplay = lazy(() => import("@/pages/QaReplay"));
 const QuickReview = lazy(() => import("@/pages/QuickReview"));
@@ -185,6 +186,7 @@ export default function App() {
         <Route path="/roadmap" element={<Roadmap />} />
         <Route path="/rubrics" element={<Rubrics />} />
         <Route path="/unpack" element={<RepoUnpacked />} />
+        <Route path="/intel" element={<Intel />} />
         <Route path="/agent-memories" element={<AgentMemories />} />
         <Route path="/intent-debugger" element={<IntentDebugger />} />
         <Route path="/qa-replay" element={<QaReplay />} />
