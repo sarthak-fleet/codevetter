@@ -1,4 +1,4 @@
-import { BookOpenText, Eye, Gauge, Home, Map, Rocket, ScanSearch, Settings, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import { Eye, Home, Map, Rocket, ScanSearch, Settings, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import { type ReactNode,useEffect, useRef, useState } from "react";
 import { Link, useLocation,useNavigate } from "react-router-dom";
 
@@ -25,9 +25,7 @@ const navItems: NavItem[] = [
   { label: "Unpack", href: "/unpack", icon: <ScanSearch size={18} />, shortcut: "U" },
   { label: "Intel", href: "/intel", icon: <Sparkles size={18} />, shortcut: "I" },
   { label: "Fleet", href: "/fleet", icon: <Rocket size={18} />, shortcut: "F" },
-  { label: "Ops", href: "/ops", icon: <Gauge size={18} />, shortcut: "O" },
   { label: "T-Rex", href: "/trex", icon: <Eye size={18} />, shortcut: "T" },
-  { label: "Memories", href: "/agent-memories", icon: <BookOpenText size={18} />, shortcut: "A" },
   { label: "Settings", href: "/settings", icon: <Settings size={18} />, shortcut: "," },
 ];
 

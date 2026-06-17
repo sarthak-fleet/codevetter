@@ -23,6 +23,8 @@ import {
   syncGitHubToken,
 } from "@/lib/tauri-ipc";
 import { cn } from "@/lib/utils";
+import AgentMemories from "@/pages/AgentMemories";
+import Ops from "@/pages/Ops";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -484,7 +486,7 @@ function LinearConnectionPanel() {
 
 // ─── Categories ──────────────────────────────────────────────────────────────
 
-type Category = "general" | "appearance" | "integrations" | "agents" | "notifications" | "usage" | "about";
+type Category = "general" | "appearance" | "integrations" | "agents" | "notifications" | "usage" | "ops" | "memories" | "about";
 
 interface CategoryDef {
   key: Category;
@@ -499,6 +501,8 @@ const categories: CategoryDef[] = [
   { key: "agents", label: "Agents", icon: "\u2699" },
   { key: "notifications", label: "Notifications", icon: "\u2709" },
   { key: "usage", label: "Usage", icon: "\u2261" },
+  { key: "ops", label: "Ops", icon: "\u26a1" },
+  { key: "memories", label: "Memories", icon: "\u232c" },
   { key: "about", label: "About", icon: "\u2139" },
 ];
 
@@ -993,6 +997,14 @@ export default function Settings() {
           </div>
         );
 
+      // Ops + Memories were de-cluttered out of the top nav; they render
+      // full-bleed here (the wrapper drops max-w-xl/p-8 for these two).
+      case "ops":
+        return <Ops />;
+
+      case "memories":
+        return <AgentMemories />;
+
       case "about":
         return (
           <div className="flex flex-col">
@@ -1158,10 +1170,15 @@ export default function Settings() {
         </div>
       </nav>
 
-      {/* Content */}
-      <div className="flex-1 min-w-0 overflow-y-auto p-8">
-        <div className="max-w-xl">{renderContent()}</div>
-      </div>
+      {/* Content. Ops + Memories embed full pages, so they render full-bleed
+          without the narrow max-w-xl / p-8 chrome the settings panels use. */}
+      {activeCategory === "ops" || activeCategory === "memories" ? (
+        <div className="flex-1 min-w-0 overflow-y-auto">{renderContent()}</div>
+      ) : (
+        <div className="flex-1 min-w-0 overflow-y-auto p-8">
+          <div className="max-w-xl">{renderContent()}</div>
+        </div>
+      )}
     </div>
   );
 }
