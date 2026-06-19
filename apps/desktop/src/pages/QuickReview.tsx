@@ -269,9 +269,16 @@ function uncheckedRiskCopy(severity: string): string {
   }
 }
 
+interface DiffHunk {
+  /** Raw hunk text, kept for revert. */
+  text: string;
+  /** Pre-split lines so rendering never re-splits on every parent re-render. */
+  lines: string[];
+}
+
 interface DiffFile {
   path: string;
-  hunks: string[];
+  hunks: DiffHunk[];
   additions: number;
   deletions: number;
 }
@@ -763,12 +770,17 @@ function parseDiffIntoFiles(diff: string): DiffFile[] {
 
     let additions = 0;
     let deletions = 0;
-    const hunks: string[] = [];
+    const hunks: DiffHunk[] = [];
     let currentHunk: string[] = [];
+    const pushHunk = () => {
+      if (currentHunk.length > 0) {
+        hunks.push({ text: currentHunk.join("\n"), lines: currentHunk });
+      }
+    };
 
     for (const line of lines.slice(1)) {
       if (line.startsWith("@@")) {
-        if (currentHunk.length > 0) hunks.push(currentHunk.join("\n"));
+        pushHunk();
         currentHunk = [line];
       } else if (currentHunk.length > 0 || line.startsWith("+") || line.startsWith("-")) {
         currentHunk.push(line);
@@ -776,7 +788,7 @@ function parseDiffIntoFiles(diff: string): DiffFile[] {
         if (line.startsWith("-") && !line.startsWith("---")) deletions++;
       }
     }
-    if (currentHunk.length > 0) hunks.push(currentHunk.join("\n"));
+    pushHunk();
 
     files.push({ path, hunks, additions, deletions });
   }
@@ -3355,7 +3367,7 @@ export default function QuickReview() {
                             <div>
                               {file.hunks.map((hunk, hi) => (
                                 <div key={hi}>
-                                  {hunk.split("\n").map((line, li) => {
+                                  {hunk.lines.map((line, li) => {
                                     const isHunkHeader = line.startsWith("@@");
                                     return (
                                       <div
@@ -3373,7 +3385,7 @@ export default function QuickReview() {
                                           <Button
                                             size="sm"
                                             variant="ghost"
-                                            onClick={() => handleRevertHunk(file.path, hunk)}
+                                            onClick={() => handleRevertHunk(file.path, hunk.text)}
                                             className="h-5 shrink-0 gap-1 px-1.5 text-[10px] text-slate-600 hover:bg-red-500/10 hover:text-red-400"
                                           >
                                             <Undo2 size={10} />

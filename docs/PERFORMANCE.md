@@ -100,17 +100,45 @@ seeded:     20,000 rows across 50 sessions in ~343 ms
 search avg: ~14.3 ms/query (limit 25, 200 iters)
 ```
 
-14 ms/query is interactive but not free. The query joins `session_message_archive_fts`
-to the base table, ranks with `bm25()`, then `ORDER BY datetime(a.timestamp)` — the
-`datetime()` call is non-sargable and runs per candidate row. Candidates if this
-surface ever feels slow on a large local archive: store a sortable timestamp column,
-or rank/limit before the date sort. Not urgent at current scale; the harness will
-catch it if it regresses.
+But that 14 ms is the **worst case**: a term present in every one of the 20k rows,
+so bm25 ranks all of them. The number users actually feel is the selective case —
+a term matching a handful of rows:
 
-## 3. Frontend bundle budget
+```
+worst case:   14.5 ms/query  (term in every row)
+realistic:     0.05 ms/query  (selective term, ~25 matches) — ~300x faster
+```
 
-`bench:bundle` sizes every built JS chunk and fails (exit 1) if any chunk exceeds
-**450 KB raw** or the total exceeds **1200 KB raw**. Current state:
+So real-world archive search is ~50 microseconds. There is no query problem to
+fix. `datetime(a.timestamp)` is only a *tiebreaker* (the primary sort is `rank ASC`),
+not the bottleneck, so changing it would buy nothing and risks reordering results.
+Left as-is, by measurement rather than assumption.
+
+## 3. Frontend — desktop reality + render
+
+This is a **Tauri desktop app**: the frontend loads from local disk, and users get
+a full reinstall per release. That changes the bundle calculus — chunk *splitting*
+(which helps network caching / parallel download) buys essentially nothing here.
+What matters is total JS parsed at startup.
+
+- **Bundle:** 855 KB total / 260 KB gzip; routes are already `React.lazy`-split, so
+  the 6k-line `QuickReview` doesn't block first paint. The suspected "heavy" deps
+  (`react-markdown`, `@xterm/*`, `rehype-highlight`, `remark-gfm`) are **imported
+  nowhere** — dead dependencies, tree-shaken out of the bundle entirely. Removing
+  them from `package.json` is install/supply-chain hygiene, not a runtime win.
+- **Render:** `QuickReview` is already heavily memoized (79 memo hooks / 87 states).
+  The one real inefficiency was the diff renderer: the parser joined hunk lines into
+  a string and the render re-`split` them on *every* re-render. Fixed — hunks now
+  carry pre-split `lines` (computed once in the memoized parse). Remaining
+  opportunity (only if large diffs ever feel janky): virtualize the diff line list /
+  wrap the per-file diff in `React.memo`. Deferred — speculative without a profile,
+  and risky in a 6k-line file.
+
+### Bundle budget guard (`bench:bundle`)
+
+Sizes every built JS chunk and fails (exit 1) if any chunk exceeds **450 KB raw**
+or the total exceeds **1200 KB raw**, so an accidental dependency blow-up can't
+land silently:
 
 | chunk            | raw KB | gzip KB | note                          |
 |------------------|--------|---------|-------------------------------|
@@ -118,12 +146,6 @@ catch it if it regresses.
 | `QuickReview-*`  | 201.9  | 53.0    | lazy route (not initial load) |
 | `RepoUnpacked-*` | 49.5   | 12.6    | lazy route                    |
 | **total**        | 855.4  | 260.1   | within budget                 |
-
-Routes are already code-split (`React.lazy` in `App.tsx`), so the 6 k-line
-`QuickReview.tsx` doesn't block first paint. The real initial-load cost is the
-**396 KB `index` vendor chunk**. If first paint needs to get faster, that chunk —
-not the lazy routes — is where to look (vendor splitting, trimming what loads
-before the first route).
 
 ## Principle
 
