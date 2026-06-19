@@ -513,8 +513,6 @@ export default function Settings() {
 
   // General
   const [defaultTone, setDefaultTone] = usePref("review_tone", "thorough");
-  const [autoIndex, toggleAutoIndex] = useBoolPref("auto_index_on_launch", true);
-  const [indexInterval, setIndexInterval] = usePref("index_interval", "5");
 
   // Appearance
   const [compactMode, toggleCompactMode] = useBoolPref("compact_mode", false);
@@ -578,7 +576,7 @@ export default function Settings() {
   const [notifyTaskComplete, toggleNotifyTaskComplete] = useBoolPref("notify_task_complete", false);
   const [notificationSound, toggleNotificationSound] = useBoolPref("notification_sound", true);
   const [notifyQuotaThresholds, toggleNotifyQuotaThresholds] = useBoolPref("notify_quota_thresholds", true);
-  const [notifySessionUsageThresholds, toggleNotifySessionUsageThresholds] = useBoolPref("notify_session_usage_thresholds", true);
+  const [notifySessionUsageThresholds, toggleNotifySessionUsageThresholds] = useBoolPref("notify_session_usage_thresholds", false);
 
   // Real app version (from tauri.conf.json) — the About panel previously
   // hard-coded "0.1.0" so it never reflected releases.
@@ -636,7 +634,7 @@ export default function Settings() {
   }, [pendingUpdate]);
 
   // Menu-bar tray
-  const [trayCadence, setTrayCadence] = usePref("tray_refresh_cadence_secs", "120");
+  const [trayCadence, setTrayCadence] = usePref("tray_refresh_cadence_secs", "300");
 
   function renderContent() {
     switch (activeCategory) {
@@ -663,30 +661,12 @@ export default function Settings() {
 
               <Divider />
 
-              <Toggle
-                label="Auto-index Sessions"
-                description="Automatically scan for new Claude Code and Codex sessions."
-                enabled={autoIndex}
-                onToggle={toggleAutoIndex}
-              />
-
-              {autoIndex && (
-                <>
-                  <Divider />
-                  <SelectSetting
-                    label="Index Interval"
-                    description="How often to scan for new sessions (in minutes)."
-                    value={indexInterval}
-                    options={[
-                      { value: "1", label: "1 minute" },
-                      { value: "5", label: "5 minutes" },
-                      { value: "15", label: "15 minutes" },
-                      { value: "30", label: "30 minutes" },
-                    ]}
-                    onChange={setIndexInterval}
-                  />
-                </>
-              )}
+              <div className="rounded-lg border border-[#1f1f1f] bg-[#070707] px-4 py-3">
+                <p className="text-sm font-medium text-slate-200">Session indexing is manual</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Usage tracking stays lightweight on launch. Use the Home page re-index action when you want to refresh Claude, Codex, or Cursor transcript archives.
+                </p>
+              </div>
             </div>
 
             <h3 className="mt-6 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -950,7 +930,7 @@ export default function Settings() {
 
               <Toggle
                 label="Session Usage Thresholds"
-                description="Notify when an active session crosses 90%, 99%, or 100% of its inferred context window."
+                description="Opt in to scan recent indexed sessions and notify when one crosses 90%, 99%, or 100% of its inferred context window."
                 enabled={notifySessionUsageThresholds}
                 onToggle={toggleNotifySessionUsageThresholds}
               />

@@ -17,10 +17,9 @@ import {
   setTrayText,
 } from "@/lib/tauri-ipc";
 
-// Default cadence matches CodexBar's typical 2-minute poll. Quota windows
-// don't move fast enough to need anything tighter, and Anthropic's rate-limit
-// headers cost a live API request per check.
-const DEFAULT_CADENCE_SECS = 120;
+// Keep idle usage tracking cheap by default. Quota windows do not move fast
+// enough to justify frequent provider/API polling.
+const DEFAULT_CADENCE_SECS = 300;
 
 // "google" (Gemini) intentionally excluded — Gemini usage tracking is disabled.
 const SUPPORTED_PROVIDERS = new Set(["anthropic", "openai"]);
@@ -198,12 +197,12 @@ async function loadNotificationsEnabled(): Promise<boolean> {
 }
 
 async function loadSessionNotificationsEnabled(): Promise<boolean> {
-  if (!isTauriAvailable()) return true;
+  if (!isTauriAvailable()) return false;
   try {
     const raw = await getPreference("notify_session_usage_thresholds");
-    return raw !== "false";
+    return raw === "true";
   } catch {
-    return true;
+    return false;
   }
 }
 

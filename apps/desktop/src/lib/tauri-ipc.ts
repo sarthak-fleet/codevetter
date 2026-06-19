@@ -501,6 +501,87 @@ export interface ReviewQaRunEvidence {
   console_errors?: number;
 }
 
+export interface EvidenceCandidate {
+  id: string;
+  kind: string;
+  severity_hint: string;
+  confidence: number;
+  affected_files: string[];
+  evidence_refs: Array<{
+    kind: string;
+    label: string;
+    detail?: string | null;
+  }>;
+  scale: string;
+  why_it_matters: string;
+  caveats: string[];
+  open_questions: string[];
+  suggested_checks: string[];
+}
+
+export interface EvidenceProcedureStep {
+  id: string;
+  procedure: string;
+  status: string;
+  candidate_ids: string[];
+  input: string;
+  action: string;
+  output: string;
+  artifact: string;
+  gate: string;
+  blocked_on: string[];
+}
+
+export interface ReviewProcedureEvent {
+  id: string;
+  review_id: string;
+  step_id: string;
+  status: "satisfied" | "blocked" | "observed";
+  source: string;
+  summary: string;
+  artifact?: string | null;
+  metadata?: string | null;
+  created_at: string;
+}
+
+export interface ReviewMemoryGraphNode {
+  id: string;
+  kind: string;
+  label: string;
+  file_path?: string | null;
+  detail?: string | null;
+}
+
+export interface ReviewMemoryGraphEdge {
+  from: string;
+  to: string;
+  kind: string;
+  confidence: number;
+}
+
+export interface ReviewMemoryGraph {
+  schema_version: number;
+  scope: string;
+  nodes: ReviewMemoryGraphNode[];
+  edges: ReviewMemoryGraphEdge[];
+  truncated: boolean;
+}
+
+export interface ReviewQaRunEvidence {
+  created_at?: string;
+  loop_id: string;
+  runner_type: string;
+  base_url?: string;
+  goal: string;
+  route?: string;
+  pass: boolean;
+  duration_ms: number;
+  notes?: string;
+  screenshot_path?: string | null;
+  artifacts?: string[];
+  console_errors?: number;
+}
+
 export interface CliReviewResult {
   review_id: string;
   score: number;
@@ -692,6 +773,9 @@ export interface RawSessionContextItem {
   text: string;
   status?: "passed" | "failed" | "stale" | "unknown";
   artifacts?: string[];
+  relative_position?: "before" | "target" | "after";
+  distance_to_target?: number;
+  nearest_command_line?: number | null;
   highlight: boolean;
 }
 
