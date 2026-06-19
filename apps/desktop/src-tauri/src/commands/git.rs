@@ -114,6 +114,183 @@ pub async fn list_pull_requests(repo_path: String) -> Result<Value, String> {
     Ok(json!({ "pull_requests": prs }))
 }
 
+/// Analyze the last `limit` real git commits and shape them for the commit-intent
+/// debugger. For each commit returns sha, subject, an agent-vs-human author class,
+/// changed files with per-file additions/deletions and a coarse surface class, and
+/// an evidence signal derived from whether the commit touched test files. The
+/// frontend feeds these straight into `buildCommitIntentReport` (same shape as the
+/// old fixtures), so the prototype now runs on real history instead of canned data.
+#[tauri::command]
+pub async fn list_commit_intents(repo_path: String, limit: Option<u32>) -> Result<Value, String> {
+    let n = limit.unwrap_or(8).clamp(1, 50);
+    // Use control chars as separators so commit subjects/bodies containing '|' or
+    // newlines never corrupt parsing: %x1e starts a record, %x1f splits header
+    // fields, %x02 ends the header (numstat block follows on the next lines).
+    let log = StdCommand::new("git")
+        .args([
+            "log",
+            "-n",
+            &n.to_string(),
+            "--no-merges",
+            "--numstat",
+            "--pretty=format:%x1ecommit%x1f%H%x1f%s%x1f%an%x1f%ae%x1f%b%x02",
+        ])
+        .current_dir(&repo_path)
+        .output()
+        .map_err(|e| format!("failed to run git log: {e}"))?;
+    if !log.status.success() {
+        return Err(format!(
+            "git log failed: {}",
+            String::from_utf8_lossy(&log.stderr).trim()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&log.stdout);
+    let mut commits: Vec<Value> = Vec::new();
+
+    for record in stdout.split('\u{1e}') {
+        if !record.starts_with("commit") {
+            continue;
+        }
+        let mut split = record.splitn(2, '\u{02}');
+        let header = split.next().unwrap_or("");
+        let numstat = split.next().unwrap_or("");
+
+        // header_parts[0] == "commit"; then sha, subject, author name, email, body
+        let header_parts: Vec<&str> = header.split('\u{1f}').collect();
+        if header_parts.len() < 5 {
+            continue;
+        }
+        let sha = header_parts[1].trim();
+        let subject = header_parts[2].trim();
+        let author_name = header_parts[3].trim();
+        let author_email = header_parts[4].trim();
+        let commit_body = header_parts.get(5).copied().unwrap_or("");
+        if sha.is_empty() {
+            continue;
+        }
+
+        let mut changed_files: Vec<Value> = Vec::new();
+        let mut test_files = 0u32;
+        for fl in numstat.lines() {
+            let fl = fl.trim();
+            if fl.is_empty() {
+                continue;
+            }
+            let cols: Vec<&str> = fl.split('\t').collect();
+            if cols.len() < 3 {
+                continue;
+            }
+            // Binary files report "-" for additions/deletions.
+            let additions: u32 = cols[0].parse().unwrap_or(0);
+            let deletions: u32 = cols[1].parse().unwrap_or(0);
+            let path = cols[2].trim();
+            if path.is_empty() {
+                continue;
+            }
+            let surface = classify_surface(path);
+            if surface == "test" {
+                test_files += 1;
+            }
+            changed_files.push(json!({
+                "path": path,
+                "additions": additions,
+                "deletions": deletions,
+                "surface": surface,
+            }));
+        }
+
+        // Real commits carry no linked verification runs; the one honest signal we
+        // have is whether the commit shipped test changes alongside the code.
+        let evidence: Vec<Value> = if test_files > 0 {
+            vec![json!({
+                "kind": "test",
+                "label": format!(
+                    "{} test file{} changed in this commit",
+                    test_files,
+                    if test_files == 1 { "" } else { "s" }
+                ),
+                "status": "pass",
+            })]
+        } else {
+            Vec::new()
+        };
+
+        let short = if sha.len() > 8 { &sha[..8] } else { sha };
+        commits.push(json!({
+            "id": sha,
+            "author": classify_author(author_name, author_email, commit_body),
+            "sha": short,
+            "message": subject,
+            "changedFiles": changed_files,
+            "evidence": evidence,
+        }));
+    }
+
+    Ok(json!({ "commits": commits }))
+}
+
+/// Coarse surface classification for a changed file path, mirroring the frontend's
+/// `inferReviewSurfaces` priority so commit and review reports read consistently.
+fn classify_surface(path: &str) -> &'static str {
+    let p = path.to_ascii_lowercase();
+    if p.contains("/tests/")
+        || p.starts_with("tests/")
+        || p.contains(".test.")
+        || p.contains(".spec.")
+        || p.contains("__tests__")
+    {
+        return "test";
+    }
+    if p.ends_with(".tsx")
+        || p.ends_with(".jsx")
+        || p.ends_with(".css")
+        || p.contains("/components/")
+        || p.contains("/pages/")
+    {
+        return "ui";
+    }
+    if p.contains("src-tauri")
+        || p.contains("commands/")
+        || p.ends_with(".rs")
+        || p.contains("/api")
+        || p.contains("server")
+    {
+        return "api";
+    }
+    if p.ends_with(".md") || p.contains("docs/") {
+        return "docs";
+    }
+    "config"
+}
+
+/// Classify a commit as agent- or human-authored from author identity and trailers
+/// (e.g. the `Co-Authored-By: Claude` trailer this repo uses for agent commits).
+fn classify_author(name: &str, email: &str, body: &str) -> &'static str {
+    let hay = format!(
+        "{}\n{}\n{}",
+        name.to_ascii_lowercase(),
+        email.to_ascii_lowercase(),
+        body.to_ascii_lowercase()
+    );
+    const AGENT_MARKERS: [&str; 9] = [
+        "co-authored-by: claude",
+        "noreply@anthropic.com",
+        "claude",
+        "codex",
+        "cursor",
+        "github-actions",
+        "[bot]",
+        "aider",
+        "devin",
+    ];
+    if AGENT_MARKERS.iter().any(|m| hay.contains(m)) {
+        "agent"
+    } else {
+        "human"
+    }
+}
+
 /// Check GitHub authentication status.
 /// Tries: 1) saved token in preferences, 2) GH_TOKEN env, 3) `gh auth status`.
 /// Returns connection info including username, auth method, and scopes.
@@ -2526,5 +2703,38 @@ mod tests {
         let _ = conn.execute_batch("CREATE TABLE IF NOT EXISTS agent_talks (id TEXT, project_path TEXT); CREATE TABLE IF NOT EXISTS local_reviews (id TEXT, repo_path TEXT); CREATE TABLE IF NOT EXISTS local_review_findings (review_id TEXT, file_path TEXT, title TEXT);");
         let s = build_compact_history_section_for_prompt("/tmp/x", &[], &conn);
         assert!(s.is_empty());
+    }
+
+    #[test]
+    fn classify_surface_buckets_paths() {
+        assert_eq!(classify_surface("apps/desktop/src/pages/Home.tsx"), "ui");
+        assert_eq!(classify_surface("apps/desktop/src/lib/foo.test.ts"), "test");
+        assert_eq!(classify_surface("apps/desktop/tests/e2e/app.spec.ts"), "test");
+        assert_eq!(classify_surface("src-tauri/src/commands/git.rs"), "api");
+        assert_eq!(classify_surface("README.md"), "docs");
+        assert_eq!(classify_surface("docs/architecture.md"), "docs");
+        assert_eq!(classify_surface("apps/desktop/src-tauri/tauri.conf.json"), "api");
+        assert_eq!(classify_surface("package.json"), "config");
+        assert_eq!(classify_surface(".github/workflows/ci.yml"), "config");
+    }
+
+    #[test]
+    fn classify_author_detects_agents() {
+        assert_eq!(
+            classify_author("Sarthak Agrawal", "sarthak@example.com", ""),
+            "human"
+        );
+        assert_eq!(
+            classify_author(
+                "Sarthak Agrawal",
+                "sarthak@example.com",
+                "feat: thing\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+            ),
+            "agent"
+        );
+        assert_eq!(
+            classify_author("github-actions[bot]", "actions@github.com", ""),
+            "agent"
+        );
     }
 }

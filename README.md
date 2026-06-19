@@ -23,10 +23,10 @@ The near-term wedge is not beating Claude, Codex, or hosted PR bots at generic r
 |---|---|---|
 | Code review | Review tab runs local diffs through CLI agents and persists findings. | Needs multi-pass specialist review, better AGENTS.md/project-context ingestion, and benchmarked catch-rate evidence. |
 | Bug finding | Findings, severity, code viewer, and re-review loop exist. | Needs runtime evidence from tests/browser sessions/logs, not only static diff judgment. |
-| Agent-written code verification | Product is aimed at agent output and can fix/re-review selected findings. | Needs agent provenance: which agent changed what, prompt/task context, and whether the fix actually resolved the original user goal. |
+| Agent-written code verification | Aimed at agent output; fixes/re-reviews selected findings and emits a full verification handoff proof (`review-proof` + `agent-fix-packet`: per-finding evidence, fixed/reproduced/unchecked tallies, and a copyable reviewer handoff). | Needs to close the intent loop: did the fix actually resolve the original user goal, and which agent/prompt produced the change. |
 | Debugging/replay | History indexes Claude/Codex sessions and can replay conversations. | Replay is not connected to files, diffs, failures, screenshots, tests, or review findings. |
-| Synthetic user QA | Not implemented as a first-class workflow. | Needs browser/app automation that performs user tasks, captures screenshots/traces, and converts failures into review findings. |
-| AI step-through debugger | Not implemented. | Needs an execution timeline across agent actions, file edits, commands, test failures, and UI observations. |
+| Synthetic user QA | Prototype — `QaReplay` (`/qa-replay`, linked from Roadmap) runs fixture-backed synthetic-QA loops with a live agent-runner track. | Needs real browser/app automation that drives the actual product, captures screenshots/traces, and converts failures into review findings. |
+| AI step-through debugger | Commit-intent debugger (`/intent-debugger`, linked from Roadmap) now runs over **real** recent commits — pick a repo, and it infers intent, risks, verification gaps, and agent-vs-human authorship per commit. | Still per-commit static analysis; needs a full execution timeline across agent actions, file edits, commands, test failures, and UI observations. |
 | Codebase history explainer | Repo Unpacked generates repo briefs; History indexes agent sessions. | Needs commit/decision mining tied to touched files so reviews can catch intent regressions. |
 
 The product should prefer narrow, evidence-backed loops over broad "code intelligence" surfaces. A feature is on-strategy when it helps answer: "What changed, why did the agent change it, what could break, can we reproduce it, and did the fix actually work?"
@@ -36,11 +36,11 @@ The product should prefer narrow, evidence-backed loops over broad "code intelli
 | Concern | Service |
 |---------|---------|
 | Desktop app | GitHub Releases — Tauri 2 macOS build, with `@tauri-apps/plugin-updater` auto-updater (`latest.json` manifest) |
-| Landing page | Cloudflare Pages (`codevetter`, codevetter.com) — static Next.js export |
+| Landing page | Cloudflare Pages (`codevetter`, codevetter.com) — static Astro export |
 | Database | Local SQLite via `@tauri-apps/plugin-sql` (desktop only, no server) |
 | Auth | None — LLM provider API keys stored in user settings |
 | AI | User-supplied keys (Anthropic / OpenAI / OpenRouter) |
-| CI/CD | GitHub Actions — `release.yml` builds Tauri binaries on GitHub release; `deploy-landing.yml` deploys the landing page to Cloudflare Pages on push to `main` |
+| CI/CD | GitHub Actions — `auto-release.yml` cuts a `v<version>` release when `apps/desktop/src-tauri/tauri.conf.json`'s version changes on `main`, which dispatches `release.yml` to build/sign/upload the Tauri binaries; `deploy-landing.yml` deploys the landing page to Cloudflare Pages on push to `main` |
 
 ## Installation
 
@@ -66,7 +66,7 @@ cd CodeVetter
 npm install
 ```
 
-> Requires [Rust + Tauri prerequisites](https://tauri.app/v1/guides/getting-started/prerequisites) for the desktop app.
+> Requires the [Rust + Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for the desktop app.
 
 ## Quick Start
 
@@ -77,15 +77,15 @@ npm install
    ```
 3. Open the Review tab, pick a local repository, and run your first review through an installed CLI agent.
 
-## Usage Examples
+## Common Tasks
 
-**Run the desktop app (dev mode)**
+**Build a production desktop binary**
 ```bash
 cd apps/desktop
-npm run tauri:dev
+npm run tauri:build
 ```
 
-**Run Playwright end-to-end tests for the desktop app**
+**Run the Playwright end-to-end suite**
 ```bash
 cd apps/desktop
 npm test
@@ -93,7 +93,7 @@ npm test
 
 **Build the landing page**
 ```bash
-cd apps/landing-page
+cd apps/landing-page-astro
 npm run build
 ```
 
@@ -101,8 +101,9 @@ npm run build
 
 ```
 apps/
-  desktop/          Tauri 2 + React 19 + Vite desktop app — the core product
-  landing-page/     Next.js marketing site (static export, deployed to Cloudflare Pages — codevetter.com)
+  desktop/             Tauri 2 + React 19 + Vite desktop app — the core product
+  landing-page-astro/  Astro marketing site (static export, deployed to Cloudflare Pages — codevetter.com)
+  landing-page/        Legacy Next.js marketing site — superseded by landing-page-astro, no longer deployed
 ```
 
 ## Tech Stack
@@ -112,13 +113,13 @@ apps/
 | Desktop frontend | React 19, Vite, Tailwind CSS, shadcn/ui |
 | Desktop backend | Rust (Tauri 2), SQLite |
 | Review engine | TypeScript — runs in the webview, no server required |
-| Landing page | Next.js 15 (static export → Cloudflare Pages) |
+| Landing page | Astro 5 (static export → Cloudflare Pages) |
 | Testing | Playwright (e2e) |
 | Package manager | npm workspaces |
 
 ## License
 
-ISC (root package); MIT (landing-page template — Copyright 2022 Themesberg)
+ISC — see the root `package.json`.
 
 <!-- ACTIVE-AI-TASK-LOG:START -->
 ## Active AI Task Log

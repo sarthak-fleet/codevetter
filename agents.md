@@ -53,8 +53,9 @@ npm install           # Install all workspace deps
 - **Tauri IPC**: all Rust commands called via typed wrappers in `src/lib/tauri-ipc.ts` → `invoke()` → `src-tauri/src/commands/`.
 - **`isTauriAvailable()` guard**: all IPC calls wrapped so React code also works in plain browser.
 - **FIXED**: Dead `@code-reviewer/*` workspace deps removed — `packages/` dir no longer exists and is no longer referenced. Build passes.
-- **Active screens**: Dashboard (usage/token analytics), History (session search), Review (`/review` — AI code review with diff + fix), Repo Unpacked (`/unpack` — whole-repo evidence-backed system brief, scanner in `src-tauri/src/commands/unpack.rs`, page in `apps/desktop/src/pages/RepoUnpacked.tsx`, persisted to `repo_unpacked_reports` table). Other tabs (Board, Workspaces) are legacy — do not invest in them.
-- **GH Actions**: `ci.yml` runs lint + Playwright; `release.yml` builds platform binaries and uploads to GitHub Releases.
+- **Nav (8 tabs)**: Home (`/` — usage/token analytics + session history), Review (`/review` — AI code review with diff + fix), Roadmap (`/roadmap` — shipped/verification telemetry dashboard), Unpack (`/unpack` — whole-repo evidence-backed system brief; scanner in `src-tauri/src/commands/unpack.rs`, page in `apps/desktop/src/pages/RepoUnpacked.tsx`, persisted to `repo_unpacked_reports` table), Intel (`/intel`), Fleet (`/fleet` — SaaS Maker fleet projects + repo↔project linking), T-Rex (`/trex`), Settings (`/settings` — also hosts Ops, Memories, Rubrics, usage, about).
+- **URL-only surfaces** (reachable but intentionally off the top nav after the v1.1.86 declutter): Rubrics (`/rubrics`, linked from Review), IntentDebugger (`/intent-debugger` — commit-intent analysis over real git commits), QaReplay (`/qa-replay` — synthetic-QA fixture/live runner). The old Ask/Personas tabs and their Rust backend were removed in v1.1.87.
+- **GH Actions**: `ci.yml` runs lint + Playwright; `auto-release.yml` cuts a `v<version>` release on `tauri.conf.json` version bump → dispatches `release.yml` to build/sign/upload binaries; `deploy-landing.yml` deploys `apps/landing-page-astro` to Cloudflare Pages.
 - Husky pre-commit runs lint-staged on `apps/desktop/src/**/*.{ts,tsx}`; pre-push hook also configured.
 
 <!-- FLEET-GUIDANCE:START -->

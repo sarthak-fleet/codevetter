@@ -6,6 +6,7 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 
+import type { CommitIntentFixture } from "@/lib/intent-debugger/types";
 import { buildActiveStandardsContext } from "@/lib/review-service";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -1494,6 +1495,24 @@ export async function listPullRequests(
     { repoPath: repoPath }
   );
   return resp.pull_requests;
+}
+
+// ─── Commit Intent (real git history → intent debugger) ─────────────────────
+
+/**
+ * Analyze the last `limit` real commits in a repo and return them in the
+ * CommitIntentFixture shape the intent debugger renders. Replaces the canned
+ * COMMIT_INTENT_FIXTURES with actual git history.
+ */
+export async function listCommitIntents(
+  repoPath: string,
+  limit = 8
+): Promise<CommitIntentFixture[]> {
+  const resp = await safeInvoke<{ commits: CommitIntentFixture[] }>(
+    "list_commit_intents",
+    { repoPath, limit }
+  );
+  return resp.commits;
 }
 
 // ─── GitHub Auth ────────────────────────────────────────────────────────────

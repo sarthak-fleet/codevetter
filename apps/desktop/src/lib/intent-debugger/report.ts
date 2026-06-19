@@ -282,7 +282,11 @@ function inferReviewRisks(
 
 function inferRisks(fixture: CommitIntentFixture, totalChanged: number, uiFileCount: number) {
   const risks: string[] = [];
-  if (fixture.author === "agent") risks.push("Agent-authored UI change may satisfy static review while missing user-flow proof.");
+  if (fixture.author === "agent" && uiFileCount > 0) {
+    risks.push("Agent-authored UI change may satisfy static review while missing user-flow proof.");
+  } else if (fixture.author === "agent") {
+    risks.push("Agent-authored change; confirm it matches the intended task, not just a plausible diff.");
+  }
   if (uiFileCount > 0) risks.push("UI surface changed; screenshot or browser replay should exist before shipping.");
   if (totalChanged > 120) risks.push("Large diff for one intent; inspect for accidental refactor drift.");
   if (fixture.changedFiles.some((file) => file.surface === "config")) risks.push("Config changed; verify deploy/build assumptions.");

@@ -314,6 +314,7 @@ fn main() {
             commands::git::list_git_branches,
             commands::git::get_git_remote_info,
             commands::git::list_pull_requests,
+            commands::git::list_commit_intents,
             commands::git::check_github_auth,
             commands::git::sync_github_token,
             commands::git::get_repo_history_context,
