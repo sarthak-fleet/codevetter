@@ -980,7 +980,34 @@ pub fn sync_session_message_archive_fts(conn: &Connection) -> Result<i64, rusqli
         return Ok(0);
     }
 
-    conn.execute("DELETE FROM session_message_archive_fts", [])?;
+    // Incremental sync. The old code DELETE'd and re-INSERT'd the ENTIRE FTS
+    // table on any count change — with 300k+ archive rows that's a multi-second
+    // CPU burn on every index pass that adds a single message (and the backfill
+    // pass re-triggered it constantly). Instead insert only rows past the FTS
+    // high-water mark (archive ids are monotonic) — O(new rows). Fall back to a
+    // full rebuild only when FTS has *more* rows than the archive (rows were
+    // deleted / a session re-indexed), so stale FTS entries get cleared.
+    if fts_count > archive_count {
+        conn.execute("DELETE FROM session_message_archive_fts", [])?;
+        return conn
+            .execute(
+                "INSERT INTO session_message_archive_fts (
+                    archive_id, session_id, adapter_id, agent_type, role, kind,
+                    content_text, tool_name, source_ref
+                 )
+                 SELECT a.id, a.session_id, a.adapter_id, a.agent_type, a.role, a.kind,
+                        a.content_text, a.tool_name, a.source_ref
+                 FROM session_message_archive a",
+                [],
+            )
+            .map(|rows| rows as i64);
+    }
+
+    let max_fts_id: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(archive_id), 0) FROM session_message_archive_fts",
+        [],
+        |row| row.get(0),
+    )?;
     conn.execute(
         "INSERT INTO session_message_archive_fts (
             archive_id, session_id, adapter_id, agent_type, role, kind,
@@ -988,8 +1015,9 @@ pub fn sync_session_message_archive_fts(conn: &Connection) -> Result<i64, rusqli
          )
          SELECT a.id, a.session_id, a.adapter_id, a.agent_type, a.role, a.kind,
                 a.content_text, a.tool_name, a.source_ref
-         FROM session_message_archive a",
-        [],
+         FROM session_message_archive a
+         WHERE a.id > ?1",
+        params![max_fts_id],
     )
     .map(|rows| rows as i64)
 }
@@ -1112,17 +1140,24 @@ pub fn list_sessions_needing_archive_backfill(
     limit: i64,
 ) -> Result<Vec<SessionArchiveBackfillCandidate>, rusqlite::Error> {
     let limit = limit.clamp(1, 5_000);
+    // Only sessions with NO archive rows at all need a backfill. The old
+    // criterion `archived < message_count` was unsatisfiable for many sessions
+    // (message_count counts non-archivable events like tool results), so those
+    // sessions re-qualified on every pass and got their whole JSONL re-read
+    // (read_to_string) every 5 minutes — a sustained CPU drain that also kept
+    // re-triggering the FTS sync. A session that already has any archive rows
+    // has been indexed by the current path and is as complete as it gets.
     let mut stmt = conn.prepare(
         "SELECT s.id, s.agent_type, s.jsonl_path
          FROM cc_sessions s
          WHERE s.jsonl_path IS NOT NULL
            AND s.message_count > 0
            AND s.agent_type IN ('claude-code', 'codex')
-           AND (
-             SELECT COUNT(*)
+           AND NOT EXISTS (
+             SELECT 1
              FROM session_message_archive a
              WHERE a.session_id = s.id
-           ) < s.message_count
+           )
          ORDER BY datetime(s.last_message) DESC NULLS LAST
          LIMIT ?1",
     )?;

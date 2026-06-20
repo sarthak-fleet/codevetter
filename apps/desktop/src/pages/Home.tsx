@@ -663,6 +663,12 @@ function TokenUsageChart({
   const [pinned, setPinned] = useState<number | null>(null);
   const data = mode === "daily" ? daily : weekly;
   const max = Math.max(1, ...data.map((d) => d.generated));
+  // Bar HEIGHT uses a log scale so one huge outlier day (e.g. an automated
+  // agent run generating 100s of M) doesn't flatten every normal day into an
+  // invisible sliver. Color/opacity stay on the linear ratio so the peak still
+  // reads as "hot" and normal days as "cool".
+  const logMax = Math.log10(max + 1);
+  const barFrac = (v: number) => (v <= 0 ? 0 : Math.log10(v + 1) / logMax);
   const total = data.reduce((acc, d) => acc + d.generated, 0);
   const cacheTotal = data.reduce((acc, d) => acc + d.cache, 0);
   const n = data.length;
@@ -848,7 +854,7 @@ function TokenUsageChart({
           />
         ))}
         {data.map((d, i) => {
-          const h = (d.generated / max) * chartH;
+          const h = barFrac(d.generated) * chartH;
           const ratio = d.generated / max;
           const x = padX + i * barW + barW * 0.15;
           const y = padTop + chartH - h;
