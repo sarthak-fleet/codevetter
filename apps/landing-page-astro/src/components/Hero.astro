@@ -28,39 +28,8 @@ const particles = Array.from({ length: PARTICLE_COUNT }, (_, i) => {
 ---
 
 <section class="relative pt-32 pb-24 overflow-hidden">
-  {/* Aurora — intensity="low" → opacity 0.35 */}
-  <div
-    aria-hidden="true"
-    class="pointer-events-none absolute inset-0 overflow-hidden"
-    style="opacity: 0.35;"
-  >
-    <div
-      class="absolute -top-32 -left-24 w-[640px] h-[640px] rounded-full blur-[120px] animate-drift-a"
-      style="background: radial-gradient(closest-side, rgba(56,189,248,0.55), transparent 70%);"
-    ></div>
-    <div
-      class="absolute top-1/3 right-0 w-[560px] h-[560px] rounded-full blur-[140px] animate-drift-b"
-      style="background: radial-gradient(closest-side, rgba(167,139,250,0.45), transparent 70%);"
-    ></div>
-    <div
-      class="absolute bottom-0 left-1/3 w-[520px] h-[520px] rounded-full blur-[120px] animate-drift-c"
-      style="background: radial-gradient(closest-side, rgba(244,114,182,0.30), transparent 70%);"
-    ></div>
-  </div>
-
-  <div class="absolute inset-0 grid-bg pointer-events-none" aria-hidden="true"></div>
-
-  {/* Particle field */}
-  <div aria-hidden="true" class="pointer-events-none absolute inset-0 overflow-hidden">
-    {particles.map((p) => (
-      <span
-        class="absolute rounded-full bg-[--color-accent] animate-float"
-        style={`left:${p.left}%;top:${p.top}%;width:${p.size}px;height:${p.size}px;opacity:${p.opacity};animation-delay:${p.delay}s;animation-duration:${p.duration}s;box-shadow:0 0 6px currentColor;`}
-      ></span>
-    ))}
-  </div>
-
-  <div class="relative max-w-7xl mx-auto px-6">
+  {/* LCP headline first in DOM — decor is absolutely positioned behind. */}
+  <div class="relative z-10 max-w-7xl mx-auto px-6">
     <div class="flex flex-col items-center text-center">
       <div class="flex flex-wrap items-center justify-center gap-2 mb-8">
         <span class="inline-flex items-center gap-1.5 px-3 py-1 border text-xs font-medium rounded-full transition-colors text-blue-400 bg-blue-500/10 border-blue-500/20 shadow-[0_0_10px_rgba(96,165,250,0.15)] font-mono uppercase tracking-[0.16em]">
@@ -149,8 +118,8 @@ const particles = Array.from({ length: PARTICLE_COUNT }, (_, i) => {
       </div>
     </div>
 
-    {/* Hero preview cockpit */}
-    <div class="mt-20">
+    {/* Hero preview cockpit — below LCP headline; defer layout/paint until near viewport. */}
+    <div class="cv-hero-cockpit mt-20">
       <div class="relative max-w-6xl mx-auto">
         <div
           class="absolute -inset-x-12 -inset-y-10 blur-3xl pointer-events-none opacity-70"
@@ -392,5 +361,36 @@ const particles = Array.from({ length: PARTICLE_COUNT }, (_, i) => {
         </div>
       </div>
     </div>
+  </div>
+
+  {/* Aurora + particles — decorative; paint after LCP headline. */}
+  <div
+    aria-hidden="true"
+    class="cv-hero-decor pointer-events-none absolute inset-0 overflow-hidden"
+    style="opacity: 0.35;"
+  >
+    <div
+      class="absolute -top-32 -left-24 w-[640px] h-[640px] rounded-full blur-[120px] animate-drift-a"
+      style="background: radial-gradient(closest-side, rgba(56,189,248,0.55), transparent 70%);"
+    ></div>
+    <div
+      class="absolute top-1/3 right-0 w-[560px] h-[560px] rounded-full blur-[140px] animate-drift-b"
+      style="background: radial-gradient(closest-side, rgba(167,139,250,0.45), transparent 70%);"
+    ></div>
+    <div
+      class="absolute bottom-0 left-1/3 w-[520px] h-[520px] rounded-full blur-[120px] animate-drift-c"
+      style="background: radial-gradient(closest-side, rgba(244,114,182,0.30), transparent 70%);"
+    ></div>
+  </div>
+
+  <div class="cv-hero-decor absolute inset-0 grid-bg pointer-events-none" aria-hidden="true"></div>
+
+  <div aria-hidden="true" class="cv-hero-decor pointer-events-none absolute inset-0 overflow-hidden">
+    {particles.map((p) => (
+      <span
+        class="absolute rounded-full bg-[--color-accent] animate-float"
+        style={`left:${p.left}%;top:${p.top}%;width:${p.size}px;height:${p.size}px;opacity:${p.opacity};animation-delay:${p.delay}s;animation-duration:${p.duration}s;box-shadow:0 0 6px currentColor;`}
+      ></span>
+    ))}
   </div>
 </section>

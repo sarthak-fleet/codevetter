@@ -49,29 +49,6 @@ const OG_IMAGE = `${SITE_URL}/opengraph-image.png`;
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={OG_IMAGE} />
 
-    {/* Fonts — Inter (body), Space Grotesk (display), JetBrains Mono
-        (mono). Trimmed weights to only what the landing actually uses
-        (was 400-700 for each face × 3 = 11 woff2 files; now 5).
-        Lighthouse psi-swarm flagged this chain as 351ms render-blocker
-        even with preload+swap; dropping `preload as=style` (which still
-        kicks off a high-priority fetch) cuts the LCP critical path so
-        the stylesheet truly only loads after first paint via the
-        media=print → onload swap trick. Fallback to system stack until
-        the swap completes (Tailwind tokens cascade gracefully). */}
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600&family=Inter:wght@400;600&family=JetBrains+Mono:wght@500&display=swap"
-      media="print"
-      onload="this.media='all'"
-    />
-    <noscript>
-      <link
-        rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600&family=Inter:wght@400;600&family=JetBrains+Mono:wght@500&display=swap"
-      />
-    </noscript>
   </head>
   <body>
     <slot />

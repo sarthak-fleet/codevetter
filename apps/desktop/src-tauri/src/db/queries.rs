@@ -1743,13 +1743,20 @@ pub fn get_index_stats(conn: &Connection) -> Result<IndexStats, rusqlite::Error>
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DayBucket {
     pub date: String,
+    /// Cache-inclusive total (real_input + cache_read + output). Kept for compat.
     pub tokens: i64,
+    /// Cache-free "generated" tokens (real_input + output) — the intuitive metric.
+    pub generated: i64,
+    /// Cache-read tokens attributed to this day (re-sent context).
+    pub cache: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeekBucket {
     pub week_start: String,
     pub tokens: i64,
+    pub generated: i64,
+    pub cache: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1758,6 +1765,11 @@ pub struct TokenUsageStats {
     pub this_week: i64,
     pub this_month: i64,
     pub this_year: i64,
+    /// Cache-free generated-token period totals (the headline metric).
+    pub today_generated: i64,
+    pub week_generated: i64,
+    pub month_generated: i64,
+    pub year_generated: i64,
     pub daily_series: Vec<DayBucket>,
     pub weekly_series: Vec<WeekBucket>,
 }
@@ -1841,6 +1853,7 @@ pub fn get_token_usage_stats(conn: &Connection) -> Result<TokenUsageStats, rusql
     // cc_session_days replaced per-message rows in v1.1.9 — same math, but
     // ~50× less storage since we keep `(session, day, count)` not raw rows.
 
+    // Per day: (tokens = cache-inclusive, generated = cache-free, cache = reads).
     let mut stmt = conn.prepare(
         "WITH session_total AS (
              SELECT session_id, SUM(msg_count) AS total_n
@@ -1851,7 +1864,15 @@ pub fn get_token_usage_stats(conn: &Connection) -> Result<TokenUsageStats, rusql
                 SUM(
                     (COALESCE(s.total_input_tokens, 0) + COALESCE(s.total_output_tokens, 0))
                     * d.msg_count * 1.0 / t.total_n
-                ) AS tokens
+                ) AS tokens,
+                SUM(
+                    (MAX(COALESCE(s.total_input_tokens, 0) - COALESCE(s.cache_read_tokens, 0), 0)
+                     + COALESCE(s.total_output_tokens, 0))
+                    * d.msg_count * 1.0 / t.total_n
+                ) AS generated,
+                SUM(
+                    COALESCE(s.cache_read_tokens, 0) * d.msg_count * 1.0 / t.total_n
+                ) AS cache
          FROM cc_session_days d
          JOIN session_total t ON t.session_id = d.session_id
          JOIN cc_sessions s ON s.id = d.session_id
@@ -1859,9 +1880,13 @@ pub fn get_token_usage_stats(conn: &Connection) -> Result<TokenUsageStats, rusql
          GROUP BY d.day",
     )?;
 
-    let day_map: std::collections::HashMap<String, f64> = stmt
+    // day -> (tokens, generated, cache)
+    let day_map: std::collections::HashMap<String, (f64, f64, f64)> = stmt
         .query_map(params![year_str], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                (r.get::<_, f64>(1)?, r.get::<_, f64>(2)?, r.get::<_, f64>(3)?),
+            ))
         })?
         .collect::<Result<_, _>>()?;
 
@@ -1869,20 +1894,31 @@ pub fn get_token_usage_stats(conn: &Connection) -> Result<TokenUsageStats, rusql
     let monday_str = monday.format("%Y-%m-%d").to_string();
     let month_str = month_start.format("%Y-%m-%d").to_string();
 
-    let today_sum = day_map.get(&today_str).copied().unwrap_or(0.0).round() as i64;
-    let week_sum = day_map
-        .iter()
-        .filter(|(d, _)| d.as_str() >= monday_str.as_str())
-        .map(|(_, v)| v)
-        .sum::<f64>()
+    // Sum a field of the (tokens, generated, cache) tuple over days >= `since`.
+    let sum_since = |since: &str, pick: fn(&(f64, f64, f64)) -> f64| -> i64 {
+        day_map
+            .iter()
+            .filter(|(d, _)| d.as_str() >= since)
+            .map(|(_, v)| pick(v))
+            .sum::<f64>()
+            .round() as i64
+    };
+    let today_sum = day_map
+        .get(&today_str)
+        .map(|v| v.0)
+        .unwrap_or(0.0)
         .round() as i64;
-    let month_sum = day_map
-        .iter()
-        .filter(|(d, _)| d.as_str() >= month_str.as_str())
-        .map(|(_, v)| v)
-        .sum::<f64>()
+    let today_generated = day_map
+        .get(&today_str)
+        .map(|v| v.1)
+        .unwrap_or(0.0)
         .round() as i64;
-    let year_sum = day_map.values().sum::<f64>().round() as i64;
+    let week_sum = sum_since(&monday_str, |v| v.0);
+    let week_generated = sum_since(&monday_str, |v| v.1);
+    let month_sum = sum_since(&month_str, |v| v.0);
+    let month_generated = sum_since(&month_str, |v| v.1);
+    let year_sum = day_map.values().map(|v| v.0).sum::<f64>().round() as i64;
+    let year_generated = day_map.values().map(|v| v.1).sum::<f64>().round() as i64;
 
     // Daily series: last 30 days from the day_map (zero-filled).
     let mut daily_series = Vec::with_capacity(30);
@@ -1890,8 +1926,16 @@ pub fn get_token_usage_stats(conn: &Connection) -> Result<TokenUsageStats, rusql
         let d = (today - Duration::days(29 - i))
             .format("%Y-%m-%d")
             .to_string();
-        let tokens = day_map.get(&d).copied().unwrap_or(0.0).round() as i64;
-        daily_series.push(DayBucket { date: d, tokens });
+        let (tokens, generated, cache) = day_map
+            .get(&d)
+            .map(|v| (v.0.round() as i64, v.1.round() as i64, v.2.round() as i64))
+            .unwrap_or((0, 0, 0));
+        daily_series.push(DayBucket {
+            date: d,
+            tokens,
+            generated,
+            cache,
+        });
     }
 
     // Weekly series: last 12 ISO weeks (Monday-starting), zero-filled.
@@ -1907,16 +1951,29 @@ pub fn get_token_usage_stats(conn: &Connection) -> Result<TokenUsageStats, rusql
                 SUM(
                     (COALESCE(s.total_input_tokens, 0) + COALESCE(s.total_output_tokens, 0))
                     * d.msg_count * 1.0 / t.total_n
-                ) AS tok
+                ) AS tok,
+                SUM(
+                    (MAX(COALESCE(s.total_input_tokens, 0) - COALESCE(s.cache_read_tokens, 0), 0)
+                     + COALESCE(s.total_output_tokens, 0))
+                    * d.msg_count * 1.0 / t.total_n
+                ) AS gen,
+                SUM(
+                    COALESCE(s.cache_read_tokens, 0) * d.msg_count * 1.0 / t.total_n
+                ) AS cache
          FROM cc_session_days d
          JOIN session_total t ON t.session_id = d.session_id
          JOIN cc_sessions s ON s.id = d.session_id
          WHERE d.day >= ?1
          GROUP BY d.day",
     )?;
-    let day_rows: Vec<(String, f64)> = stmt2
+    let day_rows: Vec<(String, f64, f64, f64)> = stmt2
         .query_map(params![twelve_str], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, f64>(1)?,
+                r.get::<_, f64>(2)?,
+                r.get::<_, f64>(3)?,
+            ))
         })?
         .collect::<Result<_, _>>()?;
 
@@ -1926,15 +1983,30 @@ pub fn get_token_usage_stats(conn: &Connection) -> Result<TokenUsageStats, rusql
         let we = ws + Duration::days(7);
         let ws_s = ws.format("%Y-%m-%d").to_string();
         let we_s = we.format("%Y-%m-%d").to_string();
-        let tokens: i64 = day_rows
+        let in_week = |d: &str| d >= ws_s.as_str() && d < we_s.as_str();
+        let tokens = day_rows
             .iter()
-            .filter(|(d, _)| d.as_str() >= ws_s.as_str() && d.as_str() < we_s.as_str())
-            .map(|(_, t)| *t)
+            .filter(|(d, ..)| in_week(d))
+            .map(|(_, t, _, _)| *t)
+            .sum::<f64>()
+            .round() as i64;
+        let generated = day_rows
+            .iter()
+            .filter(|(d, ..)| in_week(d))
+            .map(|(_, _, g, _)| *g)
+            .sum::<f64>()
+            .round() as i64;
+        let cache = day_rows
+            .iter()
+            .filter(|(d, ..)| in_week(d))
+            .map(|(_, _, _, c)| *c)
             .sum::<f64>()
             .round() as i64;
         weekly_series.push(WeekBucket {
             week_start: ws_s,
             tokens,
+            generated,
+            cache,
         });
     }
 
@@ -1943,9 +2015,150 @@ pub fn get_token_usage_stats(conn: &Connection) -> Result<TokenUsageStats, rusql
         this_week: week_sum,
         this_month: month_sum,
         this_year: year_sum,
+        today_generated,
+        week_generated,
+        month_generated,
+        year_generated,
         daily_series,
         weekly_series,
     })
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Usage breakdowns: by day×agent, by project, by model
+// ─────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentDayUsage {
+    pub date: String,
+    pub agent_type: String,
+    /// Cache-free generated tokens (real_input + output) for that agent that day.
+    pub generated: i64,
+    pub cache: i64,
+}
+
+/// Per-day, per-agent generated/cache tokens for the last `days` days. Each
+/// session's totals are distributed across its active days proportionally to
+/// per-day message activity (same attribution as get_token_usage_stats).
+pub fn get_agent_usage_by_day(
+    conn: &Connection,
+    days: i64,
+) -> Result<Vec<AgentDayUsage>, rusqlite::Error> {
+    use chrono::{Duration, Local};
+    let since = (Local::now().date_naive() - Duration::days(days.max(1) - 1))
+        .format("%Y-%m-%d")
+        .to_string();
+    let mut stmt = conn.prepare(
+        "WITH session_total AS (
+             SELECT session_id, SUM(msg_count) AS total_n
+             FROM cc_session_days
+             GROUP BY session_id
+         )
+         SELECT d.day, s.agent_type,
+                SUM(
+                    (MAX(COALESCE(s.total_input_tokens, 0) - COALESCE(s.cache_read_tokens, 0), 0)
+                     + COALESCE(s.total_output_tokens, 0))
+                    * d.msg_count * 1.0 / t.total_n
+                ) AS generated,
+                SUM(
+                    COALESCE(s.cache_read_tokens, 0) * d.msg_count * 1.0 / t.total_n
+                ) AS cache
+         FROM cc_session_days d
+         JOIN session_total t ON t.session_id = d.session_id
+         JOIN cc_sessions s ON s.id = d.session_id
+         WHERE d.day >= ?1
+         GROUP BY d.day, s.agent_type
+         HAVING generated > 0 OR cache > 0
+         ORDER BY d.day",
+    )?;
+    let rows = stmt
+        .query_map(params![since], |r| {
+            Ok(AgentDayUsage {
+                date: r.get(0)?,
+                agent_type: r.get(1)?,
+                generated: r.get::<_, f64>(2)?.round() as i64,
+                cache: r.get::<_, f64>(3)?.round() as i64,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectUsage {
+    pub project_id: String,
+    pub display_name: String,
+    pub dir_path: String,
+    pub sessions: i64,
+    pub generated: i64,
+    pub cache: i64,
+}
+
+/// All-time generated/cache tokens grouped by project, top `limit` by generated.
+pub fn get_usage_by_project(
+    conn: &Connection,
+    limit: i64,
+) -> Result<Vec<ProjectUsage>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT p.id, p.display_name, p.dir_path,
+                COUNT(s.id),
+                COALESCE(SUM(MAX(COALESCE(s.total_input_tokens,0) - COALESCE(s.cache_read_tokens,0), 0)
+                         + COALESCE(s.total_output_tokens,0)), 0) AS generated,
+                COALESCE(SUM(COALESCE(s.cache_read_tokens,0)), 0) AS cache
+         FROM cc_sessions s
+         JOIN cc_projects p ON p.id = s.project_id
+         GROUP BY p.id
+         HAVING generated > 0
+         ORDER BY generated DESC
+         LIMIT ?1",
+    )?;
+    let rows = stmt
+        .query_map(params![limit], |r| {
+            Ok(ProjectUsage {
+                project_id: r.get(0)?,
+                display_name: r.get(1)?,
+                dir_path: r.get(2)?,
+                sessions: r.get(3)?,
+                generated: r.get(4)?,
+                cache: r.get(5)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelUsage {
+    pub model: String,
+    pub sessions: i64,
+    pub generated: i64,
+    pub cache: i64,
+}
+
+/// All-time generated/cache tokens grouped by model_used, ordered by generated.
+pub fn get_usage_by_model(conn: &Connection) -> Result<Vec<ModelUsage>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(NULLIF(model_used, ''), 'unknown') AS model,
+                COUNT(*),
+                COALESCE(SUM(MAX(COALESCE(total_input_tokens,0) - COALESCE(cache_read_tokens,0), 0)
+                         + COALESCE(total_output_tokens,0)), 0) AS generated,
+                COALESCE(SUM(COALESCE(cache_read_tokens,0)), 0) AS cache
+         FROM cc_sessions
+         GROUP BY model
+         HAVING generated > 0
+         ORDER BY generated DESC",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(ModelUsage {
+                model: r.get(0)?,
+                sessions: r.get(1)?,
+                generated: r.get(2)?,
+                cache: r.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
 }
 
 // ─────────────────────────────────────────────────────────────────

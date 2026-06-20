@@ -7,9 +7,12 @@ use docs only for durable reference, design, research, and runbooks.
 
 ## Product PRDs
 
-- [Evidence Pattern Search](./PRD-EVIDENCE-PATTERN-SEARCH.md) - Unsupervised-inspired candidate risk search, ranked evidence packets, caveats, open questions, and quality gates before AI review.
-- [AI Session Intelligence](./PRD-AI-SESSION-INTELLIGENCE.md) - Team Cadence-inspired session analysis, repo AI-readiness scoring, developer recommendations, and future active-dev team packaging.
-- [Review Memory Graph](./PRD-REVIEW-MEMORY-GRAPH.md) - Hunk-inspired review navigation plus Graphify-inspired local graph context, scoped to CodeVetter's evidence-backed review loop.
-- [Synthetic User QA Workflows](./PRD-SYNTHETIC-USER-QA-WORKFLOWS.md) - Local-first QA runs that turn user goals, screenshots, traces, and console failures into reviewable evidence.
-- [Agent Verification Timeline](./PRD-AGENT-VERIFICATION-TIMELINE.md) - A step-through timeline that connects prompts, commands, edits, tests, findings, and fixes.
-- [Codebase History Explainer](./PRD-CODEBASE-HISTORY-EXPLAINER.md) - A local history and decision graph for answering why code is shaped the way it is.
+All scoped PRDs for this cycle are archived under [`archive/`](./archive/) (2026-06-20).
+Canonical status: [`../PROJECT_STATUS.md`](../PROJECT_STATUS.md).
+
+- [Evidence Pattern Search](./archive/PRD-EVIDENCE-PATTERN-SEARCH.md) — shipped first slice; benchmark claims deferred.
+- [AI Session Intelligence](./archive/PRD-AI-SESSION-INTELLIGENCE.md) — shipped first slice; team packaging deferred.
+- [Review Memory Graph](./archive/PRD-REVIEW-MEMORY-GRAPH.md) — shipped first slice; full Hunk sidebar deferred.
+- [Synthetic User QA Workflows](./archive/PRD-SYNTHETIC-USER-QA-WORKFLOWS.md) — shipped first slice; flaky-step labeling deferred.
+- [Agent Verification Timeline](./archive/PRD-AGENT-VERIFICATION-TIMELINE.md) — shipped first slice; fuller conversation reconstruction deferred.
+- [Codebase History Explainer](./archive/PRD-CODEBASE-HISTORY-EXPLAINER.md) — shipped first slice; queryable history graph deferred.

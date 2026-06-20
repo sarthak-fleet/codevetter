@@ -1,6 +1,4 @@
-// Plain flat ESLint config (formerly `await getConfig("vite")` from
-// @saas-maker/eslint-config — the static "vite" ruleset inlined, with the
-// remote-standards fetch and the @saas-maker/fallow audit plugin removed).
+// Plain flat ESLint config (formerly @saas-maker/eslint-config/vite — inlined, no fetch, no fallow).
 import js from "@eslint/js";
 import prettier from "eslint-config-prettier";
 import importPlugin from "eslint-plugin-import";
@@ -12,7 +10,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".next", "build", ".wrangler", "node_modules", "out", "src-tauri"] },
+  { ignores: ["dist", ".next", "build", ".wrangler", "node_modules", "out", "src-tauri", "apps/desktop/src-tauri/target/**"] },
   {
     extends: [
       js.configs.recommended,
@@ -37,8 +35,6 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       "react-hooks/exhaustive-deps": "warn",
-      // Existing sync-from-storage effects need real refactors; keep visible as
-      // warnings (matches the prior remote-standards downgrade for this repo).
       "react-hooks/set-state-in-effect": "warn",
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
 

@@ -1,6 +1,6 @@
 # PRD: Evidence Pattern Search
 
-Status: in progress
+Status: shipped (first slice) — deterministic evidence candidates, procedure gates, verification commands, and review prompt/UI integration; broader benchmark claims remain deferred
 Owner: unassigned
 Last updated: 2026-06-12
 

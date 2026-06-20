@@ -21,9 +21,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type {
   AccountUsage,
+  AgentDayUsage,
   AgentUsageRow,
   LiveUsageResult,
+  ModelUsage,
+  ProjectUsage,
   ProviderAccount,
+  ProviderUsageLedgerRow,
   SessionAdapterRun,
   SessionScorecard,
   TokenUsageStats,
@@ -35,9 +39,13 @@ import {
   deleteProviderAccount,
   detectProviderAccounts,
   getAgentUsageBreakdown,
+  getAgentUsageByDay,
   getTokenUsageStats,
+  getUsageByModel,
+  getUsageByProject,
   isTauriAvailable,
   listProviderAccounts,
+  listProviderUsageLedger,
   triggerIndex,
 } from "@/lib/tauri-ipc";
 
@@ -618,31 +626,85 @@ let _cachedDashboard: {
   fetchedAt: number;
 } | null = null;
 
+// ─── Agent palette (shared by the usage chart + the per-agent split) ─────────
+
+const AGENT_PALETTE: Record<string, { bar: string; label: string; estimated?: boolean }> = {
+  "claude-code": { bar: "#d6a947", label: "Claude" },
+  codex: { bar: "#31c6b7", label: "Codex" },
+  cursor: { bar: "#a78bfa", label: "Cursor", estimated: true },
+  grok: { bar: "#5da6f5", label: "Grok", estimated: true },
+};
+
+const agentPaletteFor = (agent: string) =>
+  AGENT_PALETTE[agent] ?? { bar: "#64748b", label: agent };
+
 // ─── TokenUsageChart (inline, pure SVG, no deps) ────────────────────────────
+//
+// Bars show cache-FREE generated tokens (real input + output) — the intuitive
+// "what I actually spent" number. Cache reads (re-sent context, ~96% of the
+// cache-inclusive total) are surfaced separately in the subtitle so the headline
+// isn't a misleading multi-billion figure. Hovering a bar shows that bucket's
+// per-agent split; clicking pins a fuller breakdown panel below the chart.
 
 function TokenUsageChart({
   daily,
   weekly,
+  agentByDay,
 }: {
-  daily: { date: string; tokens: number }[];
-  weekly: { week_start: string; tokens: number }[];
+  daily: DayBucket[];
+  weekly: WeekBucket[];
+  agentByDay: AgentDayUsage[];
 }) {
   const [mode, setMode] = useState<"daily" | "weekly">("daily");
   const [hover, setHover] = useState<number | null>(null);
+  const [pinned, setPinned] = useState<number | null>(null);
   const data = mode === "daily" ? daily : weekly;
-  const max = Math.max(1, ...data.map((d) => d.tokens));
-  const total = data.reduce((acc, d) => acc + d.tokens, 0);
+  const max = Math.max(1, ...data.map((d) => d.generated));
+  const total = data.reduce((acc, d) => acc + d.generated, 0);
+  const cacheTotal = data.reduce((acc, d) => acc + d.cache, 0);
   const n = data.length;
-  const hovered = hover != null ? data[hover] : null;
+  // Active bucket: hover previews, a pinned bar locks it in place.
+  const activeIdx = hover ?? pinned;
+  const hovered = activeIdx != null ? data[activeIdx] : null;
+
+  // Per-bucket agent split. Daily buckets match a single date; weekly buckets
+  // aggregate all agent rows whose date falls inside the Mon–Sun window.
+  const bucketAgents = (
+    bucket: DayBucket | WeekBucket | null,
+  ): { agent: string; generated: number; cache: number }[] => {
+    if (!bucket) return [];
+    const inBucket = (date: string) => {
+      if ("date" in bucket) return date === bucket.date;
+      const start = bucket.week_start;
+      const end = new Date(`${start}T00:00:00`);
+      end.setDate(end.getDate() + 7);
+      const endStr = end.toISOString().slice(0, 10);
+      return date >= start && date < endStr;
+    };
+    const acc = new Map<string, { generated: number; cache: number }>();
+    for (const row of agentByDay) {
+      if (!inBucket(row.date)) continue;
+      const prev = acc.get(row.agent_type) ?? { generated: 0, cache: 0 };
+      acc.set(row.agent_type, {
+        generated: prev.generated + row.generated,
+        cache: prev.cache + row.cache,
+      });
+    }
+    return [...acc.entries()]
+      .map(([agent, v]) => ({ agent, ...v }))
+      .filter((a) => a.generated > 0 || a.cache > 0)
+      .sort((a, b) => b.generated - a.generated);
+  };
+  const activeAgents = bucketAgents(hovered);
 
   const trendWindow = mode === "daily" ? 7 : 4;
   const trendPairs = data
     .slice(Math.max(1, n - trendWindow))
     .map((bucket, offset) => {
       const currentIndex = Math.max(1, n - trendWindow) + offset;
-      const previous = data[currentIndex - 1]?.tokens ?? 0;
-      if (previous <= 0 || bucket.tokens <= 0) return null;
-      return ((bucket.tokens - previous) / previous) * 100;
+      const previous = data[currentIndex - 1]?.generated ?? 0;
+      if (previous <= 0 || bucket.generated <= 0) return null;
+      return ((bucket.generated - previous) / previous) * 100;
     })
     .filter((value): value is number => value !== null && Number.isFinite(value));
   const trendPct = trendPairs.length > 0
@@ -691,11 +753,13 @@ function TokenUsageChart({
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div>
-            <div className="text-[11px] text-slate-500">Token usage</div>
+            <div className="text-[11px] text-slate-500">
+              Generated tokens{pinned != null ? " · 📌 pinned" : ""}
+            </div>
             <div className="text-xs text-slate-400 tabular-nums">
               {hovered
-                ? `${labelFor(hovered)} · ${formatTokens(hovered.tokens)}`
-                : `Indexed local sessions · ${mode === "daily" ? "Last 30 days" : "Last 12 weeks"} · peak ${formatTokens(max)} · total ${formatTokens(total)}`}
+                ? `${labelFor(hovered)} · ${formatTokens(hovered.generated)} generated · ${formatTokens(hovered.cache)} cached`
+                : `${mode === "daily" ? "Last 30 days" : "Last 12 weeks"} · ${formatTokens(total)} generated · ${formatTokens(cacheTotal)} context reused`}
             </div>
           </div>
           {trendPct != null && Number.isFinite(trendPct) && (
@@ -781,14 +845,16 @@ function TokenUsageChart({
           />
         ))}
         {data.map((d, i) => {
-          const h = (d.tokens / max) * chartH;
-          const ratio = d.tokens / max;
+          const h = (d.generated / max) * chartH;
+          const ratio = d.generated / max;
           const x = padX + i * barW + barW * 0.15;
           const y = padTop + chartH - h;
           const w = barW * 0.7;
           const isHover = hover === i;
+          const isActive = activeIdx === i;
+          const isPinned = pinned === i;
           const isLatest = i === n - 1;
-          const grad = isHover
+          const grad = isActive
             ? "url(#bar-grad-hover)"
             : ratio >= 0.7
             ? "url(#bar-grad-hot)"
@@ -804,27 +870,43 @@ function TokenUsageChart({
                 width={barW}
                 height={chartH}
                 fill="transparent"
+                style={{ cursor: "pointer" }}
                 onMouseEnter={() => setHover(i)}
+                onClick={() => setPinned((p) => (p === i ? null : i))}
               />
               <rect
                 x={x}
                 y={y}
                 width={w}
-                height={Math.max(h, d.tokens > 0 ? 1 : 0)}
+                height={Math.max(h, d.generated > 0 ? 1 : 0)}
                 fill={grad}
-                opacity={barOpacity(ratio, isHover)}
+                opacity={barOpacity(ratio, isActive)}
                 pointerEvents="none"
                 rx={1}
-                filter={isHover || (isLatest && d.tokens > 0) ? "url(#bar-glow)" : undefined}
+                filter={isActive || (isLatest && d.generated > 0) ? "url(#bar-glow)" : undefined}
               />
+              {isPinned && (
+                <rect
+                  x={x}
+                  y={padTop}
+                  width={w}
+                  height={chartH}
+                  fill="none"
+                  stroke="#f2c766"
+                  strokeWidth={0.5}
+                  strokeDasharray="2 2"
+                  opacity={0.4}
+                  pointerEvents="none"
+                />
+              )}
             </g>
           );
         })}
-        {/* Hover guideline */}
-        {hover != null && (
+        {/* Active guideline (hovered or pinned bar) */}
+        {activeIdx != null && (
           <line
-            x1={padX + hover * barW + barW / 2}
-            x2={padX + hover * barW + barW / 2}
+            x1={padX + activeIdx * barW + barW / 2}
+            x2={padX + activeIdx * barW + barW / 2}
             y1={padTop}
             y2={padTop + chartH}
             stroke="#f2c766"
@@ -874,35 +956,172 @@ function TokenUsageChart({
           );
         })}
       </svg>
+
+      {/* Per-bucket agent split — hover previews, click pins. */}
+      {hovered && activeAgents.length > 0 && (
+        <div className="mt-3 rounded-md border border-[#1a1a1a] bg-[#0b0d12] p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-[11px] font-medium text-slate-300">
+              {labelFor(hovered)} · by agent
+            </div>
+            <div className="flex items-center gap-2 text-[10px] text-slate-500">
+              <span className="tabular-nums">
+                {formatTokens(hovered.generated)} generated
+              </span>
+              {pinned != null && (
+                <button
+                  onClick={() => setPinned(null)}
+                  className="rounded px-1.5 py-0.5 text-amber-300/80 ring-1 ring-amber-500/30 hover:bg-amber-500/10"
+                >
+                  unpin
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            {activeAgents.map((a) => {
+              const palette = agentPaletteFor(a.agent);
+              const pct = hovered.generated > 0 ? (a.generated / hovered.generated) * 100 : 0;
+              return (
+                <div key={a.agent} className="flex items-center gap-2 text-[11px]">
+                  <span className="w-14 shrink-0 truncate text-slate-300">
+                    {palette.label}
+                  </span>
+                  <div className="h-2 flex-1 overflow-hidden rounded-sm bg-[#13151b]">
+                    <div
+                      className="h-full rounded-sm transition-all"
+                      style={{ width: `${Math.max(pct, 1.5)}%`, backgroundColor: palette.bar }}
+                    />
+                  </div>
+                  <span className="w-24 shrink-0 text-right tabular-nums text-slate-500">
+                    {formatTokens(a.generated)} · {pct.toFixed(0)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {!pinned && (
+            <div className="mt-2 text-[10px] text-slate-600">
+              Click a bar to pin this breakdown.
+            </div>
+          )}
+        </div>
+      )}
     </Card>
   );
 }
 
-// ─── WeeklyAgentSplit (stacked bar of this-week REAL compute by agent) ───────
+// ─── WeeklyAgentSplit (per-agent token split, two bars) ──────────────────────
 //
 // Keyed by indexed agent_type (not provider account) so every indexed agent —
-// including Grok and Cursor — appears. Uses real compute (input minus cache
-// reads, plus output) rather than the cache-inclusive input total: Claude and
-// Codex are ~96-98% cache reads, so the raw input total wildly overstates one
-// agent's share. Grok/Cursor token counts are per-turn-context estimates.
+// including Grok and Cursor — appears. We show TWO bars because the agents log
+// tokens on incompatible bases:
+//   • "Total burn (cache-incl)" = real_input + cache_read + output. Mirrors
+//     ccusage; Claude/Codex dominate because ~96-98% of their tokens are cache
+//     reads (re-sent context counted every turn).
+//   • "Fresh tokens (cache-free)" = real_input + output. Cache reads aren't
+//     comparable across agents (Grok/Cursor logs don't expose them), so this is
+//     the fair cross-agent split — Grok and Cursor become visible.
+// Cursor's local cc_sessions value is a chars÷4 estimate that misses all IDE
+// usage, so when the live-API ledger has a cursor row we use it as the source
+// of truth instead (see CursorAgentTokens below). Grok stays a per-turn-context
+// estimate (no output/cache logged). AGENT_PALETTE is shared from above.
 
-const AGENT_PALETTE: Record<string, { bar: string; label: string; estimated?: boolean }> = {
-  "claude-code": { bar: "#d6a947", label: "Claude" },
-  codex: { bar: "#31c6b7", label: "Codex" },
-  cursor: { bar: "#a78bfa", label: "Cursor", estimated: true },
-  grok: { bar: "#5da6f5", label: "Grok", estimated: true },
-};
+type AgentSegment = { agent: string; tokens: number; estimated: boolean };
+
+function StackedBar({ title, segments }: { title: string; segments: AgentSegment[] }) {
+  const filtered = segments
+    .filter((s) => s.tokens > 0)
+    .sort((a, b) => b.tokens - a.tokens);
+  const grandTotal = filtered.reduce((acc, s) => acc + s.tokens, 0);
+  if (filtered.length === 0 || grandTotal === 0) return null;
+
+  const paletteFor = agentPaletteFor;
+  const anyEstimated = filtered.some((s) => s.estimated);
+
+  return (
+    <div>
+      <div className="mb-2.5">
+        <div className="text-[11px] text-slate-500">{title}</div>
+        <div className="text-xs text-slate-400 tabular-nums">
+          {formatTokens(grandTotal)} tokens · {filtered.length} agent
+          {filtered.length === 1 ? "" : "s"}
+        </div>
+      </div>
+      {/* Stacked bar */}
+      <div className="flex h-2.5 w-full overflow-hidden rounded-sm bg-[#0b0d12] ring-1 ring-[#1a1a1a]">
+        {filtered.map((s) => {
+          const palette = paletteFor(s.agent);
+          const pct = (s.tokens / grandTotal) * 100;
+          return (
+            <div
+              key={s.agent}
+              title={`${palette.label}: ${formatTokens(s.tokens)} (${pct.toFixed(0)}%)${s.estimated ? " · est." : ""}`}
+              style={{ width: `${pct}%`, backgroundColor: palette.bar }}
+              className="h-full transition-all"
+            />
+          );
+        })}
+      </div>
+      {/* Legend */}
+      <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5">
+        {filtered.map((s) => {
+          const palette = paletteFor(s.agent);
+          const pct = (s.tokens / grandTotal) * 100;
+          return (
+            <div key={s.agent} className="flex items-center gap-1.5 text-[11px]">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: palette.bar }}
+              />
+              <span className="text-slate-300">
+                {palette.label}
+                {s.estimated ? "*" : ""}
+              </span>
+              <span className="tabular-nums text-slate-500">
+                {formatTokens(s.tokens)} · {pct.toFixed(0)}%
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {anyEstimated && (
+        <div className="mt-2 text-[10px] text-slate-600">
+          * estimated from per-turn context — agent logs no cumulative token billing
+        </div>
+      )}
+    </div>
+  );
+}
 
 function WeeklyAgentSplit() {
   const [rows, setRows] = useState<AgentUsageRow[] | null>(null);
+  const [cursorLedger, setCursorLedger] = useState<ProviderUsageLedgerRow | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     const fetchRows = async () => {
       try {
-        const r = await getAgentUsageBreakdown();
-        if (!cancelled) setRows(r);
+        const [r, ledger] = await Promise.all([
+          getAgentUsageBreakdown(),
+          listProviderUsageLedger(50).catch(
+            () => [] as ProviderUsageLedgerRow[],
+          ),
+        ]);
+        // Most-recent cursor billing-cycle row from the live API — the real
+        // Cursor usage. cc_sessions only has the chars÷4 CLI estimate.
+        const cursor =
+          ledger
+            .filter((l) => l.provider === "cursor")
+            .sort((a, b) => b.observed_at.localeCompare(a.observed_at))[0] ??
+          null;
+        if (!cancelled) {
+          setRows(r);
+          setCursorLedger(cursor);
+        }
       } catch {
         if (!cancelled) setRows((prev) => prev ?? []);
       }
@@ -932,76 +1151,236 @@ function WeeklyAgentSplit() {
 
   if (!rows) return null;
 
-  // Total tokens (cache-inclusive) all-time — the metric that matches how usage
-  // reads everywhere else (Claude dominant, big numbers). All indexed agents
-  // are shown, Cursor included (its local count is a per-turn-context estimate).
-  const segments = rows
-    .map((r) => ({
+  // Per-agent token components (real input / cache reads / output). Cursor's
+  // cc_sessions row is only the chars÷4 CLI estimate and misses all IDE usage,
+  // so when the live-API ledger has a cursor row, use it as the source of truth
+  // (real provider billing → no longer flagged as estimated).
+  type AgentTokens = {
+    agent: string;
+    real: number;
+    cache: number;
+    output: number;
+    estimated: boolean;
+  };
+  const components: AgentTokens[] = rows.map((r) => {
+    if (r.agent_type === "cursor" && cursorLedger) {
+      return {
+        agent: "cursor",
+        real: cursorLedger.input_tokens,
+        cache: cursorLedger.cached_tokens,
+        output: cursorLedger.output_tokens,
+        estimated: false,
+      };
+    }
+    return {
       agent: r.agent_type,
-      tokens: r.real_input_tokens + r.cache_read_tokens + r.output_tokens,
-    }))
-    .filter((s) => s.tokens > 0)
-    .sort((a, b) => b.tokens - a.tokens);
-  const grandTotal = segments.reduce((acc, s) => acc + s.tokens, 0);
-
-  if (segments.length === 0 || grandTotal === 0) {
-    return null;
+      real: r.real_input_tokens,
+      cache: r.cache_read_tokens,
+      output: r.output_tokens,
+      estimated: AGENT_PALETTE[r.agent_type]?.estimated ?? false,
+    };
+  });
+  // Cursor present in the ledger but not yet indexed into cc_sessions → still show it.
+  if (cursorLedger && !rows.some((r) => r.agent_type === "cursor")) {
+    components.push({
+      agent: "cursor",
+      real: cursorLedger.input_tokens,
+      cache: cursorLedger.cached_tokens,
+      output: cursorLedger.output_tokens,
+      estimated: false,
+    });
   }
 
-  const paletteFor = (agent: string) =>
-    AGENT_PALETTE[agent] ?? { bar: "#64748b", label: agent };
-  const anyEstimated = segments.some((s) => paletteFor(s.agent).estimated);
+  const hasData = components.some((c) => c.real + c.cache + c.output > 0);
+  if (!hasData) return null;
+
+  const totalBurn: AgentSegment[] = components.map((c) => ({
+    agent: c.agent,
+    tokens: c.real + c.cache + c.output,
+    estimated: c.estimated,
+  }));
+  const freshTokens: AgentSegment[] = components.map((c) => ({
+    agent: c.agent,
+    tokens: c.real + c.output,
+    estimated: c.estimated,
+  }));
 
   return (
     <Card className="rounded-none border-0 bg-transparent p-4 shadow-none">
-      <div className="mb-2.5 flex items-end justify-between gap-3">
-        <div>
-          <div className="text-[11px] text-slate-500">By agent · all time</div>
-          <div className="text-xs text-slate-400 tabular-nums">
-            {formatTokens(grandTotal)} tokens · {segments.length} agent{segments.length === 1 ? "" : "s"}
-          </div>
-        </div>
+      <div className="space-y-4">
+        <StackedBar
+          title="By agent · all time · total burn (cache-incl)"
+          segments={totalBurn}
+        />
+        <StackedBar
+          title="By agent · all time · fresh tokens (cache-free)"
+          segments={freshTokens}
+        />
       </div>
-      {/* Stacked bar */}
-      <div className="flex h-2.5 w-full overflow-hidden rounded-sm bg-[#0b0d12] ring-1 ring-[#1a1a1a]">
-        {segments.map((s) => {
-          const palette = paletteFor(s.agent);
-          const pct = (s.tokens / grandTotal) * 100;
-          return (
-            <div
-              key={s.agent}
-              title={`${palette.label}: ${formatTokens(s.tokens)} (${pct.toFixed(0)}%)${palette.estimated ? " · est." : ""}`}
-              style={{ width: `${pct}%`, backgroundColor: palette.bar }}
-              className="h-full transition-all"
-            />
-          );
-        })}
-      </div>
-      {/* Legend */}
-      <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5">
-        {segments.map((s) => {
-          const palette = paletteFor(s.agent);
-          const pct = (s.tokens / grandTotal) * 100;
-          return (
-            <div key={s.agent} className="flex items-center gap-1.5 text-[11px]">
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: palette.bar }}
-              />
-              <span className="text-slate-300">{palette.label}{palette.estimated ? "*" : ""}</span>
-              <span className="tabular-nums text-slate-500">
-                {formatTokens(s.tokens)} · {pct.toFixed(0)}%
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      {anyEstimated && (
-        <div className="mt-2 text-[10px] text-slate-600">
-          * estimated from per-turn context — agent logs no cumulative token billing
-        </div>
-      )}
     </Card>
+  );
+}
+
+// ─── Usage explorer: heatmap + by-project + by-model ─────────────────────────
+
+/** Reusable horizontal-bar list for ranked breakdowns. */
+function HBarList({
+  rows,
+  max,
+  empty,
+}: {
+  rows: { key: string; label: string; value: number; sub?: string; color: string }[];
+  max: number;
+  empty: string;
+}) {
+  if (rows.length === 0) {
+    return <div className="text-[11px] text-slate-600">{empty}</div>;
+  }
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r) => {
+        const pct = max > 0 ? (r.value / max) * 100 : 0;
+        return (
+          <div key={r.key} className="flex items-center gap-2 text-[11px]">
+            <span className="w-28 shrink-0 truncate text-slate-300" title={r.label}>
+              {r.label}
+            </span>
+            <div className="h-2.5 flex-1 overflow-hidden rounded-sm bg-[#13151b]">
+              <div
+                className="h-full rounded-sm transition-all"
+                style={{ width: `${Math.max(pct, 1.5)}%`, backgroundColor: r.color }}
+              />
+            </div>
+            <span className="w-24 shrink-0 text-right tabular-nums text-slate-500">
+              {formatTokens(r.value)}
+              {r.sub ? ` · ${r.sub}` : ""}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Map a model id to a brand-ish accent color. */
+function modelColor(model: string): string {
+  const m = model.toLowerCase();
+  if (/(opus|sonnet|haiku|claude|fable)/.test(m)) return "#d6a947";
+  if (/(gpt|o3|o1|codex)/.test(m)) return "#31c6b7";
+  if (/grok/.test(m)) return "#5da6f5";
+  if (/(composer|cursor)/.test(m)) return "#a78bfa";
+  if (/gemini/.test(m)) return "#f472b6";
+  return "#64748b";
+}
+
+/** GitHub-style calendar heatmap of daily generated tokens (last ~26 weeks). */
+function UsageCalendarHeatmap({ data }: { data: AgentDayUsage[] }) {
+  const byDate = new Map<string, number>();
+  for (const r of data) {
+    byDate.set(r.date, (byDate.get(r.date) ?? 0) + r.generated);
+  }
+  if (byDate.size === 0) return null;
+  const max = Math.max(...byDate.values(), 1);
+  const logMax = Math.log10(max + 1);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const WEEKS = 26;
+  const start = new Date(today);
+  start.setDate(start.getDate() - (WEEKS * 7 - 1));
+  start.setDate(start.getDate() - start.getDay()); // back up to Sunday
+
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  const weeks: { date: string; value: number; future: boolean }[][] = [];
+  const cur = new Date(start);
+  while (cur <= today) {
+    const col: { date: string; value: number; future: boolean }[] = [];
+    for (let dow = 0; dow < 7; dow++) {
+      const future = cur > today;
+      col.push({ date: fmt(cur), value: byDate.get(fmt(cur)) ?? 0, future });
+      cur.setDate(cur.getDate() + 1);
+    }
+    weeks.push(col);
+  }
+
+  const cellColor = (value: number, future: boolean) => {
+    if (future) return "transparent";
+    if (value <= 0) return "#13151b";
+    const t = Math.min(1, Math.log10(value + 1) / logMax);
+    const level = Math.max(1, Math.ceil(t * 4));
+    const alpha = [0, 0.28, 0.48, 0.72, 1][level];
+    return `rgba(212,160,57,${alpha})`;
+  };
+
+  return (
+    <div>
+      <div className="mb-2 flex items-end justify-between">
+        <div className="text-[11px] text-slate-500">Daily activity · last 26 weeks</div>
+        <div className="flex items-center gap-1 text-[10px] text-slate-600">
+          <span>less</span>
+          {[0, 1, 2, 3, 4].map((l) => (
+            <span
+              key={l}
+              className="h-2.5 w-2.5 rounded-[2px]"
+              style={{ backgroundColor: l === 0 ? "#13151b" : `rgba(212,160,57,${[0, 0.28, 0.48, 0.72, 1][l]})` }}
+            />
+          ))}
+          <span>more</span>
+        </div>
+      </div>
+      <div className="flex gap-[3px] overflow-x-auto pb-1">
+        {weeks.map((col, wi) => (
+          <div key={wi} className="flex flex-col gap-[3px]">
+            {col.map((cell) => (
+              <div
+                key={cell.date}
+                title={cell.future ? "" : `${cell.date} · ${formatTokens(cell.value)} generated`}
+                className="h-2.5 w-2.5 rounded-[2px]"
+                style={{ backgroundColor: cellColor(cell.value, cell.future) }}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Top projects by all-time generated tokens. */
+function UsageByProject({ data }: { data: ProjectUsage[] }) {
+  const max = Math.max(1, ...data.map((d) => d.generated));
+  const rows = data.map((p) => ({
+    key: p.project_id,
+    label: p.display_name || p.dir_path.split("/").pop() || "unknown",
+    value: p.generated,
+    sub: `${p.sessions}s`,
+    color: "#d6a947",
+  }));
+  return (
+    <div>
+      <div className="mb-2 text-[11px] text-slate-500">Top projects · all time</div>
+      <HBarList rows={rows} max={max} empty="No project usage yet." />
+    </div>
+  );
+}
+
+/** Usage by model. */
+function UsageByModel({ data }: { data: ModelUsage[] }) {
+  const max = Math.max(1, ...data.map((d) => d.generated));
+  const rows = data.slice(0, 8).map((m) => ({
+    key: m.model,
+    label: m.model,
+    value: m.generated,
+    sub: `${m.sessions}s`,
+    color: modelColor(m.model),
+  }));
+  return (
+    <div>
+      <div className="mb-2 text-[11px] text-slate-500">By model · all time</div>
+      <HBarList rows={rows} max={max} empty="No model usage yet." />
+    </div>
   );
 }
 
@@ -1475,6 +1854,9 @@ export default function Home() {
 
   // Data state — initialize from cache if available
   const [tokenUsage, setTokenUsage] = useState<TokenUsageStats | null>(_cachedDashboard?.tokenUsage ?? null);
+  const [agentByDay, setAgentByDay] = useState<AgentDayUsage[]>([]);
+  const [projectUsage, setProjectUsage] = useState<ProjectUsage[]>([]);
+  const [modelUsage, setModelUsage] = useState<ModelUsage[]>([]);
   const [accounts, setAccounts] = useState<ProviderAccount[]>(_cachedDashboard?.accounts ?? []);
   const [accountUsages, setAccountUsages] = useState<Record<string, AccountUsage>>(_cachedDashboard?.usages ?? {});
   const [liveUsages, setLiveUsages] = useState<Record<string, LiveUsageResult>>(_cachedDashboard?.liveUsages ?? {});
@@ -1529,6 +1911,18 @@ export default function Home() {
       if (tokenUsageResult.status === "fulfilled") {
         setTokenUsage(tokenUsageResult.value);
       }
+
+      // Usage breakdowns (day×agent, project, model) — non-critical, so they
+      // load independently and never block or fail the core dashboard.
+      void getAgentUsageByDay(180)
+        .then((v) => setAgentByDay(v))
+        .catch(() => undefined);
+      void getUsageByProject(8)
+        .then((v) => setProjectUsage(v))
+        .catch(() => undefined);
+      void getUsageByModel()
+        .then((v) => setModelUsage(v))
+        .catch(() => undefined);
 
       // Seed usage map with cached-ID results that came back alongside the rest.
       const usageMap: Record<string, AccountUsage> = {};
@@ -1742,17 +2136,19 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Token period cards */}
+          {/* Token period cards — cache-free "generated" tokens (the intuitive
+              number). The cache-inclusive total is in the hover title. */}
           <div className="grid grid-cols-2 gap-px bg-[#171717] lg:grid-cols-4">
             {[
-              { label: "Today", value: tokenUsage?.today ?? 0, color: "text-cyan-400" },
-              { label: "This week", value: tokenUsage?.this_week ?? 0, color: "text-emerald-400" },
-              { label: "This month", value: tokenUsage?.this_month ?? 0, color: "text-yellow-400" },
-              { label: "This year", value: tokenUsage?.this_year ?? 0, color: "text-rose-400" },
+              { label: "Today", value: tokenUsage?.today_generated ?? 0, full: tokenUsage?.today ?? 0, color: "text-cyan-400" },
+              { label: "This week", value: tokenUsage?.week_generated ?? 0, full: tokenUsage?.this_week ?? 0, color: "text-emerald-400" },
+              { label: "This month", value: tokenUsage?.month_generated ?? 0, full: tokenUsage?.this_month ?? 0, color: "text-yellow-400" },
+              { label: "This year", value: tokenUsage?.year_generated ?? 0, full: tokenUsage?.this_year ?? 0, color: "text-rose-400" },
             ].map((stat) => (
               <div
                 key={stat.label}
                 className="flex min-h-20 items-center justify-between bg-[#090a0b] px-4 py-4"
+                title={`${formatTokens(stat.value)} generated · ${formatTokens(stat.full)} incl. cache reads`}
               >
                 <span className="cv-label mr-2 truncate">{stat.label}</span>
                 <span className={`shrink-0 text-base font-semibold tabular-nums ${stat.color}`}>
@@ -1805,8 +2201,26 @@ export default function Home() {
           <TokenUsageChart
             daily={tokenUsage.daily_series}
             weekly={tokenUsage.weekly_series}
+            agentByDay={agentByDay}
           />
           <WeeklyAgentSplit />
+        </div>
+      )}
+
+      {/* Activity heatmap + project/model breakdowns */}
+      {(agentByDay.length > 0 || projectUsage.length > 0 || modelUsage.length > 0) && (
+        <div className="cv-frame overflow-hidden">
+          <div className="cv-terminal-bar h-10 px-4">
+            <Activity size={14} className="text-[var(--cv-accent)]" />
+            <span className="cv-label">usage explorer · generated tokens</span>
+          </div>
+          <div className="space-y-5 p-4">
+            <UsageCalendarHeatmap data={agentByDay} />
+            <div className="grid gap-5 md:grid-cols-2">
+              <UsageByProject data={projectUsage} />
+              <UsageByModel data={modelUsage} />
+            </div>
+          </div>
         </div>
       )}
 

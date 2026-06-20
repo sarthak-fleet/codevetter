@@ -1,6 +1,6 @@
 # PRD: Synthetic User QA Workflows
 
-Status: in progress
+Status: shipped (first slice) — persisted QA runs, repo workflows, post-fix reruns/comparisons, and Review integration; flaky-step labeling and broad app matrix remain deferred
 Owner: unassigned
 Last updated: 2026-06-12
 

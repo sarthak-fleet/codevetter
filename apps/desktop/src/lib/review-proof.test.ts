@@ -14,7 +14,10 @@ import {
   buildVerificationTimeline,
   formatHistoryCommandEvidence,
   type HistoryFindingSummary,
+  queryCodebaseHistoryExplanationForFile,
   selectTimelineSegmentFindingIndexes,
+  shouldCollapseTimelineAnchors,
+  visibleTimelineAnchors,
 } from "./review-proof";
 
 const qaRun = (
@@ -178,6 +181,43 @@ describe("buildReviewerProofMarkdown", () => {
     assert.match(explanations[0].summary, /Prior decision/);
     assert.match(explanations[0].citations.join("\n"), /inline-marker:src\/review\.ts:2/);
     assert.match(explanations[0].citations.join("\n"), /commit:abc1234/);
+  });
+
+  it("queries a single-file history explanation on demand", () => {
+    const explanation = queryCodebaseHistoryExplanationForFile(
+      {
+        repo_path: "/repo",
+        files_analyzed: ["src/other.ts"],
+        recent_commits: [
+          {
+            file: "src/review.ts",
+            sha: "abc1234",
+            subject: "feat: require verified findings",
+            date: "2026-06-01",
+          },
+        ],
+        prior_decisions: [],
+        prior_agent_activity: [],
+        recurring_failures: [],
+      },
+      "src/review.ts",
+    );
+
+    assert.ok(explanation);
+    assert.equal(explanation?.file, "src/review.ts");
+    assert.match(explanation?.summary ?? "", /Recent change/);
+  });
+
+  it("collapses long timeline anchor lists to a preview window", () => {
+    const anchors = [
+      { id: "a1", label: "one" },
+      { id: "a2", label: "two" },
+      { id: "a3", label: "three" },
+      { id: "a4", label: "four" },
+    ];
+    assert.equal(shouldCollapseTimelineAnchors(anchors.length), true);
+    assert.deepEqual(visibleTimelineAnchors(anchors, false).map((a) => a.id), ["a1", "a2"]);
+    assert.deepEqual(visibleTimelineAnchors(anchors, true).length, 4);
   });
 
   it("builds a normalized verification timeline from review signals", () => {

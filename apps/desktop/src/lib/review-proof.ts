@@ -1208,6 +1208,36 @@ export function buildCodebaseHistoryExplanations(
     .slice(0, 5);
 }
 
+/** File-scoped history query for Review findings and Repo Unpacked hooks. */
+export function queryCodebaseHistoryExplanationForFile(
+  history: RepoHistoryContext | null,
+  filePath: string,
+): CodebaseHistoryExplanation | null {
+  const normalized = filePath.trim();
+  if (!history || !normalized) return null;
+  const [explanation] = buildCodebaseHistoryExplanations({
+    ...history,
+    files_analyzed: [normalized],
+  });
+  return explanation ?? null;
+}
+
+export const TIMELINE_ANCHOR_PREVIEW_COUNT = 2;
+
+export function shouldCollapseTimelineAnchors(anchorCount: number): boolean {
+  return anchorCount > TIMELINE_ANCHOR_PREVIEW_COUNT + 1;
+}
+
+export function visibleTimelineAnchors<T extends { id: string }>(
+  anchors: T[],
+  expanded: boolean,
+): T[] {
+  if (expanded || !shouldCollapseTimelineAnchors(anchors.length)) {
+    return anchors;
+  }
+  return anchors.slice(0, TIMELINE_ANCHOR_PREVIEW_COUNT);
+}
+
 export function buildRevalidationChecklist(
   finding: CliReviewFinding,
   evidence: FindingEvidence,

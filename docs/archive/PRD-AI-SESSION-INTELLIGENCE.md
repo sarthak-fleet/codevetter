@@ -1,6 +1,6 @@
 # PRD: AI Session Intelligence
 
-Status: in progress
+Status: shipped (first slice) — scorecard, adapter archive, FTS search, and 10s transcript tail watcher for active JSONL sessions; team packaging and broader agent coverage remain deferred
 Owner: unassigned
 Last updated: 2026-06-12
 

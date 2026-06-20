@@ -1,6 +1,6 @@
 # PRD: Agent Verification Timeline
 
-Status: in progress
+Status: shipped (first slice) — normalized timeline spine, claim checks, jump targets, segment fix packets, post-fix QA deltas, and collapsible long-run anchors in Review; fuller non-command conversation reconstruction remains deferred
 Owner: unassigned
 Last updated: 2026-06-12
 

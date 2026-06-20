@@ -1,6 +1,6 @@
 # PRD: Codebase History Explainer
 
-Status: in progress
+Status: shipped (first slice) — file-level cited explanations in Review/Repo Unpacked plus `queryCodebaseHistoryExplanationForFile`; queryable local history graph API remains deferred
 Owner: unassigned
 Last updated: 2026-06-12
 

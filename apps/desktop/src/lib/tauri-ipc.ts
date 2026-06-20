@@ -281,12 +281,19 @@ export interface SessionArchiveUpdatedEvent {
 
 export interface DayBucket {
   date: string;
+  /** Cache-inclusive total (real_input + cache_read + output). */
   tokens: number;
+  /** Cache-free generated tokens (real_input + output) — the headline metric. */
+  generated: number;
+  /** Cache-read tokens attributed to this day. */
+  cache: number;
 }
 
 export interface WeekBucket {
   week_start: string;
   tokens: number;
+  generated: number;
+  cache: number;
 }
 
 export interface TokenUsageStats {
@@ -294,8 +301,38 @@ export interface TokenUsageStats {
   this_week: number;
   this_month: number;
   this_year: number;
+  today_generated: number;
+  week_generated: number;
+  month_generated: number;
+  year_generated: number;
   daily_series: DayBucket[];
   weekly_series: WeekBucket[];
+}
+
+/** Per-day, per-agent generated/cache tokens (day-wise drill-down). */
+export interface AgentDayUsage {
+  date: string;
+  agent_type: string;
+  generated: number;
+  cache: number;
+}
+
+/** All-time generated/cache tokens grouped by project. */
+export interface ProjectUsage {
+  project_id: string;
+  display_name: string;
+  dir_path: string;
+  sessions: number;
+  generated: number;
+  cache: number;
+}
+
+/** All-time generated/cache tokens grouped by model. */
+export interface ModelUsage {
+  model: string;
+  sessions: number;
+  generated: number;
+  cache: number;
 }
 
 /** Per-agent usage split into real compute vs cache reads. */
@@ -1107,6 +1144,22 @@ export async function getTokenUsageStats(): Promise<TokenUsageStats> {
 
 export async function getAgentUsageBreakdown(): Promise<AgentUsageRow[]> {
   return safeInvoke<AgentUsageRow[]>("get_agent_usage_breakdown");
+}
+
+export async function getAgentUsageByDay(days?: number): Promise<AgentDayUsage[]> {
+  return safeInvoke<AgentDayUsage[]>("get_agent_usage_by_day", {
+    days: days ?? null,
+  });
+}
+
+export async function getUsageByProject(limit?: number): Promise<ProjectUsage[]> {
+  return safeInvoke<ProjectUsage[]>("get_usage_by_project", {
+    limit: limit ?? null,
+  });
+}
+
+export async function getUsageByModel(): Promise<ModelUsage[]> {
+  return safeInvoke<ModelUsage[]>("get_usage_by_model");
 }
 
 // ─── Engineering Intelligence (/intel) ──────────────────────────────────────

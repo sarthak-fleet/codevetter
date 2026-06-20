@@ -1,6 +1,6 @@
 # PRD: Review Memory Graph
 
-Status: in progress
+Status: shipped (first slice) — repo/review graph artifacts, prompt/UI/proof integration, Hunk-style notes, and `[`/`]` hunk keyboard navigation in fix diff; full Hunk-like file sidebar remains deferred
 Owner: unassigned
 Last updated: 2026-06-12
 

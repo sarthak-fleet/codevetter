@@ -61,9 +61,12 @@ import {
   formatHistoryCommandEvidence,
   type HistoryFindingSummary,
   type ProcedureExecutionEvent,
+  queryCodebaseHistoryExplanationForFile,
   selectTimelineSegmentFindingIndexes,
+  shouldCollapseTimelineAnchors,
   type VerificationTimelineItem,
   type VerificationTimelineJumpTarget,
+  visibleTimelineAnchors,
 } from "@/lib/review-proof";
 import {
   syntheticQaFailureFinding,
@@ -991,6 +994,7 @@ export default function QuickReview() {
   const [storedProcedureEvents, setStoredProcedureEvents] = useState<ReviewProcedureEvent[]>([]);
   const [packetCopied, setPacketCopied] = useState(false);
   const [timelinePacketCopiedId, setTimelinePacketCopiedId] = useState<string | null>(null);
+  const [expandedTimelineItems, setExpandedTimelineItems] = useState<Set<string>>(new Set());
   const reviewId = result?.review_id ?? "";
   const activeProcedureSteps = useMemo(
     () => result?.evidence_procedure_steps ?? [],
@@ -1729,6 +1733,16 @@ export default function QuickReview() {
     () => buildCodebaseHistoryExplanations(historyContext),
     [historyContext],
   );
+
+  const selectedFindingHistoryExplanation = useMemo(() => {
+    if (selectedFindingIdx == null) return null;
+    const filePath = sortedFindings[selectedFindingIdx]?.filePath;
+    if (!filePath) return null;
+    if (historyExplanations.some((explanation) => explanation.file === filePath)) {
+      return null;
+    }
+    return queryCodebaseHistoryExplanationForFile(historyContext, filePath);
+  }, [historyContext, historyExplanations, selectedFindingIdx, sortedFindings]);
 
   const intentReport = useMemo(() => {
     if (!result) return null;
@@ -3082,6 +3096,61 @@ export default function QuickReview() {
     [fixDiff],
   );
 
+  const hunkNavTargets = useMemo(
+    () =>
+      diffFiles.flatMap((file) =>
+        file.hunks.map((_, hunkIndex) => ({
+          key: `${file.path}:${hunkIndex}`,
+          filePath: file.path,
+          hunkIndex,
+        })),
+      ),
+    [diffFiles],
+  );
+  const [activeHunkNavIndex, setActiveHunkNavIndex] = useState(0);
+  const hunkNavRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  useEffect(() => {
+    setActiveHunkNavIndex(0);
+  }, [fixDiff]);
+
+  useEffect(() => {
+    if (!fixResult || hunkNavTargets.length === 0) return;
+    const target = hunkNavTargets[Math.min(activeHunkNavIndex, hunkNavTargets.length - 1)];
+    if (!target) return;
+    setExpandedFiles((prev) => {
+      if (prev.size === 0 || prev.has(target.filePath)) return prev;
+      const next = new Set(prev);
+      next.add(target.filePath);
+      return next;
+    });
+    const node = hunkNavRefs.current.get(target.key);
+    node?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [activeHunkNavIndex, fixResult, hunkNavTargets]);
+
+  useEffect(() => {
+    if (!fixResult || hunkNavTargets.length === 0) return;
+    function isInputFocused(event: KeyboardEvent): boolean {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (isInputFocused(event)) return;
+      if (event.key !== "[" && event.key !== "]") return;
+      event.preventDefault();
+      setActiveHunkNavIndex((prev) => {
+        if (event.key === "[") {
+          return Math.max(0, prev - 1);
+        }
+        return Math.min(hunkNavTargets.length - 1, prev + 1);
+      });
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [fixResult, hunkNavTargets]);
+
   const handleReReview = useCallback(() => {
     setFixResult(null);
     setFixCompletedAt(null);
@@ -3366,7 +3435,18 @@ export default function QuickReview() {
                           {(expandedFiles.has(file.path) || expandedFiles.size === 0) && (
                             <div>
                               {file.hunks.map((hunk, hi) => (
-                                <div key={hi}>
+                                <div
+                                  key={hi}
+                                  ref={(node) => {
+                                    const key = `${file.path}:${hi}`;
+                                    if (node) hunkNavRefs.current.set(key, node);
+                                    else hunkNavRefs.current.delete(key);
+                                  }}
+                                  className={cn(
+                                    hunkNavTargets[activeHunkNavIndex]?.key === `${file.path}:${hi}` &&
+                                      "ring-1 ring-cyan-500/40",
+                                  )}
+                                >
                                   {hunk.lines.map((line, li) => {
                                     const isHunkHeader = line.startsWith("@@");
                                     return (
@@ -4757,6 +4837,10 @@ export default function QuickReview() {
               <div className="grid grid-cols-1 gap-1.5">
                 {reviewTimeline.map((item) => {
                   const segmentPacketCount = timelineSegmentFindingIndexes(item.id).length;
+                  const anchors = item.anchors ?? [];
+                  const anchorsExpanded = expandedTimelineItems.has(item.id);
+                  const visibleAnchors = visibleTimelineAnchors(anchors, anchorsExpanded);
+                  const hiddenAnchorCount = anchors.length - visibleAnchors.length;
                   return (
                     <div
                       key={item.label}
@@ -4808,9 +4892,9 @@ export default function QuickReview() {
                       <span className="block truncate text-[10px] text-slate-600">
                         {item.detail}
                       </span>
-                      {item.anchors && item.anchors.length > 0 && (
+                      {anchors.length > 0 && (
                         <span className="mt-1 block space-y-0.5">
-                          {item.anchors.slice(0, 2).map((anchor) => (
+                          {visibleAnchors.map((anchor) => (
                             <button
                               key={anchor.id}
                               type="button"
@@ -4839,6 +4923,24 @@ export default function QuickReview() {
                               ].filter(Boolean).join(" · ")}
                             </button>
                           ))}
+                          {shouldCollapseTimelineAnchors(anchors.length) && (
+                            <button
+                              type="button"
+                              className="block text-left text-[9px] text-cyan-400/80 hover:text-cyan-300"
+                              onClick={() =>
+                                setExpandedTimelineItems((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(item.id)) next.delete(item.id);
+                                  else next.add(item.id);
+                                  return next;
+                                })
+                              }
+                            >
+                              {anchorsExpanded
+                                ? "Show fewer anchors"
+                                : `Show ${hiddenAnchorCount} more anchor${hiddenAnchorCount === 1 ? "" : "s"}`}
+                            </button>
+                          )}
                         </span>
                       )}
                     </span>
@@ -4977,6 +5079,24 @@ export default function QuickReview() {
                       )}
                     </div>
                   ))}
+                  {selectedFindingHistoryExplanation && (
+                    <div className="rounded-lg border border-amber-500/20 bg-[#050505] px-2 py-1.5">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-amber-200">
+                          {selectedFindingHistoryExplanation.file}
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 rounded-full px-1.5 py-0 text-[9px] text-amber-300/80"
+                        >
+                          selected
+                        </Badge>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-slate-500">
+                        {selectedFindingHistoryExplanation.summary}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
