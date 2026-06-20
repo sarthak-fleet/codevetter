@@ -9,6 +9,7 @@ import UpdateChecker from "@/components/update-checker";
 import { trackAppLaunch } from "@/lib/analytics";
 import { getPreference, isTauriAvailable } from "@/lib/tauri-ipc";
 import { useTrayMonitor } from "@/lib/use-tray-monitor";
+import { useWindowVisibilityClass } from "@/lib/use-visibility";
 // Pages are lazy-loaded so the initial bundle isn't dominated by the large
 // review/unpack screens — only the route the user lands on is fetched.
 const AgentMemories = lazy(() => import("@/pages/AgentMemories"));
@@ -145,6 +146,8 @@ function Shell() {
   const { showOnboarding, setShowOnboarding, ready } = useOnboarding();
   const { isOpen, close } = useCommandPalette();
   useTrayMonitor();
+  // Freeze CSS animations when the window is hidden/minimized (battery).
+  useWindowVisibilityClass();
 
   if (!ready) {
     return (

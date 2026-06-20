@@ -50,6 +50,7 @@ import {
   listProviderUsageLedger,
   triggerIndex,
 } from "@/lib/tauri-ipc";
+import { isWindowHidden, useVisibilityInterval } from "@/lib/use-visibility";
 
 // ─── Usage helpers ──────────────────────────────────────────────────────────
 
@@ -1132,7 +1133,10 @@ function WeeklyAgentSplit() {
     // later. Without refetching, this bar stays frozen on the partial numbers
     // (e.g. Claude far below its real total). Refresh when the indexer emits
     // its completion event, plus a periodic fallback.
-    const interval = setInterval(() => void fetchRows(), 60_000);
+    const interval = setInterval(() => {
+      if (isWindowHidden()) return; // battery: skip background refetches
+      void fetchRows();
+    }, 60_000);
     void (async () => {
       try {
         const { listen } = await import("@tauri-apps/api/event");
@@ -2017,18 +2021,14 @@ export default function Home() {
   }, [loadDashboard]);
 
   // ─── Periodic background sync every 60s ───────────────────────────────
-  // Tight loop keeps token-usage counters near-realtime. Backend indexer
-  // also runs every 60s so fresh JSONL bytes land in the DB before we read.
+  // Keeps token-usage counters near-realtime. Paused while the window is
+  // hidden (battery) — no point polling when the user isn't looking; it
+  // catches up immediately on return.
 
-  useEffect(() => {
+  useVisibilityInterval(() => {
     if (!isTauriAvailable()) return;
-
-    const interval = setInterval(() => {
-      refreshDashboard();
-    }, 60_000);
-
-    return () => clearInterval(interval);
-  }, [refreshDashboard]);
+    refreshDashboard();
+  }, 60_000);
 
   // ─── Auto-refresh live usage every 60s ─────────────────────────────────
 
@@ -2062,26 +2062,21 @@ export default function Home() {
     });
   }, []);
 
+  // Fetch live usage immediately once accounts are loaded.
   useEffect(() => {
-    if (!isTauriAvailable()) return;
-    // Don't start until accounts are loaded
-    if (accounts.length === 0) return;
-
-    // Fetch immediately on first load
+    if (!isTauriAvailable() || accounts.length === 0) return;
     const initialTimeout = setTimeout(() => {
       void refreshLiveUsage(accounts);
     }, 0);
-
-    // Then every 60 seconds
-    const interval = setInterval(() => {
-      void refreshLiveUsage(accounts);
-    }, 60_000);
-
-    return () => {
-      clearTimeout(initialTimeout);
-      clearInterval(interval);
-    };
+    return () => clearTimeout(initialTimeout);
   }, [accounts, refreshLiveUsage]);
+
+  // Then refresh every 60s — but only while the window is visible (battery);
+  // hitting provider APIs in the background is wasted work + network.
+  useVisibilityInterval(() => {
+    if (!isTauriAvailable() || accounts.length === 0) return;
+    void refreshLiveUsage(accounts);
+  }, 60_000);
 
   // Tray title + menu are managed globally by `useTrayMonitor` in App so they
   // stay current regardless of which page is mounted.

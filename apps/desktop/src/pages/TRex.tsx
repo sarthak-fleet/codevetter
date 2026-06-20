@@ -93,8 +93,19 @@ export default function TRex() {
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 15_000);
-    return () => clearInterval(t);
+    // Pause polling while the window is hidden (battery); refresh on return.
+    const t = setInterval(() => {
+      if (document.hidden) return;
+      refresh();
+    }, 15_000);
+    const onVisible = () => {
+      if (!document.hidden) refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refresh]);
 
   const handleStart = async () => {

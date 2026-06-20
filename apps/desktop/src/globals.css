@@ -172,6 +172,15 @@
     animation: cvScan 4.5s linear infinite;
   }
 
+  /* Battery: when the window is hidden/minimized, App.tsx adds `cv-hidden` to
+     <html>; freeze every animation so a backgrounded window does zero GPU/
+     compositing work. The always-on .cv-scan loop is the main offender. */
+  html.cv-hidden *,
+  html.cv-hidden *::before,
+  html.cv-hidden *::after {
+    animation-play-state: paused !important;
+  }
+
   .drag-region {
     -webkit-app-region: drag;
   }
