@@ -67,19 +67,28 @@ jobs:
 
       - name: Purge codevetter.com edge cache
         if: steps.cloudflare.outputs.deploy_enabled == 'true'
+        continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID_CODEVETTER }}
         run: |
           if [ -z "$CLOUDFLARE_ZONE_ID" ]; then
-            echo "CLOUDFLARE_ZONE_ID_CODEVETTER not set; skipping edge cache purge."
+            echo "::warning::CLOUDFLARE_ZONE_ID_CODEVETTER not set; skipping edge cache purge."
             exit 0
           fi
-          curl --fail --silent --show-error --request POST \
+          response="$(curl --silent --show-error --request POST \
             --url "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             --header "Content-Type: application/json" \
-            --data '{"hosts":["codevetter.com","www.codevetter.com"]}'
+            --write-out '\nHTTP_STATUS:%{http_code}' \
+            --data '{"files":["https://codevetter.com/","https://www.codevetter.com/"]}')"
+          status="${response##*HTTP_STATUS:}"
+          body="${response%HTTP_STATUS:*}"
+          echo "$body"
+          if [ "$status" != "200" ]; then
+            echo "::warning::Edge cache purge failed (HTTP ${status}). Add Zone.Cache Purge to CLOUDFLARE_API_TOKEN or purge manually in the dashboard."
+            exit 0
+          fi
 
       - name: Smoke production landing page
         run: curl --fail --silent --show-error --location --output /dev/null --retry 3 --retry-delay 5 https://codevetter.com

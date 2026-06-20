@@ -7,12 +7,10 @@
 /_astro/*
   Cache-Control: public, max-age=31536000, immutable
 
-# Cache HTML at the CF edge for ~1 day; SWR keeps it instant while a
-# single deploy bumps the source of truth. Explicit max-age (browser
-# cache) tells CF Pages the HTML is cacheable at edge — without it,
-# responses return as cf-cache-status: DYNAMIC.
+# HTML: short edge TTL + tight SWR so custom-domain zone cache picks up
+# deploys within minutes (fleet cache rule uses respect_origin).
 /
-  Cache-Control: public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800
+  Cache-Control: public, max-age=300, s-maxage=300, stale-while-revalidate=60
 
 /*.html
-  Cache-Control: public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800
+  Cache-Control: public, max-age=300, s-maxage=300, stale-while-revalidate=60
