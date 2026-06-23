@@ -16,6 +16,34 @@ jobs:
       - name: Type Check
         working-directory: apps/desktop
         run: npx tsc --noEmit
-      - name: Unit Tests
+      # Coverage enforcement (ratchet gate).
+      # Runs `vitest run --coverage` which fails the build when coverage drops
+      # below the thresholds configured in vitest.config.ts. The thresholds are
+      # set slightly ABOVE the current measured coverage so coverage can only
+      # go UP — never down. Raise the thresholds in vitest.config.ts whenever
+      # coverage improves to keep the ratchet tight. Do NOT lower them.
+      - name: Unit Tests with Coverage
         working-directory: apps/desktop
-        run: npm run test:unit
+        run: npm run test:coverage
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+        working-directory: apps/desktop
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/desktop
+      - run: npx playwright test
+        working-directory: apps/desktop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: apps/desktop/playwright-report/
+          retention-days: 7
