@@ -9,7 +9,7 @@
     "bench:catch-rate": "node scripts/run-catch-rate-benchmark.mjs",
     "bench:curation": "node scripts/report-benchmark-curation.mjs",
     "bench:new-case": "node scripts/create-benchmark-case.mjs",
-    "test:benchmark": "node --test scripts/run-catch-rate-benchmark.test.mjs",
+    "test:benchmark": "vitest run scripts/run-catch-rate-benchmark.test.mjs",
     "prepare": "husky || true"
   },
   "license": "ISC",
@@ -30,7 +30,8 @@
     "globals": "17.5.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
-    "typescript-eslint": "8.59.0"
+    "typescript-eslint": "8.59.0",
+    "vitest": "^4.1.9"
   },
   "optionalDependencies": {
     "@tailwindcss/oxide-linux-x64-gnu": "^4.2.4",
