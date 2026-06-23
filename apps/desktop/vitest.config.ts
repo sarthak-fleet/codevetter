@@ -1,26 +1,26 @@
-import path from "path";
-import { defineConfig } from "vitest/config";
+import path from 'path';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      '@': path.resolve(__dirname, './src'),
     },
   },
   test: {
-    environment: "node",
-    include: ["src/**/*.test.ts"],
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
     coverage: {
-      provider: "v8",
-      include: ["src/lib/**/*.ts"],
+      provider: 'v8',
+      include: ['src/lib/**/*.ts'],
       exclude: [
-        "**/*.test.ts",
-        "**/*.d.ts",
-        "**/index.ts",
-        "node_modules",
-        "dist",
-        ".next",
-        ".wrangler",
+        '**/*.test.ts',
+        '**/*.d.ts',
+        '**/index.ts',
+        'node_modules',
+        'dist',
+        '.next',
+        '.wrangler',
       ],
       // Ratchet gate: thresholds are set slightly ABOVE the current measured
       // coverage so coverage can only ever go UP. Raise these numbers whenever

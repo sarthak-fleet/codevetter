@@ -56,11 +56,13 @@
         "noExplicitAny": "off",
         "noAssignInExpressions": "off",
         "useIterableCallbackReturn": "off",
-        "noArrayIndexKey": "off"
+        "noArrayIndexKey": "off",
+        "noSuspiciousSemicolonInJsx": "off"
       },
       "style": {
         "noNonNullAssertion": "off",
-        "useImportType": "off"
+        "useImportType": "off",
+        "useNodejsImportProtocol": "off"
       },
       "correctness": {
         "noUnusedVariables": "warn",
