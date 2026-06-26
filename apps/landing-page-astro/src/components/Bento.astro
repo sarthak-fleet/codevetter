@@ -1,21 +1,23 @@
 ---
+import Icon from './Icon.astro';
+
 // Port of apps/landing-page/components/organisms/Bento.tsx.
 // All five sub-visuals (Diff, Key, Offline, Git, Severity, Patch) are
 // inlined below as plain markup. No React, no client JS.
 
-const _keyProviders = [
+const keyProviders = [
   { p: 'Anthropic', m: 'claude-3.5-sonnet', state: 'ok', env: '$ANTHROPIC_API_KEY' },
   { p: 'OpenAI', m: 'gpt-4o', state: 'ok', env: '$OPENAI_API_KEY' },
   { p: 'OpenRouter', m: 'gemini-pro', state: 'idle', env: '—' },
 ];
 
-const _severities = [
+const severities = [
   { k: 'Critical', v: 4, c: 'bg-red-500', text: 'text-red-400' },
   { k: 'High', v: 12, c: 'bg-amber-500', text: 'text-amber-400' },
   { k: 'Medium', v: 29, c: 'bg-blue-500', text: 'text-blue-400' },
 ];
 
-const _patchFindings = [
+const patchFindings = [
   {
     sev: 'Critical',
     color: 'text-red-400',

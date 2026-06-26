@@ -1,9 +1,11 @@
 ---
+import Icon from './Icon.astro';
+
 // Port of apps/landing-page/components/molecules/Nav.tsx.
 // The React version animated entrance via framer-motion (y:-20→0 over
 // 0.55s). The static port renders the end-state directly — same first
 // paint, no JS.
-const _links = [
+const links = [
   { href: '#features', label: 'Features' },
   { href: '#how', label: 'How it works' },
   { href: '#providers', label: 'Providers' },

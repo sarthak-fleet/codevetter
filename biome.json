@@ -19,6 +19,7 @@
       "!**/package-lock.json",
       "!**/tsconfig.tsbuildinfo",
       "!**/*.css",
+      "!**/*.astro",
       "!**/design.html"
     ]
   },

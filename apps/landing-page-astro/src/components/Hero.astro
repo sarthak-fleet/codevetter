@@ -1,4 +1,6 @@
 ---
+import Icon from './Icon.astro';
+
 // Port of apps/landing-page/components/organisms/Hero.tsx.
 // React-only effects dropped per static-port convention:
 //   - framer-motion entrance animations → render end-state.
@@ -7,7 +9,7 @@
 //   - Animated path stroke under "AI code." → render the full path.
 
 const PARTICLE_COUNT = 30;
-const _particles = Array.from({ length: PARTICLE_COUNT }, (_, i) => {
+const particles = Array.from({ length: PARTICLE_COUNT }, (_, i) => {
   // Identical seeded RNG to the React ParticleField so the visual
   // layout is preserved.
   const seed = (n: number) => {
