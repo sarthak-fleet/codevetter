@@ -353,6 +353,7 @@ pub struct SessionMeta {
     pub message_count: i64,
     pub archived_message_count: i64,
     pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
     /// Byte offset the indexer has consumed up to. When this equals the file's
     /// current size the file is fully indexed and can be skipped — an exact,
     /// precision-free signal (unlike mtime strings, whose nanoseconds drift).
@@ -386,7 +387,7 @@ pub fn get_session_by_jsonl_path(
     conn.query_row(
         "SELECT id, file_mtime, message_count,
                 (SELECT COUNT(*) FROM session_message_archive a WHERE a.session_id = cc_sessions.id),
-                total_input_tokens, last_indexed_byte_offset
+                total_input_tokens, total_output_tokens, last_indexed_byte_offset
          FROM cc_sessions
          WHERE jsonl_path = ?1",
         params![jsonl_path],
@@ -397,7 +398,8 @@ pub fn get_session_by_jsonl_path(
                 message_count: row.get(2)?,
                 archived_message_count: row.get(3)?,
                 total_input_tokens: row.get(4)?,
-                last_indexed_byte_offset: row.get(5)?,
+                total_output_tokens: row.get(5)?,
+                last_indexed_byte_offset: row.get(6)?,
             })
         },
     )

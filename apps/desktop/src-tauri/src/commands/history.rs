@@ -263,6 +263,7 @@ pub fn refresh_secondary_agents_with_conn(
         index_grok_sessions(conn),
         index_cursor_sessions(conn),
         index_cursor_agent_sessions(conn),
+        index_devin_sessions(conn),
     ] {
         match result {
             Ok((indexed, messages, _skipped)) => {
@@ -631,6 +632,18 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
         }
     }
 
+    // ── Phase 6: Scan Devin CLI sessions (~/.local/share/devin/cli/sessions.db)
+    match index_devin_sessions(&conn) {
+        Ok((devin_indexed, devin_messages, devin_skipped)) => {
+            indexed_sessions += devin_indexed;
+            indexed_messages += devin_messages;
+            skipped_sessions += devin_skipped;
+        }
+        Err(error) => {
+            log::warn!("Devin session index failed; continuing: {error}");
+        }
+    }
+
     let backfilled_archives = backfill_missing_session_archives(&conn)?;
     if backfilled_archives > 0 {
         log::info!("Backfilled normalized session archive for {backfilled_archives} sessions");
@@ -891,6 +904,13 @@ fn estimate_cost(
         // OpenAI o3 repriced to $2/$8 (cached input $0.50).
         m if m.contains("o3") || m.contains("o4-mini") => (2.0, 8.0, 0.50, 2.0),
         m if m.contains("grok") => (3.0, 15.0, 0.75, 3.75),
+        // GLM-5.2 (Z.ai): $1.40/$4.40, cached $0.26 (verified Jun 2026). Cache
+        // creation storage is limited-time free → 0. Devin's internal models
+        // (compactor, swe-*, MODEL_PRIVATE_*) are assumed GLM-based.
+        m if m.contains("glm")
+            || m.contains("compactor")
+            || m.contains("swe")
+            || m.contains("MODEL_PRIVATE") => (1.4, 4.4, 0.26, 0.0),
         _ => (3.0, 15.0, 0.30, 3.75), // default ≈ sonnet pricing
     };
 
@@ -910,7 +930,8 @@ fn estimate_cost(
 /// Bump this whenever the `estimate_cost` price table changes so already-indexed
 /// sessions get their stored `estimated_cost_usd` refreshed (otherwise mtime-skip
 /// keeps the old cost). Rev 2 = Opus $5/$25 + Haiku 4.5 $1/$5 + o3 $2/$8.
-const PRICING_REV: &str = "2";
+/// Rev 3 = GLM-5.2 $1.40/$4.40 + Devin-internal models.
+const PRICING_REV: &str = "3";
 
 /// Recompute `estimated_cost_usd` for every session from its stored token counts
 /// and model, using the current price table — a pure DB pass, no file re-read.
@@ -1605,7 +1626,11 @@ fn json_find_i64(value: &Value, key: &str) -> Option<i64> {
 /// per-turn *context-window size* (`totalTokens` in updates.jsonl), not
 /// cumulative billing — so summing the peak context per turn approximates the
 /// cumulative input burn (each turn re-sends ~its whole context), the same way
-/// Codex's cumulative `total_token_usage` accrues. Output/cache aren't logged.
+/// Codex's cumulative `total_token_usage` accrues. Output tokens are estimated
+/// from `chat_history.jsonl` assistant content (chars÷4 heuristic, same as the
+/// Cursor Agent CLI adapter). Cache tokens aren't logged. Day attribution uses
+/// the per-turn `agentTimestampMs` from `updates.jsonl` so multi-day sessions
+/// spread across the days they actually occurred (not all on day 1).
 fn parse_grok_session_dir(
     sess_dir: &std::path::Path,
     cwd: &str,
@@ -1650,8 +1675,11 @@ fn parse_grok_session_dir(
         .unwrap_or(0);
 
     // Peak context size per turn (keyed by turn start), summed = input estimate.
+    // Also collect per-turn timestamps for day attribution.
     // Token fields are nested under JSON-RPC params, so search recursively.
     let mut per_turn: std::collections::BTreeMap<i64, i64> = std::collections::BTreeMap::new();
+    let mut turn_days: std::collections::BTreeMap<i64, String> =
+        std::collections::BTreeMap::new();
     if let Ok(file) = std::fs::File::open(sess_dir.join("updates.jsonl")) {
         for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
             let line = line.trim();
@@ -1666,6 +1694,20 @@ fn parse_grok_session_dir(
                     let slot = per_turn.entry(turn).or_insert(0);
                     if total > *slot {
                         *slot = total;
+                    }
+                    // Record the day for this turn (local timezone, matching
+                    // the cc_session_days convention used by other adapters).
+                    if !turn_days.contains_key(&turn) {
+                        if let Some(dt) = chrono::DateTime::<chrono::Utc>::from_timestamp(
+                            turn / 1000,
+                            ((turn % 1000) * 1_000_000) as u32,
+                        ) {
+                            let day = dt
+                                .with_timezone(&chrono::Local)
+                                .format("%Y-%m-%d")
+                                .to_string();
+                            turn_days.insert(turn, day);
+                        }
                     }
                 }
             }
@@ -1683,8 +1725,37 @@ fn parse_grok_session_dir(
         }
     }
 
-    let mut day_counts: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
-    if let Some(ts) = first_ts.as_deref() {
+    // Output token estimate: sum assistant message content chars ÷ 4 from
+    // chat_history.jsonl. Grok doesn't log output tokens, so this is the same
+    // chars-per-token heuristic the Cursor Agent CLI adapter uses. Rough but
+    // magnitude-aware — without it the "Fresh tokens" bar shows 0 for Grok.
+    let mut estimated_output: i64 = 0;
+    if let Ok(file) = std::fs::File::open(sess_dir.join("chat_history.jsonl")) {
+        for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Ok(v) = serde_json::from_str::<Value>(line) {
+                if v.get("type").and_then(|t| t.as_str()) == Some("assistant") {
+                    if let Some(content) = v.get("content") {
+                        estimated_output += content_char_count(content) / 4;
+                    }
+                }
+            }
+        }
+    }
+
+    // Day attribution: count distinct turns per day from updates.jsonl. Falls
+    // back to the old single-day attribution (all on created_at's day) when
+    // updates.jsonl has no turn timestamps.
+    let mut day_counts: std::collections::BTreeMap<String, i64> =
+        std::collections::BTreeMap::new();
+    if !turn_days.is_empty() {
+        for day in turn_days.values() {
+            *day_counts.entry(day.clone()).or_insert(0) += 1;
+        }
+    } else if let Some(ts) = first_ts.as_deref() {
         if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
             let day = dt
                 .with_timezone(&chrono::Local)
@@ -1707,7 +1778,7 @@ fn parse_grok_session_dir(
         last_timestamp: last_ts,
         message_count,
         total_input_tokens: estimated_input,
-        total_output_tokens: 0,
+        total_output_tokens: estimated_output,
         cache_read_tokens: 0,
         cache_creation_tokens: 0,
         compaction_count: 0,
@@ -1718,6 +1789,26 @@ fn parse_grok_session_dir(
         // Grok token counts are summed per-turn estimates, not a running total.
         tokens_are_cumulative: false,
     })
+}
+
+/// Count characters in a chat_history.jsonl `content` field, which can be either
+/// a plain string or an array of `{type: "text", text: "..."}` content blocks.
+fn content_char_count(content: &Value) -> i64 {
+    match content {
+        Value::String(s) => s.chars().count() as i64,
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(|item| {
+                if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                    item.get("text").and_then(|t| t.as_str())
+                } else {
+                    None
+                }
+            })
+            .map(|s| s.chars().count() as i64)
+            .sum(),
+        _ => 0,
+    }
 }
 
 /// Phase 4: index Grok CLI sessions from ~/.grok/sessions. Token counts are
@@ -1793,9 +1884,12 @@ fn index_grok_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), S
             if let Some(ref meta) = existing {
                 // Re-parse 0-token rows: earlier builds estimated Grok at 0
                 // (token fields were nested), so don't let the mtime skip pin them.
+                // Also re-parse rows with 0 output tokens — the old parser didn't
+                // estimate output from chat_history.jsonl (added in a later rev).
                 if meta.file_mtime.as_deref() == file_mtime.as_deref()
                     && meta.message_count > 0
                     && meta.total_input_tokens > 0
+                    && meta.total_output_tokens > 0
                 {
                     skipped += 1;
                     continue;
@@ -1827,6 +1921,309 @@ fn index_grok_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), S
     }
 
     Ok((indexed, messages, skipped))
+}
+
+fn resolve_devin_sessions_db() -> std::path::PathBuf {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home)
+        .join(".local")
+        .join("share")
+        .join("devin")
+        .join("cli")
+        .join("sessions.db")
+}
+
+/// Phase 6: index Devin CLI sessions from ~/.local/share/devin/cli/sessions.db.
+///
+/// Devin stores sessions in a single SQLite DB (not JSONL). Each `sessions` row
+/// has a `working_directory`, `model`, unix-second `created_at`/`last_activity_at`,
+/// and a `title`. Token metrics live inside `message_nodes.chat_message` JSON,
+/// under `metadata.metrics` (input/output/cache_read/cache_creation tokens) and
+/// `metadata.generation_model`.
+///
+/// IMPORTANT: Devin writes duplicate `message_nodes` rows per logical message
+/// (one with `extensions`, one without) sharing the same `message_id` and
+/// identical token metrics. Summing all rows would ~2x the real token burn, so
+/// we dedupe by `message_id` before aggregating (verified: 14.6k rows → 6.8k
+/// distinct message_ids on the dev machine).
+///
+/// `total_input_tokens` follows the cc_sessions convention of including cache
+/// read + cache creation (estimate_cost subtracts them back out to bill the
+/// base input at the full rate).
+fn index_devin_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), String> {
+    let db_path = resolve_devin_sessions_db();
+    if !db_path.exists() {
+        return Ok((0, 0, 0));
+    }
+
+    let file_meta = std::fs::metadata(&db_path).ok();
+    let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
+
+    let dconn = rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .map_err(|e| format!("failed to open devin sessions.db: {e}"))?;
+
+    // Per-session aggregate, deduping assistant messages by message_id so the
+    // duplicate rows (extensions vs bare) don't double-count tokens.
+    let mut sess_stmt = dconn
+        .prepare(
+            "SELECT s.id,
+                    s.working_directory,
+                    s.model,
+                    s.backend_type,
+                    s.created_at,
+                    s.last_activity_at,
+                    s.title,
+                    COALESCE(t.msg_count, 0),
+                    COALESCE(t.input_toks, 0),
+                    COALESCE(t.output_toks, 0),
+                    COALESCE(t.cache_read, 0),
+                    COALESCE(t.cache_creation, 0),
+                    (SELECT json_extract(m2.chat_message, '$.metadata.generation_model')
+                       FROM message_nodes m2
+                      WHERE m2.session_id = s.id
+                        AND json_extract(m2.chat_message, '$.role') = 'assistant'
+                        AND json_extract(m2.chat_message, '$.metadata.generation_model') IS NOT NULL
+                      ORDER BY m2.created_at DESC LIMIT 1)
+             FROM sessions s
+             LEFT JOIN (
+                SELECT session_id,
+                       COUNT(*)          AS msg_count,
+                       SUM(in_t)         AS input_toks,
+                       SUM(out_t)        AS output_toks,
+                       SUM(cr)           AS cache_read,
+                       SUM(cc)           AS cache_creation
+                  FROM (
+                    SELECT session_id,
+                           json_extract(chat_message, '$.message_id') AS message_id,
+                           MAX(json_extract(chat_message, '$.metadata.metrics.input_tokens'))          AS in_t,
+                           MAX(json_extract(chat_message, '$.metadata.metrics.output_tokens'))         AS out_t,
+                           MAX(json_extract(chat_message, '$.metadata.metrics.cache_read_tokens'))     AS cr,
+                           MAX(json_extract(chat_message, '$.metadata.metrics.cache_creation_tokens')) AS cc
+                      FROM message_nodes
+                     WHERE json_extract(chat_message, '$.role') = 'assistant'
+                       AND json_extract(chat_message, '$.metadata.metrics.input_tokens') IS NOT NULL
+                     GROUP BY session_id, message_id
+                  )
+                 GROUP BY session_id
+             ) t ON t.session_id = s.id
+             ORDER BY s.last_activity_at DESC",
+        )
+        .map_err(|e| format!("devin session query prepare failed: {e}"))?;
+
+    let session_rows = sess_stmt
+        .query_map([], |r| {
+            Ok(DevinSessionRow {
+                id: r.get(0)?,
+                working_directory: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                model: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                backend_type: r.get::<_, Option<String>>(3)?,
+                created_at: r.get(4)?,
+                last_activity_at: r.get(5)?,
+                title: r.get::<_, Option<String>>(6)?,
+                msg_count: r.get(7)?,
+                input_toks: r.get(8)?,
+                output_toks: r.get(9)?,
+                cache_read: r.get(10)?,
+                cache_creation: r.get::<_, Option<i64>>(11)?.unwrap_or(0),
+                gen_model: r.get::<_, Option<String>>(12)?,
+            })
+        })
+        .map_err(|e| format!("devin session query failed: {e}"))?;
+    let sessions: Vec<DevinSessionRow> = session_rows.filter_map(Result::ok).collect();
+    drop(sess_stmt);
+
+    // Per-session, per-day distinct assistant-message counts for cc_session_days.
+    let mut day_stmt = dconn
+        .prepare(
+            "SELECT session_id,
+                    date(created_at, 'unixepoch', 'localtime') AS day,
+                    COUNT(DISTINCT json_extract(chat_message, '$.message_id')) AS n
+               FROM message_nodes
+              WHERE json_extract(chat_message, '$.role') = 'assistant'
+                AND json_extract(chat_message, '$.metadata.metrics.input_tokens') IS NOT NULL
+              GROUP BY session_id, day",
+        )
+        .map_err(|e| format!("devin day query prepare failed: {e}"))?;
+    let day_rows = day_stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|e| format!("devin day query failed: {e}"))?;
+    let mut day_counts: std::collections::HashMap<String, std::collections::BTreeMap<String, i64>> =
+        std::collections::HashMap::new();
+    for row in day_rows.flatten() {
+        day_counts
+            .entry(row.0)
+            .or_default()
+            .insert(row.1, row.2);
+    }
+    drop(day_stmt);
+    drop(dconn);
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut indexed = 0u64;
+    let mut messages = 0u64;
+    let mut skipped = 0u64;
+
+    for s in &sessions {
+        // Skip sessions with no token activity (e.g. freshly created, no
+        // assistant turns yet) — they'd insert zero-token rows that clutter
+        // the dashboard without contributing usage.
+        if s.msg_count == 0 && s.input_toks == 0 {
+            skipped += 1;
+            continue;
+        }
+
+        let source_ref = format!("devin:{}", s.id);
+        let last_activity_rfc = chrono::DateTime::<chrono::Utc>::from_timestamp(s.last_activity_at, 0)
+            .map(|dt| dt.to_rfc3339());
+        let created_rfc = chrono::DateTime::<chrono::Utc>::from_timestamp(s.created_at, 0)
+            .map(|dt| dt.to_rfc3339());
+
+        // Per-session incremental skip: the devin session's last_activity_at is
+        // stored as file_mtime, so an unchanged value + non-zero tokens means
+        // nothing new has happened for this session.
+        let existing = queries::get_session_by_jsonl_path(conn, &source_ref)
+            .map_err(|e| e.to_string())?;
+        if let Some(ref meta) = existing {
+            if meta.file_mtime.as_deref() == last_activity_rfc.as_deref()
+                && meta.total_input_tokens > 0
+            {
+                skipped += 1;
+                continue;
+            }
+        }
+
+        let cwd = if s.working_directory.is_empty() {
+            None
+        } else {
+            Some(s.working_directory.clone())
+        };
+
+        // Resolve or create the project for this session's cwd.
+        let project_id = if let Some(ref cwd) = cwd {
+            queries::get_project_id_by_dir(conn, cwd)
+                .map_err(|e| e.to_string())?
+                .unwrap_or_else(|| {
+                    let pid = uuid::Uuid::new_v4().to_string();
+                    let display = std::path::Path::new(cwd)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| cwd.clone());
+                    let _ = queries::upsert_project(
+                        conn,
+                        &queries::ProjectInput {
+                            id: pid.clone(),
+                            display_name: display,
+                            dir_path: cwd.clone(),
+                            session_count: None,
+                            last_activity: Some(now.clone()),
+                            created_at: now.clone(),
+                        },
+                    );
+                    pid
+                })
+        } else {
+            // No cwd — attribute to a synthetic "Devin" project.
+            let dir = "devin://unknown";
+            queries::get_project_id_by_dir(conn, dir)
+                .map_err(|e| e.to_string())?
+                .unwrap_or_else(|| {
+                    let pid = uuid::Uuid::new_v4().to_string();
+                    let _ = queries::upsert_project(
+                        conn,
+                        &queries::ProjectInput {
+                            id: pid.clone(),
+                            display_name: "Devin".to_string(),
+                            dir_path: dir.to_string(),
+                            session_count: None,
+                            last_activity: Some(now.clone()),
+                            created_at: now.clone(),
+                        },
+                    );
+                    pid
+                })
+        };
+
+        // cc_sessions.total_input_tokens includes cache_read + cache_creation
+        // (estimate_cost subtracts them back out to bill base input at full rate).
+        let total_input = s.input_toks + s.cache_read + s.cache_creation;
+        let model_used = s.gen_model.clone().or_else(|| {
+            if s.model.is_empty() {
+                None
+            } else {
+                Some(s.model.clone())
+            }
+        });
+
+        let summary = RawSessionAdapterSummary {
+            adapter_id: "devin".to_string(),
+            agent_type: "devin".to_string(),
+            stable_id: Some(s.id.clone()),
+            source_ref: source_ref.clone(),
+            cwd,
+            git_branch: None,
+            cli_version: s.backend_type.clone(),
+            model_used,
+            first_timestamp: created_rfc.clone(),
+            last_timestamp: last_activity_rfc.clone(),
+            message_count: s.msg_count,
+            total_input_tokens: total_input,
+            total_output_tokens: s.output_toks,
+            cache_read_tokens: s.cache_read,
+            cache_creation_tokens: s.cache_creation,
+            compaction_count: 0,
+            slug: s.title.clone(),
+            day_counts: day_counts.get(&s.id).cloned().unwrap_or_default(),
+            archive_messages: Vec::new(),
+            parse_warnings: Vec::new(),
+            tokens_are_cumulative: false,
+        };
+
+        match upsert_adapter_summary_session(
+            conn,
+            &project_id,
+            summary,
+            file_size,
+            last_activity_rfc.clone(),
+            &now,
+            existing.as_ref().map(|m| m.id.as_str()),
+        ) {
+            Ok(session) => {
+                indexed += 1;
+                messages += session.messages_indexed;
+            }
+            Err(e) => log::warn!("devin upsert failed for {source_ref}: {e}"),
+        }
+    }
+
+    Ok((indexed, messages, skipped))
+}
+
+#[derive(Debug, Clone)]
+struct DevinSessionRow {
+    id: String,
+    working_directory: String,
+    model: String,
+    backend_type: Option<String>,
+    created_at: i64,
+    last_activity_at: i64,
+    title: Option<String>,
+    msg_count: i64,
+    input_toks: i64,
+    output_toks: i64,
+    cache_read: i64,
+    cache_creation: i64,
+    gen_model: Option<String>,
 }
 
 fn resolve_cursor_agent_chats_dir() -> std::path::PathBuf {
@@ -3021,6 +3418,7 @@ mod tests {
             message_count: msgs,
             archived_message_count: 0, // some sessions legitimately archive nothing
             total_input_tokens: 0,
+            total_output_tokens: 0,
             last_indexed_byte_offset: offset,
         };
 
@@ -3049,5 +3447,61 @@ mod tests {
         assert!(near(estimate_cost("claude-haiku-4-5-20251001", 1_000_000, 0, 0, 0), 1.0));
         // OpenAI o3 (codex) is $2/$8.
         assert!(near(estimate_cost("o3", 1_000_000, 0, 0, 0), 2.0));
+        // GLM-5.2 (Devin) is $1.40/$4.40, cached $0.26.
+        assert!(near(estimate_cost("glm-5-2", 1_000_000, 0, 0, 0), 1.4));
+        assert!(near(estimate_cost("glm-5-2", 0, 1_000_000, 0, 0), 4.4));
+        assert!(near(estimate_cost("glm-5-2", 0, 0, 1_000_000, 0), 0.26));
+    }
+
+    // Diagnostic (not a CI eval): runs index_devin_sessions against the live
+    // Devin sessions.db on this machine and reports the ingested rows. Run with:
+    // cargo test --bin codevetter-desktop diag_devin_index -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn diag_devin_index() {
+        if !resolve_devin_sessions_db().exists() {
+            eprintln!("SKIP: no devin sessions.db on this machine");
+            return;
+        }
+        let conn = memory_conn_with_project();
+        let (indexed, messages, skipped) = index_devin_sessions(&conn).expect("devin index");
+        eprintln!("pass 1: indexed={indexed} messages={messages} skipped={skipped}");
+
+        let rows: Vec<(String, i64, i64, i64, f64)> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, message_count, total_input_tokens, total_output_tokens,
+                            estimated_cost_usd
+                     FROM cc_sessions WHERE agent_type='devin'
+                     ORDER BY total_input_tokens DESC",
+                )
+                .unwrap();
+            stmt.query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect()
+        };
+        for (id, msgs, input, output, cost) in &rows {
+            eprintln!("  devin session {id}: msgs={msgs} input={input} output={output} cost=${cost:.2}");
+        }
+        assert!(indexed > 0, "expected at least one devin session indexed");
+        assert!(
+            rows.iter().any(|(_, _, input, _, _)| *input > 0),
+            "expected non-zero input tokens"
+        );
+
+        // Pass 2: steady state — every session should be skipped (unchanged
+        // last_activity_at), confirming the incremental skip works.
+        let (_, _, skipped2) = index_devin_sessions(&conn).expect("devin index pass 2");
+        eprintln!("pass 2: skipped={skipped2} (should equal pass-1 indexed)");
+        assert_eq!(skipped2, indexed, "pass 2 should skip all unchanged sessions");
     }
 }

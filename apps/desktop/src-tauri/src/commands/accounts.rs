@@ -362,6 +362,7 @@ fn usage_profile_label(agent_type: &str, jsonl_path: Option<&str>) -> String {
         "codex" => "Codex (~/.codex)".to_string(),
         "gemini" => "Gemini (~/.gemini)".to_string(),
         "cursor" => "Cursor (workspace storage)".to_string(),
+        "devin" => "Devin (~/.local/share/devin)".to_string(),
         other => other.to_string(),
     }
 }

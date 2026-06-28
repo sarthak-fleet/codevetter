@@ -649,9 +649,101 @@ const AGENT_PALETTE: Record<string, { bar: string; label: string; estimated?: bo
   codex: { bar: '#31c6b7', label: 'Codex' },
   cursor: { bar: '#a78bfa', label: 'Cursor', estimated: true },
   grok: { bar: '#5da6f5', label: 'Grok', estimated: true },
+  devin: { bar: '#fb923c', label: 'Devin' },
 };
 
 const agentPaletteFor = (agent: string) => AGENT_PALETTE[agent] ?? { bar: '#64748b', label: agent };
+
+// ─── Agent visibility filter (localStorage-backed, temporary hide) ───────────
+
+const HIDDEN_AGENTS_KEY = 'cv_hidden_agents';
+
+function useHiddenAgents() {
+  const [hidden, setHidden] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(HIDDEN_AGENTS_KEY);
+      return raw ? new Set(raw.split(',').filter(Boolean)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const toggle = useCallback((agent: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(agent)) next.delete(agent);
+      else next.add(agent);
+      try {
+        localStorage.setItem(HIDDEN_AGENTS_KEY, [...next].join(','));
+      } catch {
+        // ignore quota / disabled storage
+      }
+      return next;
+    });
+  }, []);
+
+  const showAll = useCallback(() => {
+    setHidden(new Set());
+    try {
+      localStorage.removeItem(HIDDEN_AGENTS_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  return { hidden, toggle, showAll } as const;
+}
+
+/** Toggle chips for each known agent — click to hide/show from the breakdowns. */
+function AgentFilterChips({
+  agents,
+  hidden,
+  onToggle,
+  onShowAll,
+}: {
+  agents: string[];
+  hidden: Set<string>;
+  onToggle: (agent: string) => void;
+  onShowAll: () => void;
+}) {
+  if (agents.length === 0) return null;
+  const anyHidden = hidden.size > 0;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 px-4 py-2 border-b border-[#1a1a1a]">
+      <span className="text-[10px] text-slate-600 mr-0.5">agents:</span>
+      {agents.map((agent) => {
+        const palette = agentPaletteFor(agent);
+        const isHidden = hidden.has(agent);
+        return (
+          <button
+            key={agent}
+            onClick={() => onToggle(agent)}
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-all ${
+              isHidden
+                ? 'bg-[#0b0d12] text-slate-600 ring-1 ring-[#1a1a1a] line-through'
+                : 'bg-[#13151b] text-slate-300 ring-1 ring-[#2a2a2a] hover:ring-[#3a3a3a]'
+            }`}
+            title={isHidden ? `Show ${palette.label}` : `Hide ${palette.label}`}
+          >
+            <span
+              className="h-1.5 w-1.5 rounded-full transition-opacity"
+              style={{ backgroundColor: palette.bar, opacity: isHidden ? 0.3 : 1 }}
+            />
+            {palette.label}
+          </button>
+        );
+      })}
+      {anyHidden && (
+        <button
+          onClick={onShowAll}
+          className="ml-1 rounded-full px-2 py-0.5 text-[10px] text-amber-300/80 ring-1 ring-amber-500/30 hover:bg-amber-500/10"
+        >
+          show all
+        </button>
+      )}
+    </div>
+  );
+}
 
 // ─── TokenUsageChart (inline, pure SVG, no deps) ────────────────────────────
 //
@@ -665,10 +757,12 @@ function TokenUsageChart({
   daily,
   weekly,
   agentByDay,
+  hiddenAgents,
 }: {
   daily: DayBucket[];
   weekly: WeekBucket[];
   agentByDay: AgentDayUsage[];
+  hiddenAgents: Set<string>;
 }) {
   const [mode, setMode] = useState<'daily' | 'weekly'>('daily');
   const [hover, setHover] = useState<number | null>(null);
@@ -716,6 +810,7 @@ function TokenUsageChart({
     };
     const acc = new Map<string, { generated: number; cost: number }>();
     for (const row of agentByDay) {
+      if (hiddenAgents.has(row.agent_type)) continue;
       if (!inBucket(row.date)) continue;
       const prev = acc.get(row.agent_type) ?? { generated: 0, cost: 0 };
       acc.set(row.agent_type, {
@@ -1133,7 +1228,7 @@ function StackedBar({ title, segments }: { title: string; segments: AgentSegment
   );
 }
 
-function WeeklyAgentSplit() {
+function WeeklyAgentSplit({ hiddenAgents }: { hiddenAgents: Set<string> }) {
   const [rows, setRows] = useState<AgentUsageRow[] | null>(null);
   const [cursorLedger, setCursorLedger] = useState<ProviderUsageLedgerRow | null>(null);
 
@@ -1193,12 +1288,18 @@ function WeeklyAgentSplit() {
   // billed cost, use that as the source of truth instead.
   const cursorLedgerCost =
     cursorLedger && cursorLedger.cost_usd != null ? cursorLedger.cost_usd : null;
-  const segments: AgentSegment[] = rows.map((r) => ({
-    agent: r.agent_type,
-    tokens: r.agent_type === 'cursor' && cursorLedgerCost != null ? cursorLedgerCost : r.cost,
-    estimated: AGENT_PALETTE[r.agent_type]?.estimated ?? false,
-  }));
-  if (cursorLedgerCost != null && !rows.some((r) => r.agent_type === 'cursor')) {
+  const segments: AgentSegment[] = rows
+    .filter((r) => !hiddenAgents.has(r.agent_type))
+    .map((r) => ({
+      agent: r.agent_type,
+      tokens: r.agent_type === 'cursor' && cursorLedgerCost != null ? cursorLedgerCost : r.cost,
+      estimated: AGENT_PALETTE[r.agent_type]?.estimated ?? false,
+    }));
+  if (
+    cursorLedgerCost != null &&
+    !hiddenAgents.has('cursor') &&
+    !rows.some((r) => r.agent_type === 'cursor')
+  ) {
     segments.push({ agent: 'cursor', tokens: cursorLedgerCost, estimated: false });
   }
 
@@ -1847,6 +1948,7 @@ const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
 
 export default function Home() {
   const isInitialLoad = useRef(true);
+  const { hidden: hiddenAgents, toggle: toggleAgent, showAll } = useHiddenAgents();
 
   // Data state — initialize from cache if available
   const [tokenUsage, setTokenUsage] = useState<TokenUsageStats | null>(
@@ -2312,12 +2414,19 @@ export default function Home() {
               <BarChart3 size={14} className="text-[var(--cv-accent)]" />
               <span className="cv-label">indexed local token burn</span>
             </div>
+            <AgentFilterChips
+              agents={[...new Set(agentByDay.map((r) => r.agent_type))].sort()}
+              hidden={hiddenAgents}
+              onToggle={toggleAgent}
+              onShowAll={showAll}
+            />
             <TokenUsageChart
               daily={tokenUsage.daily_series}
               weekly={tokenUsage.weekly_series}
               agentByDay={agentByDay}
+              hiddenAgents={hiddenAgents}
             />
-            <WeeklyAgentSplit />
+            <WeeklyAgentSplit hiddenAgents={hiddenAgents} />
           </div>
         )}
 
