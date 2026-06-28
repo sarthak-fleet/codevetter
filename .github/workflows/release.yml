@@ -29,8 +29,9 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
-        with:
-          version: 10
+        # Don't specify version here — it reads "packageManager" from
+        # package.json (pnpm@10.33.2). Specifying both causes
+        # "Multiple versions of pnpm specified" error.
 
       - name: Setup Node
         uses: actions/setup-node@v6
