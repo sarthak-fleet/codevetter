@@ -162,6 +162,18 @@ const AGENT_HANDOFF_SPECIALIST: ReviewSpecialist = ReviewSpecialist {
     ],
 };
 
+const ASSUMPTION_INTEGRITY_SPECIALIST: ReviewSpecialist = ReviewSpecialist {
+    id: "assumption-integrity",
+    name: "Assumption Integrity",
+    focus: "Agent-made assumptions, contradictions between stated intent and code, implicit invariants, and unverified claims that can snowball into wrong follow-up work.",
+    checks: &[
+        "Extract assumptions from the change description, code comments, renamed symbols, deleted guards, history context, and prior agent claims before judging the implementation.",
+        "Confirm each material assumption against repo conventions, actual callers, tests, persisted data, IPC/API contracts, and runtime evidence when available.",
+        "Flag contradicted assumptions, assumptions relied on but not enforced, and comments/docs that would steer the next agent incorrectly.",
+        "Drop any finding whose own premise is only an unconfirmed assumption.",
+    ],
+};
+
 const GENERAL_REVIEW_SPECIALIST: ReviewSpecialist = ReviewSpecialist {
     id: "general",
     name: "General Code Review",
@@ -232,10 +244,10 @@ fn build_review_plan(diff: &str, changed_files: &[String]) -> ReviewPlan {
     if changed_lines <= 10 && sensitive_paths.is_empty() {
         return ReviewPlan {
             tier: "trivial",
-            mode: "single-pass",
+            mode: "assumption-first",
             changed_lines,
             sensitive_paths,
-            specialists: vec![GENERAL_REVIEW_SPECIALIST],
+            specialists: vec![ASSUMPTION_INTEGRITY_SPECIALIST, GENERAL_REVIEW_SPECIALIST],
             uses_coordinator: false,
         };
     }
@@ -246,7 +258,11 @@ fn build_review_plan(diff: &str, changed_files: &[String]) -> ReviewPlan {
             mode: "specialist-lite",
             changed_lines,
             sensitive_paths,
-            specialists: vec![PRODUCT_SAFETY_SPECIALIST, AGENT_HANDOFF_SPECIALIST],
+            specialists: vec![
+                ASSUMPTION_INTEGRITY_SPECIALIST,
+                PRODUCT_SAFETY_SPECIALIST,
+                AGENT_HANDOFF_SPECIALIST,
+            ],
             uses_coordinator: false,
         };
     }
@@ -261,6 +277,7 @@ fn build_review_plan(diff: &str, changed_files: &[String]) -> ReviewPlan {
         changed_lines,
         sensitive_paths,
         specialists: vec![
+            ASSUMPTION_INTEGRITY_SPECIALIST,
             PRODUCT_SAFETY_SPECIALIST,
             SECURITY_BOUNDARY_SPECIALIST,
             AGENT_HANDOFF_SPECIALIST,
@@ -687,16 +704,19 @@ Change: {change_description}
 {specialist_block}
 {conventions_section}{files_section}{blast_section}{history_section}{graph_section}{qa_section}{evidence_section}{procedure_section}
 How to review:
-1. Read the diff carefully. You have file-read tools — use them when a finding's validity depends on context the diff doesn't show (callers, tests, related files, imports, prior implementation).
-2. Verify each potential issue against the actual code before reporting. If you cannot cite specific lines that prove the problem, drop the finding — or, if the signal is real but unverified, lower confidence honestly instead of hiding the uncertainty.
-3. Use the blast-radius data above to weight severity: a behavior change to a symbol with 6+ callers should be at least medium severity unless the change is provably backward-compatible.
-4. Skip nitpicks (formatting, naming preference, missing comments) unless they will cause real bugs or break a workflow.
-5. Repo conventions above are authoritative. Drop findings that contradict them.
-6. History signals (if present) explain prior commits and agent work on the touched files — use them to understand *intent* and avoid re-flagging deliberate past decisions. Only call out if the new diff re-opens an old problem.
-7. Changed-file graph neighborhoods (if present) are local memory edges for navigation. Treat inferred edges as leads; verify against source before making a finding.
-8. Synthetic QA evidence (if present) is runtime evidence from prior user-flow runs. Use failures to focus review, but do not confuse runner/setup failures with app bugs.
-9. Ranked evidence candidates (if present) are deterministic search leads, not conclusions. Validate them against code/evidence, reject them if wrong, and preserve any remaining open questions in the summary or finding suggestion.
-10. Procedure steps (if present) are explicit evidence gates. Treat blocked steps as remaining work unless the current code/evidence resolves the gate.
+1. Start by extracting the material assumptions the agent appears to be making: stated intent, comments, deleted guards, renamed concepts, changed defaults, history/talk claims, and any "this is safe because..." premise.
+2. Check those assumptions for contradictions against repo conventions, the actual code, caller contracts, persisted data, IPC/API boundaries, tests, and runtime evidence. Treat a contradicted assumption, or an assumption the code relies on but does not enforce, as a real review target.
+3. Read the diff carefully. You have file-read tools — use them when a finding's validity depends on context the diff doesn't show (callers, tests, related files, imports, prior implementation).
+4. Verify each potential issue against the actual code before reporting. If you cannot cite specific lines that prove the problem, drop the finding — or, if the signal is real but unverified, lower confidence honestly instead of hiding the uncertainty.
+5. Use the blast-radius data above to weight severity: a behavior change to a symbol with 6+ callers should be at least medium severity unless the change is provably backward-compatible.
+6. Skip nitpicks (formatting, naming preference, missing comments) unless they will cause real bugs, enforce a false assumption, or break a workflow.
+7. Repo conventions above are authoritative. Drop findings that contradict them.
+8. History signals (if present) explain prior commits and agent work on the touched files — use them to understand *intent* and avoid re-flagging deliberate past decisions. Only call out if the new diff re-opens an old problem or contradicts the stated intent.
+9. Changed-file graph neighborhoods (if present) are local memory edges for navigation. Treat inferred edges as leads; verify against source before making a finding.
+10. Synthetic QA evidence (if present) is runtime evidence from prior user-flow runs. Use failures to focus review, but do not confuse runner/setup failures with app bugs.
+11. Ranked evidence candidates (if present) are deterministic search leads, not conclusions. Validate them against code/evidence, reject them if wrong, and preserve any remaining open questions in the summary or finding suggestion.
+12. Procedure steps (if present) are explicit evidence gates. Treat blocked steps as remaining work unless the current code/evidence resolves the gate.
+13. In the final summary or talk.key_decisions, name the important assumptions you confirmed, contradicted, or left open so the next agent cannot keep building on a false premise.
 
 Output format:
 
@@ -736,7 +756,9 @@ async fn run_agent_json(
             .args(["-p", &prompt])
             .current_dir(&repo_path)
             .output()
-            .map_err(|e| format!("Failed to spawn {cli_cmd_owned} (resolved to {cli_path}): {e}"))?;
+            .map_err(|e| {
+                format!("Failed to spawn {cli_cmd_owned} (resolved to {cli_path}): {e}")
+            })?;
 
         if !cli_output.status.success() {
             let stderr = String::from_utf8_lossy(&cli_output.stderr);
@@ -871,6 +893,8 @@ fn build_coordinator_prompt(
     format!(
         r#"You are the coordinator for a CodeVetter specialist review. Deduplicate and rank findings from specialist reviewers. Keep only real, verified issues. Drop duplicates, style-only comments, and findings that lack a concrete file/symbol/line basis.
 
+Assumption integrity is mandatory: before keeping any finding, confirm the premise it depends on. Preserve findings where the implementation contradicts its stated intent, a comment/docs claim is false, an implicit invariant is relied on but unenforced, or prior agent claims would steer follow-up work incorrectly. Drop findings that are themselves based on an unconfirmed assumption.
+
 Project: {project_description}
 Change: {change_description}
 Review tier: {tier}
@@ -890,7 +914,7 @@ Rules:
 - severity must be one of: critical, high, medium, low
 - confidence is 0.0-1.0
 - score is 0-100
-- The summary must mention the review tier and whether deduplication changed the finding set."#,
+- The summary must mention the review tier, whether deduplication changed the finding set, and any confirmed/contradicted/open assumptions that matter."#,
         tier = plan.tier,
         mode = plan.mode,
         changed_lines = plan.changed_lines,
@@ -2195,13 +2219,16 @@ mod tests {
     }
 
     #[test]
-    fn review_plan_keeps_trivial_diff_single_pass() {
+    fn review_plan_keeps_trivial_diff_assumption_first() {
         let diff = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n";
         let plan = build_review_plan(diff, &["src/a.ts".to_string()]);
         assert_eq!(plan.tier, "trivial");
-        assert_eq!(plan.mode, "single-pass");
+        assert_eq!(plan.mode, "assumption-first");
         assert!(!plan.uses_coordinator);
-        assert_eq!(plan.specialists.len(), 1);
+        assert_eq!(
+            plan.specialists.iter().map(|s| s.id).collect::<Vec<_>>(),
+            vec!["assumption-integrity", "general"]
+        );
     }
 
     #[test]
@@ -2211,7 +2238,15 @@ mod tests {
         assert_eq!(plan.tier, "full-sensitive");
         assert_eq!(plan.mode, "specialist-full");
         assert!(plan.uses_coordinator);
-        assert_eq!(plan.specialists.len(), 3);
+        assert_eq!(
+            plan.specialists.iter().map(|s| s.id).collect::<Vec<_>>(),
+            vec![
+                "assumption-integrity",
+                "product-safety",
+                "security-boundary",
+                "agent-handoff"
+            ]
+        );
         assert_eq!(plan.sensitive_paths, vec!["src/auth.ts".to_string()]);
     }
 
@@ -2237,6 +2272,8 @@ mod tests {
         assert!(prompt.contains("sensitive-path-needs-boundary-proof"));
         assert!(prompt.contains("Procedure steps"));
         assert!(prompt.contains("blocked steps as remaining work"));
+        assert!(prompt.contains("Start by extracting the material assumptions"));
+        assert!(prompt.contains("contradicted assumption"));
     }
 
     #[test]
