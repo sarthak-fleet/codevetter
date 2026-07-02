@@ -1737,8 +1737,8 @@ fn parse_grok_session_dir(
                 continue;
             }
             if let Ok(v) = serde_json::from_str::<Value>(line) {
-                if v.get("type").and_then(|t| t.as_str()) == Some("assistant") {
-                    if let Some(content) = v.get("content") {
+                if grok_chat_role(&v) == Some("assistant") {
+                    if let Some(content) = grok_chat_content(&v) {
                         estimated_output += content_char_count(content) / 4;
                     }
                 }
@@ -1809,6 +1809,27 @@ fn content_char_count(content: &Value) -> i64 {
             .sum(),
         _ => 0,
     }
+}
+
+fn grok_chat_role(value: &Value) -> Option<&str> {
+    value
+        .get("type")
+        .and_then(|v| v.as_str())
+        .or_else(|| value.get("role").and_then(|v| v.as_str()))
+        .or_else(|| {
+            value
+                .get("message")
+                .and_then(|message| message.get("role"))
+                .and_then(|v| v.as_str())
+        })
+}
+
+fn grok_chat_content(value: &Value) -> Option<&Value> {
+    value.get("content").or_else(|| {
+        value
+            .get("message")
+            .and_then(|message| message.get("content"))
+    })
 }
 
 /// Phase 4: index Grok CLI sessions from ~/.grok/sessions. Token counts are
@@ -3260,8 +3281,8 @@ mod tests {
         // Input estimate = sum of the peak context size per turn:
         // turn 100 -> 1000, turn 200 -> 3000, turn 300 -> 5200 (max of 5200/5000).
         assert_eq!(summary.total_input_tokens, 9200);
-        // Grok logs no cumulative output or cache figures.
-        assert_eq!(summary.total_output_tokens, 0);
+        // Grok logs no cumulative output tokens; estimate from chat_history chars / 4.
+        assert_eq!(summary.total_output_tokens, 4);
         assert_eq!(summary.cache_read_tokens, 0);
     }
 

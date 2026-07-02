@@ -262,6 +262,7 @@ function AccountUsageRow({
   // aiserver.v1.DashboardService.GetCurrentPeriodUsage + GetAggregatedUsageEvents
   const cursorPlan = liveUsage?.cursor_plan;
   const cursorTokens = liveUsage?.cursor_tokens;
+  const sourceNote = telemetrySourceNote(account.provider);
 
   // Determine bar color based on utilization
   function barColor(pct: number): 'amber' | 'red' {
@@ -614,6 +615,9 @@ function AccountUsageRow({
                 <span>{liveErrorHint}</span>
               </div>
             )}
+            {sourceNote && (
+              <div className="text-[10px] leading-relaxed text-slate-600">{sourceNote}</div>
+            )}
             {profileBreakdown.length > 1 && (
               <div className="flex flex-col gap-1 border-l border-[#1a1a1a] pl-2">
                 {profileBreakdown.map((profile) => {
@@ -661,15 +665,23 @@ let _cachedDashboard: {
 
 // ─── Agent palette (shared by the usage chart + the per-agent split) ─────────
 
-const AGENT_PALETTE: Record<string, { bar: string; label: string; estimated?: boolean }> = {
-  'claude-code': { bar: '#d6a947', label: 'Claude' },
-  codex: { bar: '#31c6b7', label: 'Codex' },
-  cursor: { bar: '#a78bfa', label: 'Cursor', estimated: true },
-  grok: { bar: '#5da6f5', label: 'Grok', estimated: true },
-  devin: { bar: '#fb923c', label: 'Devin' },
-  google: { bar: '#60a5fa', label: 'Gemini', estimated: true },
-  openai: { bar: '#34d399', label: 'OpenAI' },
-  openrouter: { bar: '#f472b6', label: 'OpenRouter' },
+const AGENT_PALETTE: Record<
+  string,
+  { bar: string; label: string; estimated?: boolean; source?: string }
+> = {
+  'claude-code': { bar: '#d6a947', label: 'Claude', source: 'Claude Code JSONL' },
+  codex: { bar: '#31c6b7', label: 'Codex', source: 'Codex session JSONL' },
+  cursor: { bar: '#a78bfa', label: 'Cursor', estimated: true, source: 'Cursor local state' },
+  grok: {
+    bar: '#5da6f5',
+    label: 'Grok',
+    estimated: true,
+    source: 'Grok sessions: per-turn context + output estimate',
+  },
+  devin: { bar: '#fb923c', label: 'Devin', source: 'Devin sessions.db metrics' },
+  google: { bar: '#60a5fa', label: 'Gemini', estimated: true, source: 'Gemini local/API usage' },
+  openai: { bar: '#34d399', label: 'OpenAI', source: 'OpenAI live usage' },
+  openrouter: { bar: '#f472b6', label: 'OpenRouter', source: 'OpenRouter usage' },
 };
 
 const agentPaletteFor = (agent: string) => AGENT_PALETTE[agent] ?? { bar: '#64748b', label: agent };
@@ -680,6 +692,19 @@ function telemetryKeyForProvider(provider: string): string {
       return 'claude-code';
     default:
       return provider;
+  }
+}
+
+function telemetrySourceNote(provider: string): string | null {
+  switch (provider) {
+    case 'devin':
+      return 'Source: local Devin sessions.db, assistant messages deduped by message id; no live quota API.';
+    case 'cursor':
+      return 'Source: Cursor plan API when refreshed; local session tokens are partial estimates.';
+    case 'google':
+      return 'Source: Gemini local chats plus quota API when available.';
+    default:
+      return null;
   }
 }
 
@@ -1285,7 +1310,7 @@ function StackedBar({ title, segments }: { title: string; segments: AgentSegment
           return (
             <div
               key={s.agent}
-              title={`${palette.label}: ${formatMoney(s.tokens)} (${pct.toFixed(0)}%)${s.estimated ? ' · est.' : ''}`}
+              title={`${palette.label}: ${formatMoney(s.tokens)} (${pct.toFixed(0)}%)${s.estimated ? ' · est.' : ''}${palette.source ? ` · ${palette.source}` : ''}`}
               style={{ width: `${pct}%`, backgroundColor: palette.bar }}
               className="h-full transition-all"
             />
@@ -1300,7 +1325,7 @@ function StackedBar({ title, segments }: { title: string; segments: AgentSegment
           return (
             <div key={s.agent} className="flex items-center gap-1.5 text-[11px]">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: palette.bar }} />
-              <span className="text-slate-300">
+              <span className="text-slate-300" title={palette.source}>
                 {palette.label}
                 {s.estimated ? '*' : ''}
               </span>
@@ -1313,7 +1338,8 @@ function StackedBar({ title, segments }: { title: string; segments: AgentSegment
       </div>
       {anyEstimated && (
         <div className="mt-2 text-[10px] text-slate-600">
-          * estimated — agent logs no cumulative token billing, cost approximated
+          * estimated: Grok uses per-turn context plus output chars/4; Cursor local rows are partial
+          unless live plan usage is refreshed.
         </div>
       )}
     </div>

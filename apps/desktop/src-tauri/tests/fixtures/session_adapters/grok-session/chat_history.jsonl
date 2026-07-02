@@ -1,0 +1,2 @@
+{"message":{"role":"assistant","content":"abcdefghijklmnop"}}
+{"message":{"role":"user","content":"this should not count"}}
