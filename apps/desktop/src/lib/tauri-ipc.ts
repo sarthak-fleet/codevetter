@@ -2045,6 +2045,38 @@ export interface UnpackRepoHistoryBrief {
   truncated: boolean;
 }
 
+export interface UnpackRepoHealthFinding {
+  id: string;
+  label: string;
+  dimension: string;
+  severity: string;
+  detail: string;
+  sources: string[];
+}
+
+export interface UnpackRepoHealthFile {
+  path: string;
+  score: number;
+  bucket: string;
+  lines: number;
+  bytes: number;
+  churn: number;
+  has_test_signal: boolean;
+  findings: UnpackRepoHealthFinding[];
+  refactoring_targets: string[];
+}
+
+export interface UnpackRepoHealth {
+  schema_version: number;
+  summary: string;
+  average_score: number;
+  hotspot_count: number;
+  files_analyzed: number;
+  files_with_test_signal: number;
+  top_files: UnpackRepoHealthFile[];
+  truncated: boolean;
+}
+
 export interface UnpackRepoInventory {
   repo_path: string;
   repo_name: string;
@@ -2065,6 +2097,7 @@ export interface UnpackRepoInventory {
   qa_readiness?: UnpackQaReadiness | null;
   repo_graph?: UnpackRepoGraph | null;
   history_brief?: UnpackRepoHistoryBrief | null;
+  repo_health?: UnpackRepoHealth | null;
   all_files: string[];
   ignored_dirs: string[];
 }

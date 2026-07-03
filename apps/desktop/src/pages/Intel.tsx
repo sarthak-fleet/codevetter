@@ -1,20 +1,31 @@
 import {
   AlertTriangle,
+  Activity,
+  BarChart3,
   Bot,
   FolderOpen,
+  Gauge,
   GitCommit,
   Loader2,
+  Route,
   ScanSearch,
   Sparkles,
-  User,
+  TrendingUp,
   Users,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -48,6 +59,16 @@ function fmtNum(n: number): string {
 function fmtPct(part: number, whole: number): string {
   if (whole <= 0) return '—';
   return `${((part / whole) * 100).toFixed(1)}%`;
+}
+
+function pctValue(part: number, whole: number): number {
+  if (whole <= 0) return 0;
+  return (part / whole) * 100;
+}
+
+function fmtPctPoint(delta: number): string {
+  if (Math.abs(delta) < 0.05) return 'flat';
+  return `${delta > 0 ? '+' : ''}${delta.toFixed(1)} pp`;
 }
 
 const TOOL_COLORS: Record<string, string> = {
@@ -305,6 +326,8 @@ export default function Intel() {
 function AttributionResult({ report }: { report: RepoAttributionReport }) {
   return (
     <div className="space-y-6">
+      <IntelReadout report={report} />
+
       <WindowsTable windows={report.windows} />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -320,6 +343,347 @@ function AttributionResult({ report }: { report: RepoAttributionReport }) {
       <TopDirectoriesSection dirs={report.top_directories} />
       <AuthorsSection authors={report.by_author} />
       <TopFilesSection files={report.top_files} />
+    </div>
+  );
+}
+
+function findWindow(windows: WindowReport[], label: string): WindowReport | null {
+  return windows.find((w) => w.label === label) ?? null;
+}
+
+function IntelReadout({ report }: { report: RepoAttributionReport }) {
+  const [zoom, setZoom] = useState<IntelZoomMetric | null>(null);
+  const all = findWindow(report.windows, 'all');
+  const ninety = findWindow(report.windows, '90d') ?? all;
+  const thirty = findWindow(report.windows, '30d') ?? ninety;
+  const seven = findWindow(report.windows, '7d') ?? thirty;
+  if (!thirty || !seven) return null;
+
+  const thirtyShare = pctValue(thirty.ai_commits, thirty.ai_commits + thirty.human_commits);
+  const sevenShare = pctValue(seven.ai_commits, seven.ai_commits + seven.human_commits);
+  const baselineShare = ninety
+    ? pctValue(ninety.ai_commits, ninety.ai_commits + ninety.human_commits)
+    : thirtyShare;
+  const shift = sevenShare - baselineShare;
+  const revertRate = pctValue(thirty.revert_or_fixup_commits, thirty.total_commits);
+  const topDir = report.top_directories[0];
+  const topFile = report.top_files[0];
+  const busiestWeek = report.weekly_velocity.reduce<WeeklyVelocityBucket | null>((best, bucket) => {
+    if (!best || bucket.total_commits > best.total_commits) return bucket;
+    return best;
+  }, null);
+
+  const actions: Array<{ label: string; detail: string; tone: string }> = [];
+  if (thirty.commit_size_p95 >= 1200) {
+    actions.push({
+      label: 'Watch large change batches',
+      detail: `30d p95 change size is ${fmtNum(thirty.commit_size_p95)} lines; pair review with focused tests.`,
+      tone: 'text-yellow-200',
+    });
+  }
+  if (revertRate >= 8) {
+    actions.push({
+      label: 'Audit revert/fixup loops',
+      detail: `${thirty.revert_or_fixup_commits} of ${thirty.total_commits} recent commits look corrective.`,
+      tone: 'text-red-200',
+    });
+  }
+  if (topDir) {
+    actions.push({
+      label: `Unpack ${topDir.path}`,
+      detail: `Top churn directory: +${fmtNum(topDir.additions)} / -${fmtNum(topDir.deletions)} across ${topDir.commits} commits.`,
+      tone: 'text-cyan-200',
+    });
+  } else if (topFile) {
+    actions.push({
+      label: `Review ${topFile.path}`,
+      detail: `Highest-churn file: +${fmtNum(topFile.additions)} / -${fmtNum(topFile.deletions)}.`,
+      tone: 'text-cyan-200',
+    });
+  }
+  if (shift > 20) {
+    actions.push({
+      label: 'Raise verification depth',
+      detail: `AI share is ${fmtPctPoint(shift)} above the 90d baseline this week.`,
+      tone: 'text-yellow-200',
+    });
+  }
+  if (actions.length === 0) {
+    actions.push({
+      label: 'Stable operating pattern',
+      detail:
+        'No obvious spike in AI share, corrective commits, or batch size from the current readout.',
+      tone: 'text-emerald-200',
+    });
+  }
+
+  const topTools = thirty.by_tool
+    .filter((tool) => tool.tool !== 'automation')
+    .sort((a, b) => b.commits - a.commits)
+    .slice(0, 5);
+  const topWeeks = [...report.weekly_velocity]
+    .sort((a, b) => b.total_commits - a.total_commits)
+    .slice(0, 5);
+  const metrics: IntelZoomMetric[] = [
+    {
+      id: 'ai-share',
+      icon: <Bot size={13} />,
+      label: 'AI share',
+      value: `${thirtyShare.toFixed(1)}%`,
+      detail: `7d ${fmtPctPoint(shift)} vs 90d`,
+      tone:
+        shift > 20
+          ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200'
+          : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200',
+      description:
+        'AI share is computed from commits classified as AI-led versus human-led in the selected window.',
+      rows: [
+        {
+          label: '30d AI commits',
+          value: `${thirty.ai_commits} / ${thirty.ai_commits + thirty.human_commits}`,
+          detail: `${thirtyShare.toFixed(1)}% of non-automation commits`,
+        },
+        {
+          label: '7d AI commits',
+          value: `${seven.ai_commits} / ${seven.ai_commits + seven.human_commits}`,
+          detail: `${sevenShare.toFixed(1)}% of non-automation commits`,
+        },
+        {
+          label: '90d baseline',
+          value: `${baselineShare.toFixed(1)}%`,
+          detail: `${fmtPctPoint(shift)} shift this week`,
+        },
+        ...topTools.map((tool) => ({
+          label: prettyTool(tool.tool),
+          value: `${tool.commits} commits`,
+          detail: `+${fmtNum(tool.additions)} / -${fmtNum(tool.deletions)}`,
+        })),
+      ],
+    },
+    {
+      id: 'throughput',
+      icon: <TrendingUp size={13} />,
+      label: '7d throughput',
+      value: fmtNum(seven.total_commits),
+      detail: `+${fmtNum(seven.ai_additions + seven.human_additions)} / -${fmtNum(
+        seven.ai_deletions + seven.human_deletions
+      )}`,
+      tone: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+      description:
+        'Throughput is the latest 7-day commit count plus changed-line volume, with recent weekly peaks shown below.',
+      rows: [
+        { label: '7d commits', value: fmtNum(seven.total_commits) },
+        {
+          label: '7d changed lines',
+          value: `+${fmtNum(seven.ai_additions + seven.human_additions)} / -${fmtNum(
+            seven.ai_deletions + seven.human_deletions
+          )}`,
+        },
+        { label: '30d active days', value: String(thirty.active_days) },
+        ...topWeeks.map((week) => ({
+          label: week.week_start,
+          value: `${week.total_commits} commits`,
+          detail: `AI ${week.ai_commits} · human ${week.human_commits} · +${fmtNum(
+            week.additions
+          )} / -${fmtNum(week.deletions)}`,
+        })),
+      ],
+    },
+    {
+      id: 'batch-size',
+      icon: <Gauge size={13} />,
+      label: 'Batch size',
+      value: fmtNum(thirty.commit_size_p95),
+      detail: `p95 lines · p50 ${fmtNum(thirty.commit_size_p50)}`,
+      tone:
+        thirty.commit_size_p95 >= 1200
+          ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200'
+          : 'border-slate-500/30 bg-slate-500/10 text-slate-300',
+      description:
+        'Batch size is computed from per-commit additions plus deletions. High p95 values mean review should expect large changes.',
+      rows: [
+        { label: 'p50 commit size', value: fmtNum(thirty.commit_size_p50) },
+        { label: 'p95 commit size', value: fmtNum(thirty.commit_size_p95) },
+        { label: 'Largest commit', value: fmtNum(thirty.commit_size_max) },
+        {
+          label: 'Corrective commits',
+          value: `${thirty.revert_or_fixup_commits}`,
+          detail: `${revertRate.toFixed(1)}% of 30d commits`,
+        },
+      ],
+    },
+    {
+      id: 'hottest-area',
+      icon: <Route size={13} />,
+      label: 'Hottest area',
+      value: topDir?.path ?? topFile?.path ?? '—',
+      detail: topDir
+        ? `${fmtNum(topDir.additions + topDir.deletions)} churn`
+        : topFile
+          ? `${fmtNum(topFile.additions + topFile.deletions)} churn`
+          : 'no churn rows',
+      tone: 'border-violet-500/30 bg-violet-500/10 text-violet-200',
+      description:
+        'The hottest area is the highest-churn directory when available, falling back to the highest-churn file.',
+      rows: topDir
+        ? [
+            {
+              label: topDir.path,
+              value: `${fmtNum(topDir.additions + topDir.deletions)} churn`,
+              detail: `${topDir.commits} commits · AI ${topDir.ai_commits} · human ${topDir.human_commits}`,
+            },
+            ...report.top_directories.slice(1, 6).map((dir) => ({
+              label: dir.path,
+              value: `${fmtNum(dir.additions + dir.deletions)} churn`,
+              detail: `${dir.commits} commits · AI ${dir.ai_commits} · human ${dir.human_commits}`,
+            })),
+          ]
+        : report.top_files.slice(0, 6).map((file) => ({
+            label: file.path,
+            value: `${fmtNum(file.additions + file.deletions)} churn`,
+            detail: `${file.commits} commits · +${fmtNum(file.additions)} / -${fmtNum(
+              file.deletions
+            )}`,
+          })),
+    },
+  ];
+
+  return (
+    <div className="rounded-md border border-[var(--cv-line)] bg-[var(--bg-raised)]/45 p-3">
+      <div className="grid gap-2 md:grid-cols-4">
+        {metrics.map((metric) => (
+          <IntelReadoutCard key={metric.id} metric={metric} onClick={() => setZoom(metric)} />
+        ))}
+      </div>
+
+      <div className="mt-3 grid gap-2 lg:grid-cols-[1fr,1.1fr]">
+        <div className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 p-2.5">
+          <div className="cv-label mb-2 flex items-center gap-1.5">
+            <Activity size={12} />
+            Operating pulse
+          </div>
+          <div className="grid gap-2 text-xs sm:grid-cols-2">
+            <PulseLine label="30d commits" value={fmtNum(thirty.total_commits)} />
+            <PulseLine label="Corrective commits" value={`${revertRate.toFixed(1)}%`} />
+            <PulseLine label="Active days" value={String(thirty.active_days)} />
+            <PulseLine
+              label="Busiest week"
+              value={
+                busiestWeek
+                  ? `${busiestWeek.week_start.slice(5)} · ${busiestWeek.total_commits}`
+                  : '—'
+              }
+            />
+          </div>
+        </div>
+        <div className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 p-2.5">
+          <div className="cv-label mb-2 flex items-center gap-1.5">
+            <BarChart3 size={12} />
+            Action queue
+          </div>
+          <div className="grid gap-1.5 text-xs">
+            {actions.slice(0, 4).map((action) => (
+              <div key={`${action.label}-${action.detail}`}>
+                <div className={`font-medium ${action.tone}`}>{action.label}</div>
+                <div className="text-[var(--text-secondary)]">{action.detail}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <IntelZoomDialog zoom={zoom} onOpenChange={setZoom} />
+    </div>
+  );
+}
+
+type IntelZoomRow = {
+  label: string;
+  value: string;
+  detail?: string;
+};
+
+type IntelZoomMetric = {
+  id: string;
+  icon: ReactNode;
+  label: string;
+  value: string;
+  detail: string;
+  tone: string;
+  description: string;
+  rows: IntelZoomRow[];
+};
+
+function IntelReadoutCard({ metric, onClick }: { metric: IntelZoomMetric; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded border px-2.5 py-2 text-left transition-colors hover:border-[var(--cv-accent)]/50 focus:outline-none focus:ring-2 focus:ring-[var(--cv-accent)]/35 ${metric.tone}`}
+    >
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider opacity-85">
+        {metric.icon}
+        {metric.label}
+      </div>
+      <div className="mt-1 truncate text-base font-semibold text-[var(--text-primary)]">
+        {metric.value}
+      </div>
+      <div className="font-mono text-[10px] uppercase opacity-80">{metric.detail}</div>
+    </button>
+  );
+}
+
+function IntelZoomDialog({
+  zoom,
+  onOpenChange,
+}: {
+  zoom: IntelZoomMetric | null;
+  onOpenChange: (zoom: IntelZoomMetric | null) => void;
+}) {
+  return (
+    <Dialog open={Boolean(zoom)} onOpenChange={(open) => !open && onOpenChange(null)}>
+      <DialogContent className="max-w-2xl">
+        <div className="rounded-md border border-[var(--cv-line)] bg-[var(--bg-surface)] p-4">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              {zoom?.icon}
+              {zoom?.label}:{' '}
+              <span className="font-mono text-[var(--cv-accent)]">{zoom?.value}</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs leading-relaxed text-[var(--text-secondary)]">
+              {zoom?.description}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-4 max-h-[60vh] overflow-y-auto rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45">
+            {zoom?.rows.map((row) => (
+              <div
+                key={`${row.label}-${row.value}-${row.detail ?? ''}`}
+                className="grid gap-1 border-b border-[var(--cv-line)]/50 px-3 py-2 text-xs last:border-0 sm:grid-cols-[180px,1fr]"
+              >
+                <div className="font-medium text-[var(--text-primary)]">{row.label}</div>
+                <div>
+                  <div className="font-mono text-[var(--cv-accent)]">{row.value}</div>
+                  {row.detail && (
+                    <div className="mt-0.5 leading-relaxed text-[var(--text-secondary)]">
+                      {row.detail}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PulseLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">{label}</div>
+      <div className="font-mono text-[13px] text-[var(--text-primary)]">{value}</div>
     </div>
   );
 }
@@ -813,10 +1177,6 @@ function TopFilesSection({ files }: { files: FileChurn[] }) {
     </div>
   );
 }
-
-// silence unused-import warnings for now-unused symbols
-void Bot;
-void User;
 
 // ─── DORA section (v1.1.79) ────────────────────────────────────────────────
 

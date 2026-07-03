@@ -1,4 +1,5 @@
 import {
+  Activity,
   AlertTriangle,
   ArrowRight,
   Boxes,
@@ -43,6 +44,13 @@ import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -67,6 +75,7 @@ import {
   type UnpackLanguageCount,
   type UnpackQaReadiness,
   type UnpackRepoGraph,
+  type UnpackRepoHealth,
   type UnpackRepoHistoryBrief,
   type UnpackRepoInventory,
   type UnpackReport,
@@ -1220,6 +1229,119 @@ function QaReadinessPanel({
   );
 }
 
+function healthBucketTone(bucket: string | null | undefined): string {
+  const s = (bucket ?? '').toLowerCase();
+  if (s === 'hotspot') return 'border-red-500/30 bg-red-500/10 text-red-200';
+  if (s === 'watch') return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200';
+  return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+}
+
+function findingTone(severity: string | null | undefined): string {
+  const s = (severity ?? '').toLowerCase();
+  if (s === 'high') return 'text-red-200';
+  if (s === 'medium') return 'text-yellow-200';
+  return 'text-[var(--text-secondary)]';
+}
+
+function RepoHealthPanel({
+  health,
+  repoPath,
+}: {
+  health?: UnpackRepoHealth | null;
+  repoPath: string;
+}) {
+  if (!health || health.files_analyzed === 0 || health.top_files.length === 0) return null;
+  const topFiles = health.top_files.slice(0, 6);
+  return (
+    <div className="rounded-md border border-[var(--cv-line)] bg-[var(--bg-raised)]/45 p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
+            <Activity size={14} className="text-[var(--cv-accent)]" />
+            Deterministic repo health
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-[var(--text-secondary)]">
+            {health.summary}
+          </p>
+        </div>
+        <Badge
+          variant="outline"
+          className={cn(
+            'shrink-0 border text-[10px] uppercase tracking-wider',
+            health.hotspot_count > 0
+              ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200'
+              : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+          )}
+        >
+          v{health.schema_version} · {health.average_score.toFixed(1)}/10 · {health.hotspot_count}{' '}
+          hotspots{health.truncated ? ' · truncated' : ''}
+        </Badge>
+      </div>
+
+      <div className="mt-3 grid gap-2 lg:grid-cols-2">
+        {topFiles.map((file) => (
+          <div
+            key={file.path}
+            className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/50 p-2 text-xs"
+          >
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="truncate font-medium text-[var(--text-primary)]">
+                  <SourceLink path={file.path} repoPath={repoPath} />
+                </div>
+                <div className="mt-1 font-mono text-[10px] uppercase text-[var(--text-muted)]">
+                  {file.lines.toLocaleString()} lines · churn {file.churn.toLocaleString()} ·{' '}
+                  {file.has_test_signal ? 'test signal' : 'no test signal'}
+                </div>
+              </div>
+              <Badge
+                variant="outline"
+                className={cn(
+                  'shrink-0 border text-[10px] uppercase tracking-wider',
+                  healthBucketTone(file.bucket)
+                )}
+              >
+                {file.score.toFixed(1)} · {file.bucket}
+              </Badge>
+            </div>
+
+            {file.findings.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {file.findings.slice(0, 3).map((finding) => (
+                  <div key={finding.id} className="leading-relaxed">
+                    <span className={cn('font-medium', findingTone(finding.severity))}>
+                      {finding.label}
+                    </span>
+                    <span className="text-[var(--text-muted)]">
+                      {' '}
+                      {finding.dimension}/{finding.severity}
+                    </span>
+                    <span className="text-[var(--text-secondary)]"> · {finding.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {file.refactoring_targets.length > 0 && (
+              <div className="mt-2 flex flex-col gap-1">
+                {file.refactoring_targets.slice(0, 2).map((target) => (
+                  <div
+                    key={target}
+                    className="flex items-start gap-1.5 text-[11px] text-[var(--text-secondary)]"
+                  >
+                    <Wrench size={11} className="mt-0.5 shrink-0 text-[var(--cv-accent)]" />
+                    {target}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RepoMemoryGraphPanel({
   graph,
   repoPath,
@@ -1450,6 +1572,300 @@ function CodebaseHistoryBriefPanel({
   );
 }
 
+function InventoryReadout({
+  inventory,
+  hasReport,
+}: {
+  inventory: UnpackRepoInventory;
+  hasReport: boolean;
+}) {
+  const [zoom, setZoom] = useState<ReadoutZoom | null>(null);
+  const qa = inventory.qa_readiness;
+  const health = inventory.repo_health;
+  const graph = inventory.repo_graph;
+  const historyBrief = inventory.history_brief;
+  const topHealthFile = health?.top_files?.[0];
+  const topFinding = topHealthFile?.findings?.[0];
+
+  const qaTone = qaStatusTone(qa?.status);
+  const healthTone =
+    health && health.hotspot_count > 0
+      ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200'
+      : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+  const graphTone =
+    graph && graph.nodes.length > 0
+      ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200'
+      : 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+
+  const actions: Array<{ label: string; detail: string; tone: string }> = [];
+  if (inventory.max_files_hit) {
+    actions.push({
+      label: 'Scope the scan',
+      detail: 'The file cap was hit; rerun on a package or app directory before trusting gaps.',
+      tone: 'text-yellow-200',
+    });
+  }
+  if (topHealthFile && health && health.hotspot_count > 0) {
+    actions.push({
+      label: `Open ${topHealthFile.path}`,
+      detail: topFinding
+        ? `${topFinding.label}: ${topFinding.detail}`
+        : `${topHealthFile.score.toFixed(1)}/10 health score; inspect before changing nearby code.`,
+      tone: 'text-yellow-200',
+    });
+  }
+  if (qa && qa.status !== 'ready') {
+    actions.push({
+      label: qa.status === 'partial' ? 'Complete QA wiring' : 'Add a runnable QA path',
+      detail:
+        qa.status === 'partial'
+          ? 'Runner signals exist, but the repo is missing enough specs/scripts/artifacts for reliable replay.'
+          : 'No strong browser QA path was detected; add a local command before trusting UI changes.',
+      tone: qa.status === 'partial' ? 'text-yellow-200' : 'text-red-200',
+    });
+  }
+  if (historyBrief && historyBrief.decisions.length > 0) {
+    const decision = historyBrief.decisions[0];
+    actions.push({
+      label: 'Respect existing decisions',
+      detail: `${decision.marker}: ${decision.text}`,
+      tone: 'text-violet-200',
+    });
+  }
+  if (!hasReport) {
+    actions.push({
+      label: 'Generate the brief',
+      detail:
+        'The scan is useful, but the evidence-backed system narrative has not been synthesized yet.',
+      tone: 'text-cyan-200',
+    });
+  }
+  if (actions.length === 0) {
+    actions.push({
+      label: 'Ready for handoff',
+      detail:
+        'Inventory, QA, graph, history, and health signals look usable for a fresh review session.',
+      tone: 'text-emerald-200',
+    });
+  }
+
+  const graphKinds = graph
+    ? Object.entries(
+        graph.nodes.reduce<Record<string, number>>((acc, node) => {
+          acc[node.kind] = (acc[node.kind] ?? 0) + 1;
+          return acc;
+        }, {})
+      )
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+    : [];
+
+  const metrics: ReadoutZoom[] = [
+    {
+      id: 'qa',
+      icon: <FlaskConical size={13} />,
+      label: 'QA posture',
+      value: qa ? `${qa.score}/100` : '—',
+      detail: qa ? qa.status : 'not scanned',
+      tone: qaTone,
+      description:
+        'Synthetic QA readiness is a deterministic scan over runner config, browser specs, local scripts, artifacts, routes, and QA docs.',
+      rows: qa
+        ? [
+            { label: 'Status', value: qa.status },
+            { label: 'Suggested flows', value: String(qa.suggested_flows.length) },
+            ...qa.signals.slice(0, 6).map((signal) => ({
+              label: signal.label,
+              value: signal.status,
+              detail: signal.detail,
+              source: signal.sources[0],
+            })),
+          ]
+        : [{ label: 'Status', value: 'not scanned' }],
+    },
+    {
+      id: 'health',
+      icon: <Activity size={13} />,
+      label: 'Health',
+      value: health ? `${health.average_score.toFixed(1)}/10` : '—',
+      detail: health ? `${health.hotspot_count} hotspots` : 'not scanned',
+      tone: healthTone,
+      description:
+        'Repo health scores bounded source samples using size, churn, structure, test-adjacency, I/O boundary, and loop-I/O signals.',
+      rows: health
+        ? [
+            { label: 'Files analyzed', value: health.files_analyzed.toLocaleString() },
+            {
+              label: 'Files with test signal',
+              value: health.files_with_test_signal.toLocaleString(),
+            },
+            { label: 'Hotspots', value: health.hotspot_count.toLocaleString() },
+            ...health.top_files.slice(0, 5).map((file) => ({
+              label: file.path,
+              value: `${file.score.toFixed(1)}/10`,
+              detail: `${file.bucket} · ${file.lines.toLocaleString()} lines · churn ${file.churn.toLocaleString()}`,
+              source: file.path,
+            })),
+          ]
+        : [{ label: 'Status', value: 'not scanned' }],
+    },
+    {
+      id: 'graph',
+      icon: <Network size={13} />,
+      label: 'Graph',
+      value: graph ? `${graph.nodes.length}` : '—',
+      detail: graph ? `${graph.edges.length} edges` : 'not scanned',
+      tone: graphTone,
+      description:
+        'The repo graph is a local navigation artifact over files, package scripts, routes, commands, tables, tests, and decision markers.',
+      rows: graph
+        ? [
+            { label: 'Nodes', value: graph.nodes.length.toLocaleString() },
+            { label: 'Edges', value: graph.edges.length.toLocaleString() },
+            { label: 'Truncated', value: graph.truncated ? 'yes' : 'no' },
+            ...graphKinds.map(([kind, count]) => ({
+              label: kind,
+              value: count.toLocaleString(),
+            })),
+          ]
+        : [{ label: 'Status', value: 'not scanned' }],
+    },
+    {
+      id: 'brief',
+      icon: <Sparkles size={13} />,
+      label: 'Brief',
+      value: hasReport ? 'generated' : 'scan only',
+      detail: hasReport ? 'claims normalized' : 'needs synthesis',
+      tone: hasReport
+        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+        : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200',
+      description:
+        'The brief state tells you whether the local inventory has been turned into a normalized evidence-backed report.',
+      rows: [
+        { label: 'Repository', value: inventory.repo_name },
+        { label: 'Files scanned', value: inventory.files_scanned.toLocaleString() },
+        { label: 'Commit', value: inventory.commit_sha?.slice(0, 12) ?? 'unknown' },
+        { label: 'History decisions', value: String(historyBrief?.decisions.length ?? 0) },
+      ],
+    },
+  ];
+
+  return (
+    <div className="rounded-md border border-[var(--cv-line)] bg-[var(--bg-raised)]/45 p-3">
+      <div className="grid gap-2 md:grid-cols-4">
+        {metrics.map((metric) => (
+          <ReadoutCard key={metric.id} metric={metric} onClick={() => setZoom(metric)} />
+        ))}
+      </div>
+
+      <div className="mt-3 rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 p-2.5">
+        <div className="cv-label mb-2">Next best actions</div>
+        <div className="grid gap-1.5 lg:grid-cols-2">
+          {actions.slice(0, 4).map((action) => (
+            <div key={`${action.label}-${action.detail}`} className="text-xs leading-relaxed">
+              <div className={cn('font-medium', action.tone)}>{action.label}</div>
+              <div className="text-[var(--text-secondary)]">{action.detail}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <ReadoutZoomDialog zoom={zoom} repoPath={inventory.repo_path} onOpenChange={setZoom} />
+    </div>
+  );
+}
+
+type ReadoutZoomRow = {
+  label: string;
+  value: string;
+  detail?: string;
+  source?: string;
+};
+
+type ReadoutZoom = {
+  id: string;
+  icon: ReactNode;
+  label: string;
+  value: string;
+  detail: string;
+  tone: string;
+  description: string;
+  rows: ReadoutZoomRow[];
+};
+
+function ReadoutCard({ metric, onClick }: { metric: ReadoutZoom; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded border px-2.5 py-2 text-left transition-colors hover:border-[var(--cv-accent)]/50 focus:outline-none focus:ring-2 focus:ring-[var(--cv-accent)]/35',
+        metric.tone
+      )}
+    >
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider opacity-85">
+        {metric.icon}
+        {metric.label}
+      </div>
+      <div className="mt-1 text-base font-semibold text-[var(--text-primary)]">{metric.value}</div>
+      <div className="font-mono text-[10px] uppercase opacity-80">{metric.detail}</div>
+    </button>
+  );
+}
+
+function ReadoutZoomDialog({
+  zoom,
+  repoPath,
+  onOpenChange,
+}: {
+  zoom: ReadoutZoom | null;
+  repoPath: string;
+  onOpenChange: (zoom: ReadoutZoom | null) => void;
+}) {
+  return (
+    <Dialog open={Boolean(zoom)} onOpenChange={(open) => !open && onOpenChange(null)}>
+      <DialogContent className="max-w-2xl">
+        <div className="rounded-md border border-[var(--cv-line)] bg-[var(--bg-surface)] p-4">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              {zoom?.icon}
+              {zoom?.label}:{' '}
+              <span className="font-mono text-[var(--cv-accent)]">{zoom?.value}</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs leading-relaxed text-[var(--text-secondary)]">
+              {zoom?.description}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-4 max-h-[60vh] overflow-y-auto rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45">
+            {zoom?.rows.map((row) => (
+              <div
+                key={`${row.label}-${row.value}-${row.detail ?? ''}`}
+                className="grid gap-1 border-b border-[var(--cv-line)]/50 px-3 py-2 text-xs last:border-0 sm:grid-cols-[180px,1fr]"
+              >
+                <div className="font-medium text-[var(--text-primary)]">{row.label}</div>
+                <div>
+                  <div className="font-mono text-[var(--cv-accent)]">{row.value}</div>
+                  {row.detail && (
+                    <div className="mt-0.5 leading-relaxed text-[var(--text-secondary)]">
+                      {row.detail}
+                    </div>
+                  )}
+                  {row.source && (
+                    <div className="mt-1">
+                      <SourceLink path={row.source} repoPath={repoPath} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function InventorySummary({
   inventory,
   agent,
@@ -1524,6 +1940,8 @@ function InventorySummary({
           </div>
         )}
 
+        <InventoryReadout inventory={inventory} hasReport={Boolean(createdAt)} />
+
         {inventory.max_files_hit && (
           <div className="flex items-start gap-2 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-200">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
@@ -1547,6 +1965,8 @@ function InventorySummary({
         )}
 
         <QaReadinessPanel readiness={inventory.qa_readiness} repoPath={inventory.repo_path} />
+
+        <RepoHealthPanel health={inventory.repo_health} repoPath={inventory.repo_path} />
 
         <RepoMemoryGraphPanel graph={inventory.repo_graph} repoPath={inventory.repo_path} />
 

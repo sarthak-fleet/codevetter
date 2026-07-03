@@ -55,6 +55,7 @@ const BINARY_EXTS: &[&str] = &[
 const MAX_FILES: usize = 4000;
 const MAX_FILE_BYTES: u64 = 1_000_000; // 1 MB — skip generated/blob-ish files
 const README_PREVIEW_BYTES: usize = 8 * 1024;
+const MAX_HEALTH_FILES_ANALYZED: usize = 500;
 
 // ─── Public types (mirrored on the TS side) ─────────────────────────────────
 
@@ -240,6 +241,61 @@ fn default_history_brief() -> RepoHistoryBrief {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RepoHealthFinding {
+    pub id: String,
+    pub label: String,
+    pub dimension: String, // defect | maintainability | performance
+    pub severity: String,  // low | medium | high
+    pub detail: String,
+    pub sources: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RepoHealthFile {
+    pub path: String,
+    pub score: f64,
+    pub bucket: String, // healthy | watch | hotspot
+    pub lines: usize,
+    pub bytes: u64,
+    pub churn: usize,
+    pub has_test_signal: bool,
+    pub findings: Vec<RepoHealthFinding>,
+    pub refactoring_targets: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RepoHealth {
+    pub schema_version: i64,
+    pub summary: String,
+    pub average_score: f64,
+    pub hotspot_count: usize,
+    pub files_analyzed: usize,
+    pub files_with_test_signal: usize,
+    pub top_files: Vec<RepoHealthFile>,
+    pub truncated: bool,
+}
+
+impl Default for RepoHealth {
+    fn default() -> Self {
+        Self {
+            schema_version: 1,
+            summary: "No deterministic repo-health signals were captured for this inventory."
+                .to_string(),
+            average_score: 10.0,
+            hotspot_count: 0,
+            files_analyzed: 0,
+            files_with_test_signal: 0,
+            top_files: Vec::new(),
+            truncated: false,
+        }
+    }
+}
+
+fn default_repo_health() -> RepoHealth {
+    RepoHealth::default()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RepoInventory {
     pub repo_path: String,
     pub repo_name: String,
@@ -263,6 +319,8 @@ pub struct RepoInventory {
     pub repo_graph: RepoGraph,
     #[serde(default = "default_history_brief")]
     pub history_brief: RepoHistoryBrief,
+    #[serde(default = "default_repo_health")]
+    pub repo_health: RepoHealth,
     pub all_files: Vec<String>,
     pub ignored_dirs: Vec<String>,
 }
@@ -972,6 +1030,7 @@ pub fn build_inventory(repo_path: &str) -> Result<RepoInventory, String> {
     let qa_readiness = build_qa_readiness(&all_files, &manifests, &entrypoints);
     let repo_graph = build_repo_graph(&root, &all_files, &manifests, &entrypoints);
     let history_brief = build_history_brief(&root, &all_files, &manifests);
+    let repo_health = build_repo_health(&root, &all_files);
 
     let path_strings: Vec<String> = all_files.iter().map(|(p, _)| p.clone()).collect();
 
@@ -995,6 +1054,7 @@ pub fn build_inventory(repo_path: &str) -> Result<RepoInventory, String> {
         qa_readiness,
         repo_graph,
         history_brief,
+        repo_health,
         all_files: path_strings,
         ignored_dirs,
     };
@@ -1684,6 +1744,476 @@ fn should_scan_for_graph_markers(path: &str) -> bool {
         || lower.ends_with(".sql")
         || lower.ends_with(".md")
         || lower.ends_with(".mdx")
+}
+
+fn build_repo_health(root: &Path, files: &[(String, u64)]) -> RepoHealth {
+    let churn = read_git_file_churn(root, 120);
+    let test_paths: Vec<String> = files
+        .iter()
+        .filter(|(path, _)| is_test_path(path))
+        .map(|(path, _)| path.clone())
+        .collect();
+
+    let mut candidates: Vec<(String, u64)> = files
+        .iter()
+        .filter(|(path, _)| should_scan_for_health(path))
+        .cloned()
+        .collect();
+    candidates.sort_by(|a, b| {
+        let churn_a = churn.get(&a.0).copied().unwrap_or(0);
+        let churn_b = churn.get(&b.0).copied().unwrap_or(0);
+        churn_b
+            .cmp(&churn_a)
+            .then_with(|| b.1.cmp(&a.1))
+            .then_with(|| a.0.cmp(&b.0))
+    });
+
+    let truncated = candidates.len() > MAX_HEALTH_FILES_ANALYZED;
+    let mut analyzed = Vec::new();
+    let mut total_score = 0.0;
+    let mut files_with_test_signal = 0usize;
+
+    for (path, bytes) in candidates.into_iter().take(MAX_HEALTH_FILES_ANALYZED) {
+        let content = read_first_bytes(&root.join(&path), 220 * 1024);
+        if content.trim().is_empty() {
+            continue;
+        }
+        let file_churn = churn.get(&path).copied().unwrap_or(0);
+        let has_test_signal = has_test_signal_for_path(&path, &test_paths);
+        let health_file = analyze_health_file(&path, bytes, &content, file_churn, has_test_signal);
+        if health_file.has_test_signal {
+            files_with_test_signal += 1;
+        }
+        total_score += health_file.score;
+        analyzed.push(health_file);
+    }
+
+    analyzed.sort_by(|a, b| {
+        a.score
+            .partial_cmp(&b.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.churn.cmp(&a.churn))
+            .then_with(|| b.lines.cmp(&a.lines))
+            .then_with(|| a.path.cmp(&b.path))
+    });
+
+    let files_analyzed = analyzed.len();
+    let average_score = if files_analyzed == 0 {
+        10.0
+    } else {
+        round_one(total_score / files_analyzed as f64)
+    };
+    let hotspot_count = analyzed
+        .iter()
+        .filter(|file| file.bucket == "hotspot")
+        .count();
+    let top_files: Vec<RepoHealthFile> = analyzed.into_iter().take(12).collect();
+
+    let summary = if files_analyzed == 0 {
+        "No source files were eligible for deterministic health analysis.".to_string()
+    } else {
+        format!(
+            "Deterministic scan scored {} source file{} across simple size, churn, structural, test-adjacency, and performance-risk signals. {} hotspot{} surfaced; average score is {:.1}/10. Treat these as review leads, not proof of a bug.",
+            files_analyzed,
+            if files_analyzed == 1 { "" } else { "s" },
+            hotspot_count,
+            if hotspot_count == 1 { "" } else { "s" },
+            average_score
+        )
+    };
+
+    RepoHealth {
+        schema_version: 1,
+        summary,
+        average_score,
+        hotspot_count,
+        files_analyzed,
+        files_with_test_signal,
+        top_files,
+        truncated,
+    }
+}
+
+fn should_scan_for_health(path: &str) -> bool {
+    if looks_sensitive_path(path) || is_test_path(path) {
+        return false;
+    }
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".rs")
+        || lower.ends_with(".ts")
+        || lower.ends_with(".tsx")
+        || lower.ends_with(".js")
+        || lower.ends_with(".jsx")
+        || lower.ends_with(".py")
+        || lower.ends_with(".go")
+        || lower.ends_with(".java")
+        || lower.ends_with(".kt")
+        || lower.ends_with(".swift")
+        || lower.ends_with(".rb")
+        || lower.ends_with(".php")
+        || lower.ends_with(".cs")
+        || lower.ends_with(".vue")
+        || lower.ends_with(".svelte")
+}
+
+fn analyze_health_file(
+    path: &str,
+    bytes: u64,
+    content: &str,
+    churn: usize,
+    has_test_signal: bool,
+) -> RepoHealthFile {
+    let lines = content.lines().count();
+    let mut findings = Vec::new();
+
+    if lines >= 900 {
+        push_health_finding(
+            &mut findings,
+            path,
+            "large_file",
+            "Large file",
+            "maintainability",
+            "high",
+            format!("{lines} lines in one source file; inspect whether the module hides multiple responsibilities."),
+        );
+    } else if lines >= 450 {
+        push_health_finding(
+            &mut findings,
+            path,
+            "large_file",
+            "Large file",
+            "maintainability",
+            "medium",
+            format!("{lines} lines in one source file; changes here may be harder to review."),
+        );
+    }
+
+    let max_indent = max_indent_depth(content);
+    if max_indent >= 8 {
+        push_health_finding(
+            &mut findings,
+            path,
+            "deep_nesting",
+            "Deep nesting",
+            "defect",
+            "high",
+            format!("Maximum indentation depth is about {max_indent}; deeply nested branches are bug-prone review targets."),
+        );
+    } else if max_indent >= 6 {
+        push_health_finding(
+            &mut findings,
+            path,
+            "deep_nesting",
+            "Deep nesting",
+            "defect",
+            "medium",
+            format!("Maximum indentation depth is about {max_indent}; inspect branch-heavy paths before risky edits."),
+        );
+    }
+
+    let long_block = longest_brace_block(content);
+    if long_block >= 180 {
+        push_health_finding(
+            &mut findings,
+            path,
+            "long_block",
+            "Long function/block",
+            "maintainability",
+            "medium",
+            format!("A brace-delimited block spans roughly {long_block} lines; consider extracting a helper when touching it."),
+        );
+    }
+
+    if churn >= 180 {
+        push_health_finding(
+            &mut findings,
+            path,
+            "churn_hotspot",
+            "High churn",
+            "defect",
+            "high",
+            format!("Recent git history shows {churn} changed lines in this file; combine review with history and tests."),
+        );
+    } else if churn >= 60 {
+        push_health_finding(
+            &mut findings,
+            path,
+            "churn_hotspot",
+            "Moderate churn",
+            "defect",
+            "medium",
+            format!("Recent git history shows {churn} changed lines in this file; it is a change hotspot."),
+        );
+    }
+
+    if !has_test_signal && (churn >= 50 || lines >= 400) {
+        push_health_finding(
+            &mut findings,
+            path,
+            "untested_hotspot",
+            "No adjacent test signal",
+            "defect",
+            "medium",
+            "No obvious sibling test/spec file was found for a large or churny source file."
+                .to_string(),
+        );
+    }
+
+    if detects_io_in_loop(content) {
+        push_health_finding(
+            &mut findings,
+            path,
+            "io_in_loop",
+            "I/O inside loop",
+            "performance",
+            "medium",
+            "Loop-shaped code appears near filesystem, subprocess, database, or network I/O; inspect for N+1 or repeated setup work.".to_string(),
+        );
+    }
+
+    if detects_boundary_shell_or_fs(content) {
+        push_health_finding(
+            &mut findings,
+            path,
+            "io_boundary",
+            "I/O or process boundary",
+            "defect",
+            "low",
+            "File touches filesystem, network, database, or subprocess boundaries; changes need concrete runtime proof.".to_string(),
+        );
+    }
+
+    let mut score: f64 = 10.0;
+    let mut category_deductions: HashMap<String, f64> = HashMap::new();
+    for finding in &findings {
+        let deduction: f64 = match finding.severity.as_str() {
+            "high" => 1.2,
+            "medium" => 0.7,
+            _ => 0.3,
+        };
+        let cap: f64 = match finding.dimension.as_str() {
+            "defect" => 3.5,
+            "maintainability" => 2.5,
+            "performance" => 1.0,
+            _ => 1.0,
+        };
+        let used = category_deductions
+            .entry(finding.dimension.clone())
+            .or_insert(0.0);
+        let allowed = (cap - *used).max(0.0);
+        let applied = deduction.min(allowed);
+        *used += applied;
+        score -= applied;
+    }
+    score = round_one(score.clamp(1.0, 10.0));
+    let bucket = if score <= 6.5 {
+        "hotspot"
+    } else if score <= 8.0 {
+        "watch"
+    } else {
+        "healthy"
+    }
+    .to_string();
+
+    let mut refactoring_targets = Vec::new();
+    if lines >= 900 || long_block >= 180 {
+        refactoring_targets
+            .push("Split file or extract helper around the largest cohesive flow.".to_string());
+    }
+    if max_indent >= 6 {
+        refactoring_targets
+            .push("Flatten guard-heavy branches before adding behavior.".to_string());
+    }
+    if detects_io_in_loop(content) {
+        refactoring_targets
+            .push("Hoist repeated I/O or batch loop work where behavior allows.".to_string());
+    }
+    refactoring_targets.truncate(3);
+
+    RepoHealthFile {
+        path: path.to_string(),
+        score,
+        bucket,
+        lines,
+        bytes,
+        churn,
+        has_test_signal,
+        findings,
+        refactoring_targets,
+    }
+}
+
+fn push_health_finding(
+    findings: &mut Vec<RepoHealthFinding>,
+    path: &str,
+    id: &str,
+    label: &str,
+    dimension: &str,
+    severity: &str,
+    detail: String,
+) {
+    if findings.iter().any(|finding| finding.id == id) {
+        return;
+    }
+    findings.push(RepoHealthFinding {
+        id: id.to_string(),
+        label: label.to_string(),
+        dimension: dimension.to_string(),
+        severity: severity.to_string(),
+        detail,
+        sources: vec![path.to_string()],
+    });
+}
+
+fn max_indent_depth(content: &str) -> usize {
+    content
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !trimmed.is_empty() && !trimmed.starts_with("//") && !trimmed.starts_with('#')
+        })
+        .map(|line| {
+            line.chars()
+                .take_while(|ch| *ch == ' ' || *ch == '\t')
+                .count()
+                / 2
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+fn longest_brace_block(content: &str) -> usize {
+    let mut stack: Vec<usize> = Vec::new();
+    let mut longest = 0usize;
+    for (idx, line) in content.lines().enumerate() {
+        for ch in line.chars() {
+            if ch == '{' {
+                stack.push(idx);
+            } else if ch == '}' {
+                if let Some(start) = stack.pop() {
+                    longest = longest.max(idx.saturating_sub(start) + 1);
+                }
+            }
+        }
+    }
+    longest
+}
+
+fn detects_io_in_loop(content: &str) -> bool {
+    let mut loop_window = 0usize;
+    for line in content.lines() {
+        let lower = line.trim().to_ascii_lowercase();
+        if lower.starts_with("for ")
+            || lower.starts_with("while ")
+            || lower.contains(".map(")
+            || lower.contains(".foreach(")
+            || lower.contains("for_each(")
+        {
+            loop_window = 18;
+        } else if loop_window > 0 {
+            loop_window -= 1;
+        }
+        if loop_window > 0 && looks_like_io_call(&lower) {
+            return true;
+        }
+    }
+    false
+}
+
+fn detects_boundary_shell_or_fs(content: &str) -> bool {
+    content
+        .lines()
+        .take(900)
+        .map(|line| line.trim().to_ascii_lowercase())
+        .any(|line| looks_like_io_call(&line))
+}
+
+fn looks_like_io_call(line: &str) -> bool {
+    line.contains("command::new")
+        || line.contains("std::process")
+        || line.contains("child_process")
+        || line.contains("subprocess.")
+        || line.contains(".spawn(")
+        || line.contains("fs::")
+        || line.contains("std::fs")
+        || line.contains("read_to_string")
+        || line.contains("file::open")
+        || line.contains("fetch(")
+        || line.contains("axios.")
+        || line.contains("request(")
+        || line.contains(".execute(")
+        || line.contains(".query(")
+        || line.contains("sqlx::")
+        || line.contains("rusqlite")
+}
+
+fn has_test_signal_for_path(path: &str, test_paths: &[String]) -> bool {
+    if is_test_path(path) {
+        return true;
+    }
+    let stem = Path::new(path)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if stem.is_empty() {
+        return false;
+    }
+    test_paths.iter().any(|test_path| {
+        let lower = test_path.to_ascii_lowercase();
+        lower.contains(&format!("{stem}.test"))
+            || lower.contains(&format!("{stem}.spec"))
+            || lower.contains(&format!("{stem}_test"))
+            || lower.contains(&format!("/{stem}/"))
+    })
+}
+
+fn read_git_file_churn(root: &Path, limit: usize) -> HashMap<String, usize> {
+    let output = StdCommand::new("git")
+        .args([
+            "log",
+            &format!("-n{limit}"),
+            "--numstat",
+            "--format=commit %H",
+            "--",
+            ".",
+        ])
+        .current_dir(root)
+        .output();
+
+    let Ok(output) = output else {
+        return HashMap::new();
+    };
+    if !output.status.success() {
+        return HashMap::new();
+    }
+
+    let mut churn = HashMap::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if line.starts_with("commit ") || line.trim().is_empty() {
+            continue;
+        }
+        let mut parts = line.split('\t');
+        let added = parts
+            .next()
+            .and_then(|part| part.parse::<usize>().ok())
+            .unwrap_or(0);
+        let deleted = parts
+            .next()
+            .and_then(|part| part.parse::<usize>().ok())
+            .unwrap_or(0);
+        let Some(path) = parts.next() else {
+            continue;
+        };
+        if path.is_empty() || is_binary_path(path) {
+            continue;
+        }
+        *churn.entry(path.to_string()).or_insert(0) += added + deleted;
+    }
+    churn
+}
+
+fn round_one(value: f64) -> f64 {
+    (value * 10.0).round() / 10.0
 }
 
 fn scan_tauri_commands(
@@ -2877,6 +3407,36 @@ in what you actually read. Return ONLY valid JSON (no markdown fences, no commen
         }
     }
 
+    buf.push_str("\nDeterministic repo health:\n");
+    buf.push_str(&format!(
+        "  - schema={} analyzed={} average={:.1}/10 hotspots={}{} — {}\n",
+        inv.repo_health.schema_version,
+        inv.repo_health.files_analyzed,
+        inv.repo_health.average_score,
+        inv.repo_health.hotspot_count,
+        if inv.repo_health.truncated {
+            " truncated"
+        } else {
+            ""
+        },
+        inv.repo_health.summary
+    ));
+    for file in inv.repo_health.top_files.iter().take(10) {
+        buf.push_str(&format!(
+            "  - {} score={:.1}/10 bucket={} lines={} churn={} test_signal={}\n",
+            file.path, file.score, file.bucket, file.lines, file.churn, file.has_test_signal
+        ));
+        for finding in file.findings.iter().take(4) {
+            buf.push_str(&format!(
+                "      - {} [{}:{}] {}\n",
+                finding.label, finding.dimension, finding.severity, finding.detail
+            ));
+        }
+        for target in file.refactoring_targets.iter().take(2) {
+            buf.push_str(&format!("      - refactor lead: {target}\n"));
+        }
+    }
+
     buf.push_str("\nRepo memory graph:\n");
     buf.push_str(&format!(
         "  - schema={} nodes={} edges={}{}\n",
@@ -3210,6 +3770,38 @@ fn render_markdown(
                 out.push('\n');
             }
         }
+
+        if inv.repo_health.files_analyzed > 0 {
+            out.push_str("## Deterministic Repo Health\n\n");
+            out.push_str(&format!(
+                "{}\n\nAverage score: {:.1}/10 · hotspots: {} · files analyzed: {}{}\n\n",
+                inv.repo_health.summary,
+                inv.repo_health.average_score,
+                inv.repo_health.hotspot_count,
+                inv.repo_health.files_analyzed,
+                if inv.repo_health.truncated {
+                    " · truncated"
+                } else {
+                    ""
+                }
+            ));
+            for file in inv.repo_health.top_files.iter().take(10) {
+                out.push_str(&format!(
+                    "- `{}` — {:.1}/10 `{}` · {} lines · churn {}\n",
+                    file.path, file.score, file.bucket, file.lines, file.churn
+                ));
+                for finding in file.findings.iter().take(4) {
+                    out.push_str(&format!(
+                        "  - {} [{}:{}] {}\n",
+                        finding.label, finding.dimension, finding.severity, finding.detail
+                    ));
+                }
+                for target in file.refactoring_targets.iter().take(2) {
+                    out.push_str(&format!("  - refactor lead: {target}\n"));
+                }
+            }
+            out.push('\n');
+        }
     }
 
     let render_section = |out: &mut String, sec: &Option<ReportSection>| {
@@ -3305,6 +3897,38 @@ fn render_agent_context_sidecar(
                         .unwrap_or_default(),
                     commit.subject
                 ));
+            }
+        }
+        out.push('\n');
+    }
+
+    if inventory.repo_health.files_analyzed > 0 {
+        out.push_str("## Deterministic Repo Health\n\n");
+        out.push_str(&format!(
+            "{}\n\nAverage score: {:.1}/10; hotspots: {}; files analyzed: {}{}.\n\n",
+            inventory.repo_health.summary,
+            inventory.repo_health.average_score,
+            inventory.repo_health.hotspot_count,
+            inventory.repo_health.files_analyzed,
+            if inventory.repo_health.truncated {
+                "; truncated"
+            } else {
+                ""
+            }
+        ));
+        for file in inventory.repo_health.top_files.iter().take(12) {
+            out.push_str(&format!(
+                "- `{}` — {:.1}/10 `{}`; {} lines; churn {}; test signal: {}\n",
+                file.path, file.score, file.bucket, file.lines, file.churn, file.has_test_signal
+            ));
+            for finding in file.findings.iter().take(4) {
+                out.push_str(&format!(
+                    "  - {} [{}:{}] {}\n",
+                    finding.label, finding.dimension, finding.severity, finding.detail
+                ));
+            }
+            for target in file.refactoring_targets.iter().take(2) {
+                out.push_str(&format!("  - refactor lead: {target}\n"));
             }
         }
         out.push('\n');
@@ -3567,6 +4191,7 @@ mod tests {
                 sources: vec!["src/review.ts#L1".to_string()],
                 truncated: false,
             },
+            repo_health: RepoHealth::default(),
             all_files: vec!["src/review.ts".to_string(), "package.json".to_string()],
             ignored_dirs: Vec::new(),
         }
@@ -3621,6 +4246,37 @@ mod tests {
         assert_eq!(readiness.status, "missing");
         assert!(readiness.score < 45);
         assert!(readiness.suggested_flows.is_empty());
+    }
+
+    #[test]
+    fn repo_health_flags_churny_untested_io_loop() {
+        let content = r#"
+export async function loadEverything(ids: string[]) {
+  for (const id of ids) {
+    const raw = await fetch(`/api/items/${id}`);
+    console.log(await raw.text());
+  }
+}
+"#;
+        let file = analyze_health_file("src/loadEverything.ts", 900, content, 90, false);
+
+        assert_eq!(file.bucket, "watch");
+        assert!(file
+            .findings
+            .iter()
+            .any(|finding| finding.id == "churn_hotspot"));
+        assert!(file
+            .findings
+            .iter()
+            .any(|finding| finding.id == "untested_hotspot"));
+        assert!(file
+            .findings
+            .iter()
+            .any(|finding| finding.id == "io_in_loop"));
+        assert!(file
+            .refactoring_targets
+            .iter()
+            .any(|target| target.contains("Hoist repeated I/O")));
     }
 
     #[test]
