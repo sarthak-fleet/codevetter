@@ -1,13 +1,5 @@
-import {
-  Activity,
-  FlaskConical,
-  GitCommitHorizontal,
-  Loader2,
-  RefreshCw,
-  Search,
-} from 'lucide-react';
+import { Activity, Loader2, RefreshCw, Search } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -294,23 +286,6 @@ export default function Roadmap() {
             <p className="text-xs text-red-300">{error}</p>
           </div>
         )}
-
-        <div className="flex flex-wrap gap-2">
-          <Link
-            to="/intent-debugger"
-            className="cv-panel flex items-center gap-2 px-3 py-2 text-xs text-slate-300 transition-colors hover:border-[var(--cv-accent)]/40 hover:text-slate-100"
-          >
-            <GitCommitHorizontal size={14} className="text-[var(--cv-accent)]" />
-            Commit intent debugger
-          </Link>
-          <Link
-            to="/qa-replay"
-            className="cv-panel flex items-center gap-2 px-3 py-2 text-xs text-slate-300 transition-colors hover:border-[var(--cv-accent)]/40 hover:text-slate-100"
-          >
-            <FlaskConical size={14} className="text-[var(--cv-accent)]" />
-            Synthetic QA replay
-          </Link>
-        </div>
 
         <RoadmapReleaseBanner />
         <VerificationWorkbenchPanel scorecard={scorecard} />

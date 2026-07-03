@@ -26,8 +26,6 @@ const Ops = lazy(() => import('@/pages/Ops'));
 const TRex = lazy(() => import('@/pages/TRex'));
 const Home = lazy(() => import('@/pages/Home'));
 const Intel = lazy(() => import('@/pages/Intel'));
-const IntentDebugger = lazy(() => import('@/pages/IntentDebugger'));
-const QaReplay = lazy(() => import('@/pages/QaReplay'));
 const QuickReview = lazy(() => import('@/pages/QuickReview'));
 const RepoUnpacked = lazy(() => import('@/pages/RepoUnpacked'));
 const Roadmap = lazy(() => import('@/pages/Roadmap'));
@@ -200,8 +198,6 @@ export default function App() {
         <Route path="/ops" element={<Ops />} />
         <Route path="/trex" element={<TRex />} />
         <Route path="/agent-memories" element={<AgentMemories />} />
-        <Route path="/intent-debugger" element={<IntentDebugger />} />
-        <Route path="/qa-replay" element={<QaReplay />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<NotFound />} />
       </Route>
