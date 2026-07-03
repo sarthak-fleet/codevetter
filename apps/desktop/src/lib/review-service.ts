@@ -88,20 +88,36 @@ export function getActiveStandardsPack(config: ReviewConfig | null): StandardsPa
   return packs.find((pack) => pack.id === config?.activeStandardsPack) ?? packs[0];
 }
 
-export function buildActiveStandardsContext(): string {
-  const config = loadReviewConfig();
-  const pack = getActiveStandardsPack(config);
-  const customRules = (config?.customRules ?? []).map((rule) => rule.trim()).filter(Boolean);
-
+/**
+ * Render the exact standards-context string injected into review prompts.
+ * Pass a `pack` to preview a specific pack (used by the Rubrics editor);
+ * omit it to render the currently-active pack from stored config.
+ */
+export function buildStandardsContext(pack: StandardsPack, customRules: string[] = []): string {
+  const rules = customRules.map((rule) => rule.trim()).filter(Boolean);
   const lines = [
     'CodeVetter review standards pack:',
     `- Pack: ${pack.name}`,
     `- Focus: ${pack.focus}`,
     ...pack.checks.map((check) => `- Check: ${check}`),
-    ...customRules.map((rule) => `- Custom rule: ${rule}`),
+    ...rules.map((rule) => `- Custom rule: ${rule}`),
   ];
-
   return lines.join('\n');
+}
+
+export function buildActiveStandardsContext(): string {
+  const config = loadReviewConfig();
+  const pack = getActiveStandardsPack(config);
+  return buildStandardsContext(pack, config?.customRules ?? []);
+}
+
+/**
+ * Name of the standards pack that a review run will be tagged with. Threaded
+ * through the review-save path so the Rubrics page can attribute usage. Falls
+ * back to the first pack when nothing is selected (matches prompt behavior).
+ */
+export function getActiveStandardsPackName(): string {
+  return getActiveStandardsPack(loadReviewConfig()).name;
 }
 
 export const PROVIDER_PRESETS: Record<string, { baseUrl: string; model: string }> = {

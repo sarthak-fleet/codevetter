@@ -48,6 +48,9 @@ pub struct LocalReviewRow {
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
     pub created_at: String,
+    /// Standards pack (Rubrics surface) active when the review ran. NULL for
+    /// legacy rows and reviews run before any pack was selected.
+    pub standards_pack: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +66,16 @@ pub struct LocalReviewFindingRow {
     pub confidence: Option<f64>,
     pub fingerprint: Option<String>,
     pub discovery_method: Option<String>,
+}
+
+/// Per-pack review usage, grouped by `local_reviews.standards_pack`. Powers the
+/// Rubrics page usage stats. `total_findings` sums finding rows across all
+/// reviews attributed to the pack.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StandardsPackUsageRow {
+    pub standards_pack: String,
+    pub review_count: i64,
+    pub total_findings: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,6 +215,8 @@ pub struct LocalReviewInput {
     pub pr_number: Option<i64>,
     pub agent_used: Option<String>,
     pub status: Option<String>,
+    /// Standards pack (Rubrics surface) active for this review, if any.
+    pub standards_pack: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1207,8 +1222,8 @@ pub fn create_local_review(
     conn.execute(
         "INSERT INTO local_reviews (
             id, review_type, source_label, repo_path, repo_full_name,
-            pr_number, agent_used, status, created_at, started_at
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+            pr_number, agent_used, status, created_at, started_at, standards_pack
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
         params![
             id,
             input.review_type,
@@ -1220,6 +1235,7 @@ pub fn create_local_review(
             input.status.as_deref().unwrap_or("pending"),
             now,
             now,
+            input.standards_pack,
         ],
     )?;
     Ok(id)
@@ -1501,7 +1517,7 @@ pub fn list_local_reviews_filtered(
         "SELECT id, review_type, source_label, repo_path, repo_full_name,
                 pr_number, agent_used, score_composite, findings_count,
                 review_action, summary_markdown, status, error_message,
-                started_at, completed_at, created_at
+                started_at, completed_at, created_at, standards_pack
          FROM local_reviews
          {where_clause}
          ORDER BY created_at DESC
@@ -1527,6 +1543,7 @@ pub fn list_local_reviews_filtered(
             started_at: row.get(13)?,
             completed_at: row.get(14)?,
             created_at: row.get(15)?,
+            standards_pack: row.get(16)?,
         })
     }
 
@@ -1538,6 +1555,33 @@ pub fn list_local_reviews_filtered(
             .collect::<Result<Vec<_>, _>>()?
     };
     Ok(results)
+}
+
+/// Usage stats grouped by standards pack: how many reviews ran with each pack
+/// and the total findings across those reviews. Reviews with a NULL
+/// standards_pack (legacy / no pack selected) are excluded. Powers the Rubrics
+/// per-pack usage display.
+pub fn get_standards_pack_usage(
+    conn: &Connection,
+) -> Result<Vec<StandardsPackUsageRow>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT r.standards_pack,
+                COUNT(DISTINCT r.id) AS review_count,
+                COUNT(f.id)          AS total_findings
+         FROM local_reviews r
+         LEFT JOIN local_review_findings f ON f.review_id = r.id
+         WHERE r.standards_pack IS NOT NULL AND r.standards_pack <> ''
+         GROUP BY r.standards_pack
+         ORDER BY review_count DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(StandardsPackUsageRow {
+            standards_pack: row.get(0)?,
+            review_count: row.get(1)?,
+            total_findings: row.get(2)?,
+        })
+    })?;
+    rows.collect()
 }
 
 /// Recent findings for a repo (used for "recurring failure areas" history signal).
@@ -1574,7 +1618,7 @@ pub fn get_local_review_with_findings(
         "SELECT id, review_type, source_label, repo_path, repo_full_name,
                 pr_number, agent_used, score_composite, findings_count,
                 review_action, summary_markdown, status, error_message,
-                started_at, completed_at, created_at
+                started_at, completed_at, created_at, standards_pack
          FROM local_reviews WHERE id = ?1",
         params![review_id],
         |row| {
@@ -1595,6 +1639,7 @@ pub fn get_local_review_with_findings(
                 started_at: row.get(13)?,
                 completed_at: row.get(14)?,
                 created_at: row.get(15)?,
+                standards_pack: row.get(16)?,
             })
         },
     )?;
@@ -2602,6 +2647,7 @@ mod tests {
                 pr_number: None,
                 agent_used: Some("claude".to_string()),
                 status: Some("completed".to_string()),
+                standards_pack: None,
             },
         )
         .expect("review");
@@ -2642,6 +2688,7 @@ mod tests {
                 pr_number: None,
                 agent_used: Some("claude".to_string()),
                 status: Some("completed".to_string()),
+                standards_pack: None,
             },
         )
         .expect("review");

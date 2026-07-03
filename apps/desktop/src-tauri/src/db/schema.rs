@@ -93,6 +93,15 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         [],
     );
 
+    // Rubrics: record which standards pack (Rubrics surface) was active when
+    // the review ran, so the Rubrics page can show per-pack usage stats and
+    // reviews stay traceable back to the rubric that shaped them. Nullable —
+    // legacy rows and reviews run before a pack was selected stay NULL.
+    let _ = conn.execute(
+        "ALTER TABLE local_reviews ADD COLUMN standards_pack TEXT",
+        [],
+    );
+
     // SaaS Maker sync: maps a CodeVetter finding (by id) → the SaaS Maker
     // task it was pushed as, so re-pushing the same finding is a no-op.
     // Mirrors reel-pipeline's deduping pattern but keyed locally so we
