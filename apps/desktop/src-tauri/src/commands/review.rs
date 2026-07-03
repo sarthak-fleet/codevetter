@@ -1011,6 +1011,7 @@ pub async fn save_review(
     findings: Vec<ReviewFindingInput>,
     review_action: Option<String>,
     summary_markdown: Option<String>,
+    standards_pack: Option<String>,
 ) -> Result<Value, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
@@ -1023,6 +1024,7 @@ pub async fn save_review(
         pr_number,
         agent_used: Some("review-core".to_string()),
         status: Some("completed".to_string()),
+        standards_pack,
     };
 
     let review_id = queries::create_local_review(&conn, &input).map_err(|e| e.to_string())?;
@@ -1115,6 +1117,7 @@ pub async fn run_cli_review(
     change_description: String,
     agent: Option<String>,
     qa_runs: Option<Vec<Value>>,
+    standards_pack: Option<String>,
 ) -> Result<Value, String> {
     let agent = agent.unwrap_or_else(|| "claude".to_string());
     let qa_runs = qa_runs.unwrap_or_default();
@@ -1478,6 +1481,7 @@ pub async fn run_cli_review(
         pr_number: None,
         agent_used: Some(agent.clone()),
         status: Some("completed".to_string()),
+        standards_pack,
     };
 
     let review_id = queries::create_local_review(&conn, &input).map_err(|e| e.to_string())?;
@@ -2380,4 +2384,13 @@ pub async fn list_reviews(
     )
     .map_err(|e| e.to_string())?;
     Ok(json!({ "reviews": reviews }))
+}
+
+/// Per-standards-pack review usage (review count + total findings). Powers the
+/// Rubrics page usage display.
+#[tauri::command]
+pub async fn get_standards_pack_usage(db: State<'_, DbState>) -> Result<Value, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let usage = queries::get_standards_pack_usage(&conn).map_err(|e| e.to_string())?;
+    Ok(json!({ "usage": usage }))
 }

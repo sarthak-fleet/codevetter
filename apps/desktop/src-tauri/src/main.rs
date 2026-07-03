@@ -309,6 +309,7 @@ fn main() {
             commands::review::save_review,
             commands::review::get_review,
             commands::review::list_reviews,
+            commands::review::get_standards_pack_usage,
             commands::review::run_cli_review,
             commands::review::fix_findings,
             commands::review::merge_fix,
