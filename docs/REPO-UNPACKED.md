@@ -70,6 +70,27 @@ Repo Unpacked now persists a `repo_health` inventory artifact inspired by Repowi
 
 The artifact renders in scan-only mode, is included in the synthesis prompt, and exports in Markdown plus the agent-context sidecar. It is intentionally heuristic and review-oriented; it does not claim calibrated defect prediction or full tree-sitter graph analysis.
 
+### 4.2 Metric trust layer
+
+The high-level readout cards are intentionally clickable because the top number is never enough by itself. Each zoom dialog now includes:
+
+- a confidence grade (`high` / `medium` / `low`)
+- the sample or coverage basis behind that grade
+- caveats that name when the number is static, heuristic, truncated, weakly classified, or otherwise easy to overread
+- supporting rows with source links where the inventory has file-backed evidence
+- a copyable metric packet with the headline, evidence-quality grade, caveats, touched files where commit evidence exists, and bounded supporting rows for review notes, issues, and release handoffs
+- Intel commit rows with the recent commit SHA, subject, tool classification, churn, and touched files when the git attribution pass has that evidence
+- Intel blind-spot rows for bulk changes, generated/vendor churn, release/dependency noise, and weak AI markers when those heuristics can distort the headline attribution or churn metrics
+- DORA release-health rows for deploy frequency, lead time, MTTR, and change failure rate, including release tags, weekly buckets, hotfix markers, and local-git caveats
+
+The zoom/copy interaction is guarded with mocked-Tauri Playwright coverage for both Intel and Repo Unpacked, so browser regressions in metric drilldown, evidence rows, and copy state are caught without requiring a real desktop scan.
+
+Repo Unpacked also compares the active inventory against the previous saved unpack for the same repo. The comparison panel shows commit movement, score/graph/file/stack deltas, source-linked added/removed file samples, and bounded git commit-range evidence between the two snapshot commits. Commit evidence includes SHA, date, author, subject, aggregate churn, and touched files. The panel also infers delta verification leads from package scripts, QA posture, history test hints, and changed files, with confidence labels and source links. Each snapshot delta card opens a focused zoom with previous/current values, commit evidence, outcome calibration, verification leads, trust actions, file samples, and a copyable delta packet.
+
+The comparison also adds outcome calibration from local product evidence for the same repo path: recent local reviews, synthetic QA runs, procedure gate events, and recurring findings. The panel classifies the delta confidence as `raises`, `lowers`, `mixed`, `neutral`, or `unknown`; computes a bounded recent-vs-prior outcome trend (`regressing`, `improving`, `persistent_risk`, `stable_green`, `sparse`, etc.) from proof and risk signals; emits deterministic trust actions for missing proof baselines, failing QA, failed proof gates, blocked reviews, recurring findings, mixed proof, and worsening trends; and includes source IDs/paths plus rerun commands where available. Each outcome count opens a focused zoom with the stored rows and copyable outcome packet, so the user can inspect why the calibration moved. This makes stale or drifted briefs visible instead of forcing the user to compare two history rows manually.
+
+This is the current quality bar for Repo Unpacked and Intel numbers: every headline metric should explain what evidence produced it, what can make it wrong, what changed since the last comparable run, what actual outcomes should raise or lower trust, and what action it should drive. The remaining world-class gap is learned calibration: once enough review, QA, and bug outcomes exist, use them to learn which metric movements actually predicted risk.
+
 ## 5. Previous overhaul (2026-05-31, branch `wip/repo-unpacked-overhaul`)
 
 ### 5.1 First-class unpacks list

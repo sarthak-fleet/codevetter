@@ -1210,6 +1210,40 @@ export interface WeeklyVelocityBucket {
   deletions: number;
 }
 
+export interface IntelCommitEvidence {
+  sha: string;
+  date: string;
+  subject: string;
+  tool: string;
+  is_ai: boolean;
+  additions: number;
+  deletions: number;
+  files: string[];
+}
+
+export interface IntelBlindSpotCommit {
+  sha: string;
+  date: string;
+  subject: string;
+  tool: string;
+  additions: number;
+  deletions: number;
+  files: string[];
+}
+
+export interface IntelAttributionBlindSpot {
+  kind: string;
+  label: string;
+  severity: 'high' | 'medium' | 'low' | string;
+  metric_impact: string;
+  detail: string;
+  commits: number;
+  additions: number;
+  deletions: number;
+  sample_commits: IntelBlindSpotCommit[];
+  sample_files: string[];
+}
+
 export interface AuthorRow {
   name: string;
   email: string;
@@ -1241,6 +1275,8 @@ export interface RepoAttributionReport {
   hour_of_week: number[][];
   weekly_velocity: WeeklyVelocityBucket[];
   top_directories: DirectoryChurn[];
+  recent_commits?: IntelCommitEvidence[];
+  blind_spots?: IntelAttributionBlindSpot[];
 }
 
 export interface ModelCostRow {
@@ -2151,6 +2187,119 @@ export interface UnpackReportRecord extends UnpackReportSummary {
   bytes_scanned: number;
 }
 
+export interface UnpackSnapshotChangedFile {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface UnpackSnapshotCommitEvidence {
+  sha: string;
+  date: string;
+  author: string;
+  subject: string;
+  additions: number;
+  deletions: number;
+  files: UnpackSnapshotChangedFile[];
+}
+
+export interface UnpackSnapshotCommitRange {
+  base_commit: string;
+  head_commit: string;
+  commit_count: number;
+  commits: UnpackSnapshotCommitEvidence[];
+  truncated: boolean;
+}
+
+export interface UnpackOutcomeReviewEvidence {
+  id: string;
+  review_type?: string | null;
+  status: string;
+  review_action?: string | null;
+  findings_count?: number | null;
+  score_composite?: number | null;
+  created_at: string;
+}
+
+export interface UnpackOutcomeQaEvidence {
+  id: string;
+  review_id?: string | null;
+  loop_id: string;
+  runner_type: string;
+  route?: string | null;
+  goal?: string | null;
+  pass: boolean;
+  duration_ms: number;
+  console_errors: number;
+  error?: string | null;
+  created_at: string;
+}
+
+export interface UnpackOutcomeProcedureEvidence {
+  id: string;
+  review_id: string;
+  step_id: string;
+  status: string;
+  source: string;
+  summary: string;
+  artifact?: string | null;
+  created_at: string;
+}
+
+export interface UnpackOutcomeFindingEvidence {
+  file_path?: string | null;
+  title?: string | null;
+  severity?: string | null;
+  created_at: string;
+}
+
+export interface UnpackOutcomeTrustAction {
+  priority: string;
+  label: string;
+  detail: string;
+  source_kind: string;
+  source_id?: string | null;
+  source_path?: string | null;
+  command?: string | null;
+}
+
+export interface UnpackOutcomeTrendWindow {
+  label: string;
+  proof_count: number;
+  failure_count: number;
+  finding_count: number;
+  review_failure_count: number;
+  oldest_at?: string | null;
+  newest_at?: string | null;
+}
+
+export interface UnpackOutcomeTrend {
+  direction: string;
+  confidence: string;
+  total_signals: number;
+  recent: UnpackOutcomeTrendWindow;
+  prior: UnpackOutcomeTrendWindow;
+  summary: string;
+}
+
+export interface UnpackOutcomeEvidence {
+  repo_path: string;
+  reviews: UnpackOutcomeReviewEvidence[];
+  qa_runs: UnpackOutcomeQaEvidence[];
+  procedure_events: UnpackOutcomeProcedureEvidence[];
+  recurring_findings: UnpackOutcomeFindingEvidence[];
+  review_count: number;
+  failed_review_count: number;
+  qa_pass_count: number;
+  qa_fail_count: number;
+  procedure_pass_count: number;
+  procedure_fail_count: number;
+  calibration: 'raises' | 'lowers' | 'mixed' | 'neutral' | 'unknown' | string;
+  summary: string;
+  trend: UnpackOutcomeTrend;
+  trust_actions: UnpackOutcomeTrustAction[];
+}
+
 export interface GenerateUnpackResult {
   report_id: string;
   status: string;
@@ -2186,6 +2335,22 @@ export async function listRepoUnpackReports(
 
 export async function getRepoUnpackReport(id: string): Promise<UnpackReportRecord> {
   return safeInvoke('get_repo_unpack_report', { id });
+}
+
+export async function compareUnpackSnapshotCommits(
+  repoPath: string,
+  baseCommit: string,
+  headCommit: string
+): Promise<UnpackSnapshotCommitRange> {
+  return safeInvoke('compare_unpack_snapshot_commits', {
+    repoPath,
+    baseCommit,
+    headCommit,
+  });
+}
+
+export async function getUnpackOutcomeEvidence(repoPath: string): Promise<UnpackOutcomeEvidence> {
+  return safeInvoke('get_unpack_outcome_evidence', { repoPath });
 }
 
 export async function deleteRepoUnpackReport(id: string): Promise<{ deleted: boolean }> {

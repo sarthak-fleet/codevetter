@@ -21,7 +21,7 @@ async function createSession(): Promise<WdSession> {
   // Verify the binary exists
   if (!fs.existsSync(appPath)) {
     throw new Error(
-      `App binary not found at: ${appPath}\n` + `Run 'npm run tauri:build' first to build the app.`
+      `App binary not found at: ${appPath}\nRun 'npm run tauri:build' first to build the app.`
     );
   }
 

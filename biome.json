@@ -18,6 +18,7 @@
       "!**/pnpm-lock.yaml",
       "!**/package-lock.json",
       "!**/tsconfig.tsbuildinfo",
+      "!apps/desktop/src-tauri/gen/schemas/**",
       "!**/*.css",
       "!**/*.astro",
       "!**/design.html"

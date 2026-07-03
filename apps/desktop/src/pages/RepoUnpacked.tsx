@@ -56,11 +56,13 @@ import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { trackCoreAction } from '@/lib/analytics';
 import {
+  compareUnpackSnapshotCommits,
   deleteRepoUnpackReport,
   detectProjectForRepo,
   exportRepoUnpackReport,
   generateUnpackReport,
   type GenerateUnpackResult,
+  getUnpackOutcomeEvidence,
   getPreference,
   getRepoUnpackReport,
   importRepoGraphJson,
@@ -82,6 +84,8 @@ import {
   type UnpackReportRecord,
   type UnpackReportSection,
   type UnpackReportSummary,
+  type UnpackOutcomeEvidence,
+  type UnpackSnapshotCommitRange,
 } from '@/lib/tauri-ipc';
 import { cn } from '@/lib/utils';
 
@@ -106,6 +110,41 @@ interface ImportedGraphState {
   graph: UnpackRepoGraph;
   warnings: string[];
 }
+
+type SnapshotDeltaTone = 'up' | 'down' | 'flat' | 'changed';
+
+type SnapshotDelta = {
+  label: string;
+  current: string;
+  previous: string;
+  delta: string;
+  tone: SnapshotDeltaTone;
+  detail?: string;
+};
+
+type DeltaVerificationLead = {
+  command: string;
+  reason: string;
+  confidence: 'high' | 'medium' | 'low';
+  sources: string[];
+};
+
+type InventoryComparison = {
+  previousId: string;
+  previousCreatedAt: string;
+  previousCommit: string | null;
+  currentCommit: string | null;
+  commitRange?: UnpackSnapshotCommitRange | null;
+  commitRangeError?: string | null;
+  outcomeEvidence?: UnpackOutcomeEvidence | null;
+  outcomeError?: string | null;
+  verificationLeads: DeltaVerificationLead[];
+  deltas: SnapshotDelta[];
+  addedFiles: string[];
+  removedFiles: string[];
+  addedStackTags: string[];
+  removedStackTags: string[];
+};
 
 const SECTION_META: Array<{
   key: keyof UnpackReport;
@@ -175,6 +214,12 @@ function formatRuntime(ms?: number | null): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function formatSigned(n: number, precision = 0): string {
+  if (Math.abs(n) < Number.EPSILON) return '0';
+  const abs = precision > 0 ? Math.abs(n).toFixed(precision) : String(Math.abs(Math.round(n)));
+  return `${n > 0 ? '+' : '-'}${abs}`;
+}
+
 function _repoNameFromPath(path: string): string {
   const trimmed = path.replace(/\/$/, '');
   const last = trimmed.split('/').pop();
@@ -232,6 +277,278 @@ function groupTimelineByDate(
   return groups;
 }
 
+function parseInventoryJson(json: string | null): UnpackRepoInventory | null {
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as UnpackRepoInventory;
+  } catch {
+    return null;
+  }
+}
+
+function numericDelta(
+  label: string,
+  current: number,
+  previous: number,
+  options?: {
+    precision?: number;
+    suffix?: string;
+    lowerIsBetter?: boolean;
+    detail?: string;
+  }
+): SnapshotDelta {
+  const precision = options?.precision ?? 0;
+  const suffix = options?.suffix ?? '';
+  const diff = current - previous;
+  const formatValue = (n: number) =>
+    `${precision > 0 ? n.toFixed(precision) : Math.round(n).toLocaleString()}${suffix}`;
+  let tone: SnapshotDeltaTone = 'flat';
+  if (Math.abs(diff) > 0.0001) {
+    const movedUp = diff > 0;
+    tone = options?.lowerIsBetter ? (movedUp ? 'down' : 'up') : movedUp ? 'up' : 'down';
+  }
+  return {
+    label,
+    current: formatValue(current),
+    previous: formatValue(previous),
+    delta: `${formatSigned(diff, precision)}${suffix}`,
+    tone,
+    detail: options?.detail,
+  };
+}
+
+function setDifference(current: string[], previous: string[], limit: number): string[] {
+  const previousSet = new Set(previous);
+  return current.filter((item) => !previousSet.has(item)).slice(0, limit);
+}
+
+function packageManagerForInventory(inventory: UnpackRepoInventory): string {
+  const files = new Set(inventory.all_files ?? []);
+  if (files.has('pnpm-lock.yaml')) return 'pnpm';
+  if (files.has('bun.lockb') || files.has('bun.lock')) return 'bun';
+  if (files.has('yarn.lock')) return 'yarn';
+  return 'npm';
+}
+
+function commandForPackageScript(script: string, packageManager: string): string {
+  if (packageManager === 'npm') {
+    return script === 'test' ? 'npm test' : `npm run ${script}`;
+  }
+  return `${packageManager} ${script}`;
+}
+
+function scriptConfidence(script: string): DeltaVerificationLead['confidence'] {
+  const lower = script.toLowerCase();
+  if (
+    lower.includes('e2e') ||
+    lower.includes('playwright') ||
+    lower.includes('qa') ||
+    lower === 'test'
+  ) {
+    return 'high';
+  }
+  if (lower.includes('test') || lower.includes('type') || lower.includes('lint')) return 'medium';
+  return 'low';
+}
+
+function verificationLeadKey(lead: DeltaVerificationLead): string {
+  return `${lead.command}:${lead.sources.join('|')}`;
+}
+
+function dedupeVerificationLeads(leads: DeltaVerificationLead[]): DeltaVerificationLead[] {
+  const seen = new Set<string>();
+  const out: DeltaVerificationLead[] = [];
+  for (const lead of leads) {
+    const key = verificationLeadKey(lead);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      ...lead,
+      sources: Array.from(new Set(lead.sources.filter(Boolean))).slice(0, 6),
+    });
+  }
+  const rank = { high: 0, medium: 1, low: 2 } satisfies Record<
+    DeltaVerificationLead['confidence'],
+    number
+  >;
+  return out
+    .sort((a, b) => rank[a.confidence] - rank[b.confidence] || a.command.localeCompare(b.command))
+    .slice(0, 8);
+}
+
+function changedFilesForComparison(comparison: InventoryComparison): string[] {
+  const fromCommits =
+    comparison.commitRange?.commits.flatMap((commit) => commit.files.map((file) => file.path)) ??
+    [];
+  return Array.from(
+    new Set([...fromCommits, ...comparison.addedFiles, ...comparison.removedFiles])
+  );
+}
+
+function filesTouchBrowserSurface(files: string[]): boolean {
+  return files.some((file) => {
+    const lower = file.toLowerCase();
+    return (
+      lower.includes('/page') ||
+      lower.includes('/pages/') ||
+      lower.includes('/routes/') ||
+      lower.includes('/components/') ||
+      lower.endsWith('.tsx') ||
+      lower.endsWith('.jsx') ||
+      lower.includes('playwright') ||
+      lower.includes('e2e')
+    );
+  });
+}
+
+function buildDeltaVerificationLeads(
+  inventory: UnpackRepoInventory,
+  comparison: InventoryComparison
+): DeltaVerificationLead[] {
+  const packageManager = packageManagerForInventory(inventory);
+  const changedFiles = changedFilesForComparison(comparison);
+  const browserTouched = filesTouchBrowserSurface(changedFiles);
+  const leads: DeltaVerificationLead[] = [];
+
+  for (const manifest of inventory.manifests) {
+    if (manifest.kind !== 'package.json') continue;
+    for (const script of manifest.scripts) {
+      const lower = script.toLowerCase();
+      const relevant =
+        lower.includes('test') ||
+        lower.includes('e2e') ||
+        lower.includes('playwright') ||
+        lower.includes('qa') ||
+        lower.includes('type') ||
+        lower.includes('lint');
+      if (!relevant) continue;
+      if (!browserTouched && (lower.includes('e2e') || lower.includes('playwright'))) continue;
+      leads.push({
+        command: commandForPackageScript(script, packageManager),
+        confidence: scriptConfidence(script),
+        reason: browserTouched
+          ? 'Changed files touch UI/browser-shaped paths; this script is the closest local verification command.'
+          : 'Repo manifest exposes this local verification command for changed code.',
+        sources: [manifest.path, ...changedFiles.slice(0, 3)],
+      });
+    }
+  }
+
+  const qa = inventory.qa_readiness;
+  if (qa?.status === 'ready' || qa?.status === 'partial') {
+    const runnerSignal = qa.signals.find(
+      (signal) => signal.id === 'browser_runner' || signal.label.toLowerCase().includes('runner')
+    );
+    if (runnerSignal && browserTouched) {
+      leads.push({
+        command: 'Run the detected browser QA flow',
+        confidence: qa.status === 'ready' ? 'high' : 'medium',
+        reason: `${qa.status} QA posture with ${qa.suggested_flows.length} suggested flow${qa.suggested_flows.length === 1 ? '' : 's'}; use the closest route to the changed files.`,
+        sources: [
+          ...runnerSignal.sources,
+          ...qa.suggested_flows.flatMap((flow) => flow.sources),
+        ].slice(0, 6),
+      });
+    }
+  }
+
+  for (const hint of inventory.history_brief?.test_hints ?? []) {
+    const match = hint.reason.match(/`([^`]+)`/);
+    const command = match?.[1]
+      ? match[1].includes(' ')
+        ? match[1]
+        : commandForPackageScript(match[1], packageManager)
+      : 'Use historical verification hint';
+    leads.push({
+      command,
+      confidence: 'medium',
+      reason: hint.reason,
+      sources: [hint.path],
+    });
+  }
+
+  if (leads.length === 0 && changedFiles.length > 0) {
+    leads.push({
+      command: 'Add or identify a local verification command',
+      confidence: 'low',
+      reason:
+        'The snapshot changed files, but the inventory did not expose a clear test, QA, lint, or typecheck command.',
+      sources: changedFiles.slice(0, 6),
+    });
+  }
+
+  return dedupeVerificationLeads(leads);
+}
+
+function buildInventoryComparison(
+  current: UnpackRepoInventory,
+  previous: UnpackRepoInventory,
+  previousRow: UnpackReportRecord
+): InventoryComparison {
+  const currentQa = current.qa_readiness;
+  const previousQa = previous.qa_readiness;
+  const currentHealth = current.repo_health;
+  const previousHealth = previous.repo_health;
+  const currentGraph = current.repo_graph;
+  const previousGraph = previous.repo_graph;
+
+  const deltas: SnapshotDelta[] = [
+    numericDelta('Files scanned', current.files_scanned, previous.files_scanned),
+    numericDelta('Bytes scanned', current.bytes_scanned, previous.bytes_scanned),
+  ];
+
+  if (currentQa && previousQa) {
+    deltas.push(
+      numericDelta('QA score', currentQa.score, previousQa.score, {
+        suffix: '/100',
+        detail:
+          currentQa.status === previousQa.status
+            ? `Status stayed ${currentQa.status}.`
+            : `Status moved ${previousQa.status} -> ${currentQa.status}.`,
+      })
+    );
+  }
+
+  if (currentHealth && previousHealth) {
+    deltas.push(
+      numericDelta('Health score', currentHealth.average_score, previousHealth.average_score, {
+        precision: 1,
+        suffix: '/10',
+      }),
+      numericDelta('Health hotspots', currentHealth.hotspot_count, previousHealth.hotspot_count, {
+        lowerIsBetter: true,
+      })
+    );
+  }
+
+  if (currentGraph && previousGraph) {
+    deltas.push(
+      numericDelta('Graph nodes', currentGraph.nodes.length, previousGraph.nodes.length),
+      numericDelta('Graph edges', currentGraph.edges.length, previousGraph.edges.length)
+    );
+  }
+
+  const currentFiles = current.all_files ?? [];
+  const previousFiles = previous.all_files ?? [];
+  const addedFiles = setDifference(currentFiles, previousFiles, 8);
+  const removedFiles = setDifference(previousFiles, currentFiles, 8);
+  const addedStackTags = setDifference(current.stack_tags ?? [], previous.stack_tags ?? [], 8);
+  const removedStackTags = setDifference(previous.stack_tags ?? [], current.stack_tags ?? [], 8);
+
+  return {
+    previousId: previousRow.id,
+    previousCreatedAt: previousRow.created_at,
+    previousCommit: previous.commit_sha,
+    currentCommit: current.commit_sha,
+    verificationLeads: [],
+    deltas,
+    addedFiles,
+    removedFiles,
+    addedStackTags,
+    removedStackTags,
+  };
+}
+
 export default function RepoUnpacked() {
   const [repoPath, setRepoPath] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
@@ -246,6 +563,8 @@ export default function RepoUnpacked() {
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [importedGraph, setImportedGraph] = useState<ImportedGraphState | null>(null);
   const [graphImporting, setGraphImporting] = useState(false);
+  const [comparison, setComparison] = useState<InventoryComparison | null>(null);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
   const graphImportInputRef = useRef<HTMLInputElement | null>(null);
 
   // Restore last repo path
@@ -304,6 +623,70 @@ export default function RepoUnpacked() {
       cancelled = true;
     };
   }, [timelineRepoPath, historyTick]);
+
+  useEffect(() => {
+    if (!active?.inventory || !isTauriAvailable()) {
+      setComparison(null);
+      setComparisonLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setComparisonLoading(true);
+    setComparison(null);
+    (async () => {
+      try {
+        const rows = await listRepoUnpackReports(active.inventory.repo_path, 20);
+        const prior = rows.find((row) => row.id !== active.reportId && row.status !== 'failed');
+        if (!prior) {
+          if (!cancelled) setComparison(null);
+          return;
+        }
+        const previousRow = await getRepoUnpackReport(prior.id);
+        const previousInventory = parseInventoryJson(previousRow.inventory_json);
+        if (!previousInventory) {
+          if (!cancelled) setComparison(null);
+          return;
+        }
+        const nextComparison = buildInventoryComparison(
+          active.inventory,
+          previousInventory,
+          previousRow
+        );
+        if (nextComparison.previousCommit && nextComparison.currentCommit) {
+          try {
+            nextComparison.commitRange = await compareUnpackSnapshotCommits(
+              active.inventory.repo_path,
+              nextComparison.previousCommit,
+              nextComparison.currentCommit
+            );
+          } catch (err: unknown) {
+            nextComparison.commitRangeError = err instanceof Error ? err.message : String(err);
+          }
+        }
+        nextComparison.verificationLeads = buildDeltaVerificationLeads(
+          active.inventory,
+          nextComparison
+        );
+        try {
+          nextComparison.outcomeEvidence = await getUnpackOutcomeEvidence(
+            active.inventory.repo_path
+          );
+        } catch (err: unknown) {
+          nextComparison.outcomeError = err instanceof Error ? err.message : String(err);
+        }
+        if (!cancelled) setComparison(nextComparison);
+      } catch {
+        if (!cancelled) setComparison(null);
+      } finally {
+        if (!cancelled) setComparisonLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [active?.inventory, active?.reportId]);
 
   const handleOpenTimeline = useCallback((repoPath: string, repoName: string) => {
     setTimelineRepoPath(repoPath);
@@ -664,6 +1047,14 @@ export default function RepoUnpacked() {
             importedGraph={importedGraph}
             onImportGraph={handleImportGraphClick}
             graphImporting={graphImporting}
+          />
+        )}
+
+        {active?.inventory && (
+          <InventoryComparisonPanel
+            comparison={comparison}
+            loading={comparisonLoading}
+            repoPath={active.inventory.repo_path}
           />
         )}
 
@@ -1572,6 +1963,60 @@ function CodebaseHistoryBriefPanel({
   );
 }
 
+type ConfidenceLevel = 'high' | 'medium' | 'low';
+
+type MetricConfidence = {
+  level: ConfidenceLevel;
+  detail: string;
+  caveats: string[];
+};
+
+function confidenceTone(level: ConfidenceLevel): string {
+  if (level === 'high') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+  if (level === 'medium') return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200';
+  return 'border-red-500/30 bg-red-500/10 text-red-200';
+}
+
+function confidenceLabel(level: ConfidenceLevel): string {
+  if (level === 'high') return 'High confidence';
+  if (level === 'medium') return 'Medium confidence';
+  return 'Low confidence';
+}
+
+function formatReadoutPacket(metric: ReadoutZoom): string {
+  const lines = [
+    `# ${metric.label}: ${metric.value}`,
+    '',
+    metric.detail,
+    '',
+    metric.description,
+    '',
+    `Evidence quality: ${confidenceLabel(metric.confidence.level)}`,
+    metric.confidence.detail,
+  ].filter(Boolean);
+
+  if (metric.confidence.caveats.length > 0) {
+    lines.push('', 'Caveats:');
+    for (const caveat of metric.confidence.caveats) {
+      lines.push(`- ${caveat}`);
+    }
+  }
+
+  if (metric.rows.length > 0) {
+    lines.push('', 'Supporting rows:');
+    for (const row of metric.rows.slice(0, 20)) {
+      const source = row.source ? ` [${row.source}]` : '';
+      lines.push(`- ${row.label}: ${row.value}${source}${row.detail ? ` - ${row.detail}` : ''}`);
+    }
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+function boundedSourceCount(sources: Array<string | null | undefined>): number {
+  return new Set(sources.filter((source): source is string => Boolean(source))).size;
+}
+
 function InventoryReadout({
   inventory,
   hasReport,
@@ -1596,6 +2041,88 @@ function InventoryReadout({
     graph && graph.nodes.length > 0
       ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200'
       : 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+  const qaSourceCount = qa ? boundedSourceCount(qa.signals.flatMap((signal) => signal.sources)) : 0;
+  const qaConfidence: MetricConfidence = qa
+    ? {
+        level:
+          qa.signals.length >= 5 && qaSourceCount >= 3
+            ? 'high'
+            : qa.signals.length >= 2
+              ? 'medium'
+              : 'low',
+        detail: `${qa.signals.length} readiness signals from ${qaSourceCount} distinct source path${qaSourceCount === 1 ? '' : 's'}.`,
+        caveats: [
+          'QA posture is a static repo scan; it does not prove the app boots or that tests currently pass.',
+          'Route suggestions come from file/config shape and still need a real browser run before release confidence.',
+        ],
+      }
+    : {
+        level: 'low',
+        detail: 'No QA readiness artifact was available in this inventory.',
+        caveats: [
+          'Run a fresh scan to compute QA posture before using this repo for review planning.',
+        ],
+      };
+  const healthConfidence: MetricConfidence = health
+    ? {
+        level:
+          !health.truncated && health.files_analyzed >= 50
+            ? 'high'
+            : health.files_analyzed >= 10
+              ? 'medium'
+              : 'low',
+        detail: `${health.files_analyzed.toLocaleString()} source file${health.files_analyzed === 1 ? '' : 's'} analyzed; ${health.files_with_test_signal.toLocaleString()} had adjacent test signals.`,
+        caveats: [
+          'Repo health is heuristic scoring over bounded samples, size, churn, structure, test adjacency, and I/O-shaped code.',
+          'A hotspot is a review lead, not proof of a defect; green scores can still hide semantic bugs.',
+          ...(health.truncated
+            ? [
+                'The candidate set was truncated, so low-ranked files may be absent from this readout.',
+              ]
+            : []),
+        ],
+      }
+    : {
+        level: 'low',
+        detail: 'No deterministic repo-health artifact was available in this inventory.',
+        caveats: ['Run a fresh scan to compute health signals before using this number.'],
+      };
+  const graphConfidence: MetricConfidence = graph
+    ? {
+        level:
+          !graph.truncated && graph.nodes.length >= 20 && graph.edges.length >= 5
+            ? 'high'
+            : graph.nodes.length >= 5
+              ? 'medium'
+              : 'low',
+        detail: `${graph.nodes.length.toLocaleString()} graph node${graph.nodes.length === 1 ? '' : 's'} and ${graph.edges.length.toLocaleString()} edge${graph.edges.length === 1 ? '' : 's'} from local repo structure.`,
+        caveats: [
+          'Graph edges are navigation leads built from files, scripts, routes, commands, tables, tests, and decision markers.',
+          'The graph is not a full call graph and should not be treated as semantic dependency proof.',
+          ...(graph.truncated
+            ? ['The graph was truncated, so some lower-priority nodes or edges are not shown.']
+            : []),
+        ],
+      }
+    : {
+        level: 'low',
+        detail: 'No repo graph artifact was available in this inventory.',
+        caveats: ['Run a fresh scan to build the local graph before using graph counts.'],
+      };
+  const briefConfidence: MetricConfidence = {
+    level: hasReport && inventory.commit_sha ? 'high' : hasReport ? 'medium' : 'low',
+    detail: hasReport
+      ? `The normalized brief is tied to ${inventory.commit_sha?.slice(0, 12) ?? 'an unknown commit'} after scanning ${inventory.files_scanned.toLocaleString()} files.`
+      : `Only the deterministic scan is available for ${inventory.files_scanned.toLocaleString()} scanned files.`,
+    caveats: hasReport
+      ? [
+          'The brief is synthesized from bounded local evidence and should be checked against cited files before broad edits.',
+          'Regenerate after major branch changes so claims stay tied to the current commit.',
+        ]
+      : [
+          'Scan-only mode exposes raw inventory, but the normalized evidence-backed narrative has not been generated yet.',
+        ],
+  };
 
   const actions: Array<{ label: string; detail: string; tone: string }> = [];
   if (inventory.max_files_hit) {
@@ -1670,6 +2197,7 @@ function InventoryReadout({
       tone: qaTone,
       description:
         'Synthetic QA readiness is a deterministic scan over runner config, browser specs, local scripts, artifacts, routes, and QA docs.',
+      confidence: qaConfidence,
       rows: qa
         ? [
             { label: 'Status', value: qa.status },
@@ -1692,6 +2220,7 @@ function InventoryReadout({
       tone: healthTone,
       description:
         'Repo health scores bounded source samples using size, churn, structure, test-adjacency, I/O boundary, and loop-I/O signals.',
+      confidence: healthConfidence,
       rows: health
         ? [
             { label: 'Files analyzed', value: health.files_analyzed.toLocaleString() },
@@ -1718,6 +2247,7 @@ function InventoryReadout({
       tone: graphTone,
       description:
         'The repo graph is a local navigation artifact over files, package scripts, routes, commands, tables, tests, and decision markers.',
+      confidence: graphConfidence,
       rows: graph
         ? [
             { label: 'Nodes', value: graph.nodes.length.toLocaleString() },
@@ -1741,6 +2271,7 @@ function InventoryReadout({
         : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200',
       description:
         'The brief state tells you whether the local inventory has been turned into a normalized evidence-backed report.',
+      confidence: briefConfidence,
       rows: [
         { label: 'Repository', value: inventory.repo_name },
         { label: 'Files scanned', value: inventory.files_scanned.toLocaleString() },
@@ -1790,6 +2321,7 @@ type ReadoutZoom = {
   detail: string;
   tone: string;
   description: string;
+  confidence: MetricConfidence;
   rows: ReadoutZoomRow[];
 };
 
@@ -1809,6 +2341,7 @@ function ReadoutCard({ metric, onClick }: { metric: ReadoutZoom; onClick: () => 
       </div>
       <div className="mt-1 text-base font-semibold text-[var(--text-primary)]">{metric.value}</div>
       <div className="font-mono text-[10px] uppercase opacity-80">{metric.detail}</div>
+      <div className="mt-1 text-[10px] opacity-75">{confidenceLabel(metric.confidence.level)}</div>
     </button>
   );
 }
@@ -1822,20 +2355,74 @@ function ReadoutZoomDialog({
   repoPath: string;
   onOpenChange: (zoom: ReadoutZoom | null) => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(async () => {
+    if (!zoom) return;
+    await navigator.clipboard.writeText(formatReadoutPacket(zoom));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }, [zoom]);
+
   return (
     <Dialog open={Boolean(zoom)} onOpenChange={(open) => !open && onOpenChange(null)}>
       <DialogContent className="max-w-2xl">
         <div className="rounded-md border border-[var(--cv-line)] bg-[var(--bg-surface)] p-4">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              {zoom?.icon}
-              {zoom?.label}:{' '}
-              <span className="font-mono text-[var(--cv-accent)]">{zoom?.value}</span>
-            </DialogTitle>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <DialogTitle className="flex items-center gap-2 text-base">
+                {zoom?.icon}
+                {zoom?.label}:{' '}
+                <span className="font-mono text-[var(--cv-accent)]">{zoom?.value}</span>
+              </DialogTitle>
+              {zoom && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopy}
+                  className="shrink-0"
+                >
+                  <Copy size={13} className="mr-1.5" />
+                  {copied ? 'Copied' : 'Copy packet'}
+                </Button>
+              )}
+            </div>
             <DialogDescription className="text-xs leading-relaxed text-[var(--text-secondary)]">
               {zoom?.description}
             </DialogDescription>
           </DialogHeader>
+
+          {zoom && (
+            <div className="mt-4 rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 p-3 text-xs">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="font-medium text-[var(--text-primary)]">Evidence quality</div>
+                  <div className="mt-1 leading-relaxed text-[var(--text-secondary)]">
+                    {zoom.confidence.detail}
+                  </div>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'shrink-0 border text-[10px] uppercase tracking-wider',
+                    confidenceTone(zoom.confidence.level)
+                  )}
+                >
+                  {zoom.confidence.level}
+                </Badge>
+              </div>
+              {zoom.confidence.caveats.length > 0 && (
+                <div className="mt-2 grid gap-1">
+                  {zoom.confidence.caveats.map((caveat) => (
+                    <div key={caveat} className="flex gap-1.5 text-[var(--text-secondary)]">
+                      <AlertTriangle size={11} className="mt-0.5 shrink-0 text-yellow-300" />
+                      <span>{caveat}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="mt-4 max-h-[60vh] overflow-y-auto rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45">
             {zoom?.rows.map((row) => (
@@ -1863,6 +2450,1123 @@ function ReadoutZoomDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function snapshotToneClass(tone: SnapshotDeltaTone): string {
+  if (tone === 'up') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+  if (tone === 'down') return 'border-red-500/30 bg-red-500/10 text-red-200';
+  if (tone === 'changed') return 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200';
+  return 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+}
+
+function outcomeCalibrationTone(calibration: string): string {
+  if (calibration === 'raises') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+  if (calibration === 'lowers') return 'border-red-500/30 bg-red-500/10 text-red-200';
+  if (calibration === 'mixed') return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200';
+  return 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+}
+
+function outcomeStatusTone(status: string, pass?: boolean): string {
+  if (pass === true) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+  if (pass === false) return 'border-red-500/30 bg-red-500/10 text-red-200';
+  const normalized = status.trim().toLowerCase();
+  if (['satisfied', 'passed', 'pass', 'completed', 'success', 'verified'].includes(normalized)) {
+    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+  }
+  if (
+    ['blocked', 'failed', 'fail', 'error', 'errored', 'timeout', 'cancelled'].includes(normalized)
+  ) {
+    return 'border-red-500/30 bg-red-500/10 text-red-200';
+  }
+  return 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+}
+
+function trustActionTone(priority: string): string {
+  const normalized = priority.trim().toLowerCase();
+  if (normalized === 'high') return 'border-red-500/30 bg-red-500/10 text-red-200';
+  if (normalized === 'medium') return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200';
+  return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+}
+
+function outcomeTrendTone(direction: string): string {
+  const normalized = direction.trim().toLowerCase();
+  if (normalized === 'regressing' || normalized === 'persistent_risk') {
+    return 'border-red-500/30 bg-red-500/10 text-red-200';
+  }
+  if (normalized === 'mixed' || normalized === 'flat' || normalized === 'sparse') {
+    return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200';
+  }
+  if (normalized === 'improving' || normalized === 'stable_green') {
+    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+  }
+  return 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+}
+
+function trendRiskCount(window: UnpackOutcomeEvidence['trend']['recent']): number {
+  return window.failure_count + window.finding_count + window.review_failure_count;
+}
+
+function trendWindowDateRange(window: UnpackOutcomeEvidence['trend']['recent']): string {
+  if (!window.newest_at && !window.oldest_at) return 'no dated rows';
+  if (window.newest_at === window.oldest_at) return formatOutcomeDate(window.newest_at ?? '');
+  return `${formatOutcomeDate(window.oldest_at ?? '')} - ${formatOutcomeDate(window.newest_at ?? '')}`;
+}
+
+function formatOutcomeDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function commitLabel(sha: string | null): string {
+  return sha ? sha.slice(0, 12) : 'unknown';
+}
+
+function shortCommit(sha: string): string {
+  return sha.slice(0, 8);
+}
+
+type OutcomeMetricKind = 'reviews' | 'qa' | 'gates' | 'findings';
+
+type OutcomeMetric = {
+  kind: OutcomeMetricKind;
+  label: string;
+  value: string | number;
+  bad: number;
+  detail: string;
+};
+
+type OutcomeZoomRow = {
+  label: string;
+  value: string;
+  detail?: string;
+  source?: string;
+};
+
+function outcomeMetricRows(
+  metric: OutcomeMetric,
+  evidence: UnpackOutcomeEvidence
+): OutcomeZoomRow[] {
+  if (metric.kind === 'reviews') {
+    return evidence.reviews.slice(0, 12).map((review) => ({
+      label: review.review_type || 'review',
+      value: review.status,
+      detail: [
+        formatOutcomeDate(review.created_at),
+        review.review_action ? `action ${review.review_action}` : null,
+        review.findings_count != null ? `${review.findings_count} findings` : null,
+        review.score_composite != null ? `score ${review.score_composite}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    }));
+  }
+
+  if (metric.kind === 'qa') {
+    return evidence.qa_runs.slice(0, 12).map((run) => ({
+      label: run.goal || run.route || run.loop_id,
+      value: run.pass ? 'pass' : 'fail',
+      detail: [
+        run.runner_type,
+        formatOutcomeDate(run.created_at),
+        `${run.duration_ms}ms`,
+        run.console_errors > 0 ? `${run.console_errors} console errors` : null,
+        run.error,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    }));
+  }
+
+  if (metric.kind === 'gates') {
+    return evidence.procedure_events.slice(0, 12).map((event) => ({
+      label: event.step_id,
+      value: event.status,
+      detail: [event.source, formatOutcomeDate(event.created_at), event.summary, event.artifact]
+        .filter(Boolean)
+        .join(' · '),
+    }));
+  }
+
+  return evidence.recurring_findings.slice(0, 12).map((finding) => ({
+    label: finding.severity || 'finding',
+    value: finding.title || 'Untitled finding',
+    detail: formatOutcomeDate(finding.created_at),
+    source: finding.file_path ?? undefined,
+  }));
+}
+
+function formatOutcomeMetricPacket(metric: OutcomeMetric, evidence: UnpackOutcomeEvidence): string {
+  const rows = outcomeMetricRows(metric, evidence);
+  const lines = [
+    `# Outcome calibration: ${metric.label}`,
+    '',
+    `Value: ${metric.value}`,
+    metric.detail,
+    '',
+    `Calibration: ${evidence.calibration}`,
+    evidence.summary,
+    '',
+    `Trend: ${evidence.trend.direction} (${evidence.trend.confidence}, ${evidence.trend.total_signals} signals)`,
+    evidence.trend.summary,
+  ].filter(Boolean);
+
+  lines.push('', 'Evidence rows:');
+  if (rows.length === 0) {
+    lines.push('- No stored rows for this outcome bucket yet.');
+  } else {
+    for (const row of rows) {
+      const source = row.source ? ` [${row.source}]` : '';
+      lines.push(`- ${row.label}: ${row.value}${source}${row.detail ? ` - ${row.detail}` : ''}`);
+    }
+  }
+
+  if (evidence.trust_actions.length > 0) {
+    lines.push('', 'Trust actions:');
+    for (const action of evidence.trust_actions.slice(0, 8)) {
+      const source = action.source_path ? ` [${action.source_path}]` : '';
+      const command = action.command ? ` Command: ${action.command}.` : '';
+      lines.push(`- ${action.priority}: ${action.label}${source} - ${action.detail}${command}`);
+    }
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+function OutcomeMetricDialog({
+  metric,
+  evidence,
+  repoPath,
+  onOpenChange,
+}: {
+  metric: OutcomeMetric | null;
+  evidence: UnpackOutcomeEvidence;
+  repoPath: string;
+  onOpenChange: (metric: OutcomeMetric | null) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const rows = metric ? outcomeMetricRows(metric, evidence) : [];
+  const handleCopy = useCallback(async () => {
+    if (!metric) return;
+    await navigator.clipboard.writeText(formatOutcomeMetricPacket(metric, evidence));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }, [evidence, metric]);
+
+  return (
+    <Dialog open={Boolean(metric)} onOpenChange={(open) => !open && onOpenChange(null)}>
+      <DialogContent className="max-w-2xl">
+        <div className="rounded-md border border-[var(--cv-line)] bg-[var(--bg-surface)] p-4">
+          <DialogHeader>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <CheckCircle2 size={14} className="text-[var(--cv-accent)]" />
+                {metric?.label}:{' '}
+                <span className="font-mono text-[var(--cv-accent)]">{metric?.value}</span>
+              </DialogTitle>
+              {metric && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopy}
+                  className="shrink-0"
+                >
+                  <Copy size={13} className="mr-1.5" />
+                  {copied ? 'Copied' : 'Copy packet'}
+                </Button>
+              )}
+            </div>
+            <DialogDescription className="text-xs leading-relaxed text-[var(--text-secondary)]">
+              Stored review, QA, procedure, and finding outcomes used to calibrate trust in this
+              repo&apos;s unpack delta.
+            </DialogDescription>
+          </DialogHeader>
+
+          {metric && (
+            <div className="mt-4 rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 p-3 text-xs">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="font-medium text-[var(--text-primary)]">{metric.label}</div>
+                  <div className="mt-1 leading-relaxed text-[var(--text-secondary)]">
+                    {metric.detail}
+                  </div>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'shrink-0 border text-[10px] uppercase tracking-wider',
+                    metric.bad > 0
+                      ? 'border-red-500/30 bg-red-500/10 text-red-200'
+                      : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                  )}
+                >
+                  {metric.bad > 0 ? `${metric.bad} risk` : 'clear'}
+                </Badge>
+              </div>
+              <div className="mt-2 leading-relaxed text-[var(--text-secondary)]">
+                {evidence.summary}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4 max-h-[60vh] overflow-y-auto rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45">
+            {rows.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-[var(--text-secondary)]">
+                No stored rows for this outcome bucket yet.
+              </div>
+            ) : (
+              rows.map((row) => (
+                <div
+                  key={`${row.label}-${row.value}-${row.detail ?? ''}`}
+                  className="grid gap-1 border-b border-[var(--cv-line)]/50 px-3 py-2 text-xs last:border-0 sm:grid-cols-[180px,1fr]"
+                >
+                  <div className="font-medium text-[var(--text-primary)]">{row.label}</div>
+                  <div>
+                    <div className="font-mono text-[var(--cv-accent)]">{row.value}</div>
+                    {row.detail && (
+                      <div className="mt-0.5 leading-relaxed text-[var(--text-secondary)]">
+                        {row.detail}
+                      </div>
+                    )}
+                    {row.source && (
+                      <div className="mt-1">
+                        <SourceLink path={row.source} repoPath={repoPath} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type ComparisonDeltaZoomRow = {
+  label: string;
+  value: string;
+  detail?: string;
+  source?: string;
+};
+
+function comparisonDeltaRows(
+  delta: SnapshotDelta,
+  comparison: InventoryComparison
+): ComparisonDeltaZoomRow[] {
+  const rows: ComparisonDeltaZoomRow[] = [
+    { label: 'Current value', value: delta.current, detail: delta.detail },
+    { label: 'Previous value', value: delta.previous },
+    { label: 'Movement', value: delta.delta, detail: `Tone: ${delta.tone}` },
+    {
+      label: 'Baseline unpack',
+      value: new Date(comparison.previousCreatedAt).toLocaleString(),
+      detail: `commit ${commitLabel(comparison.previousCommit)}`,
+    },
+    {
+      label: 'Current unpack',
+      value: commitLabel(comparison.currentCommit),
+      detail:
+        comparison.currentCommit === comparison.previousCommit
+          ? 'Same commit as baseline.'
+          : 'Different commit from baseline.',
+    },
+  ];
+
+  if (comparison.commitRange) {
+    rows.push({
+      label: 'Commits between snapshots',
+      value: comparison.commitRange.commit_count.toLocaleString(),
+      detail: comparison.commitRange.truncated
+        ? 'Latest commits are shown in the panel.'
+        : undefined,
+    });
+    for (const commit of comparison.commitRange.commits.slice(0, 5)) {
+      rows.push({
+        label: shortCommit(commit.sha),
+        value: `+${commit.additions.toLocaleString()} / -${commit.deletions.toLocaleString()}`,
+        detail: `${commit.date || 'unknown date'} · ${commit.subject || '(no subject)'}`,
+        source: commit.files[0]?.path,
+      });
+    }
+  } else if (comparison.commitRangeError) {
+    rows.push({
+      label: 'Commit-range evidence',
+      value: 'unavailable',
+      detail: comparison.commitRangeError,
+    });
+  }
+
+  if (comparison.outcomeEvidence) {
+    rows.push({
+      label: 'Outcome calibration',
+      value: comparison.outcomeEvidence.calibration,
+      detail: comparison.outcomeEvidence.summary,
+    });
+    rows.push({
+      label: 'Outcome trend',
+      value: comparison.outcomeEvidence.trend.direction,
+      detail: comparison.outcomeEvidence.trend.summary,
+    });
+    for (const action of comparison.outcomeEvidence.trust_actions.slice(0, 3)) {
+      rows.push({
+        label: action.label,
+        value: action.priority,
+        detail: [action.detail, action.command ? `Command: ${action.command}` : null]
+          .filter(Boolean)
+          .join(' '),
+        source: action.source_path ?? undefined,
+      });
+    }
+  }
+
+  for (const lead of comparison.verificationLeads.slice(0, 4)) {
+    rows.push({
+      label: lead.command,
+      value: lead.confidence,
+      detail: lead.reason,
+      source: lead.sources[0],
+    });
+  }
+
+  for (const file of comparison.addedFiles.slice(0, 4)) {
+    rows.push({ label: 'Added file', value: file, source: file });
+  }
+  for (const file of comparison.removedFiles.slice(0, 4)) {
+    rows.push({ label: 'Removed file', value: file });
+  }
+
+  return rows;
+}
+
+function formatComparisonDeltaPacket(
+  delta: SnapshotDelta,
+  comparison: InventoryComparison
+): string {
+  const rows = comparisonDeltaRows(delta, comparison);
+  const lines = [
+    `# Snapshot delta: ${delta.label}`,
+    '',
+    `Current: ${delta.current}`,
+    `Previous: ${delta.previous}`,
+    `Delta: ${delta.delta}`,
+    delta.detail ?? '',
+    '',
+    `Baseline: ${new Date(comparison.previousCreatedAt).toLocaleString()} (${commitLabel(
+      comparison.previousCommit
+    )})`,
+    `Current commit: ${commitLabel(comparison.currentCommit)}`,
+  ].filter(Boolean);
+
+  lines.push('', 'Evidence rows:');
+  for (const row of rows.slice(0, 24)) {
+    const source = row.source ? ` [${row.source}]` : '';
+    lines.push(`- ${row.label}: ${row.value}${source}${row.detail ? ` - ${row.detail}` : ''}`);
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+function ComparisonDeltaDialog({
+  delta,
+  comparison,
+  repoPath,
+  onOpenChange,
+}: {
+  delta: SnapshotDelta | null;
+  comparison: InventoryComparison;
+  repoPath: string;
+  onOpenChange: (delta: SnapshotDelta | null) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const rows = delta ? comparisonDeltaRows(delta, comparison) : [];
+  const handleCopy = useCallback(async () => {
+    if (!delta) return;
+    await navigator.clipboard.writeText(formatComparisonDeltaPacket(delta, comparison));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }, [comparison, delta]);
+
+  return (
+    <Dialog open={Boolean(delta)} onOpenChange={(open) => !open && onOpenChange(null)}>
+      <DialogContent className="max-w-2xl">
+        <div className="rounded-md border border-[var(--cv-line)] bg-[var(--bg-surface)] p-4">
+          <DialogHeader>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <History size={14} className="text-[var(--cv-accent)]" />
+                {delta?.label}:{' '}
+                <span className="font-mono text-[var(--cv-accent)]">{delta?.current}</span>
+              </DialogTitle>
+              {delta && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopy}
+                  className="shrink-0"
+                >
+                  <Copy size={13} className="mr-1.5" />
+                  {copied ? 'Copied' : 'Copy packet'}
+                </Button>
+              )}
+            </div>
+            <DialogDescription className="text-xs leading-relaxed text-[var(--text-secondary)]">
+              Snapshot movement from the previous saved unpack to the active inventory, with commit,
+              outcome, and verification evidence where available.
+            </DialogDescription>
+          </DialogHeader>
+
+          {delta && (
+            <div className="mt-4 rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 p-3 text-xs">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="font-medium text-[var(--text-primary)]">Movement</div>
+                  <div className="mt-1 font-mono text-[var(--cv-accent)]">
+                    {delta.previous} {'->'} {delta.current}
+                  </div>
+                  {delta.detail && (
+                    <div className="mt-1 leading-relaxed text-[var(--text-secondary)]">
+                      {delta.detail}
+                    </div>
+                  )}
+                </div>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'shrink-0 border text-[10px] uppercase tracking-wider',
+                    snapshotToneClass(delta.tone)
+                  )}
+                >
+                  {delta.delta}
+                </Badge>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4 max-h-[60vh] overflow-y-auto rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45">
+            {rows.map((row) => (
+              <div
+                key={`${row.label}-${row.value}-${row.detail ?? ''}`}
+                className="grid gap-1 border-b border-[var(--cv-line)]/50 px-3 py-2 text-xs last:border-0 sm:grid-cols-[180px,1fr]"
+              >
+                <div className="font-medium text-[var(--text-primary)]">{row.label}</div>
+                <div>
+                  <div className="font-mono text-[var(--cv-accent)]">{row.value}</div>
+                  {row.detail && (
+                    <div className="mt-0.5 leading-relaxed text-[var(--text-secondary)]">
+                      {row.detail}
+                    </div>
+                  )}
+                  {row.source && (
+                    <div className="mt-1">
+                      <SourceLink path={row.source} repoPath={repoPath} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function OutcomeCalibrationPanel({
+  evidence,
+  repoPath,
+}: {
+  evidence: UnpackOutcomeEvidence;
+  repoPath: string;
+}) {
+  const [zoomMetric, setZoomMetric] = useState<OutcomeMetric | null>(null);
+  const totals: OutcomeMetric[] = [
+    {
+      kind: 'reviews',
+      label: 'Recent reviews',
+      value: evidence.review_count,
+      bad: evidence.failed_review_count,
+      detail: `${evidence.failed_review_count} failed or blocked review outcome${evidence.failed_review_count === 1 ? '' : 's'} in the recent sample.`,
+    },
+    {
+      kind: 'qa',
+      label: 'QA pass/fail',
+      value: `${evidence.qa_pass_count}/${evidence.qa_fail_count}`,
+      bad: evidence.qa_fail_count,
+      detail: `${evidence.qa_pass_count} passing QA run${evidence.qa_pass_count === 1 ? '' : 's'} and ${evidence.qa_fail_count} failing QA run${evidence.qa_fail_count === 1 ? '' : 's'}.`,
+    },
+    {
+      kind: 'gates',
+      label: 'Gates pass/fail',
+      value: `${evidence.procedure_pass_count}/${evidence.procedure_fail_count}`,
+      bad: evidence.procedure_fail_count,
+      detail: `${evidence.procedure_pass_count} satisfied procedure gate${evidence.procedure_pass_count === 1 ? '' : 's'} and ${evidence.procedure_fail_count} failed or blocked gate${evidence.procedure_fail_count === 1 ? '' : 's'}.`,
+    },
+    {
+      kind: 'findings',
+      label: 'Recent findings',
+      value: evidence.recurring_findings.length,
+      bad: 0,
+      detail: `${evidence.recurring_findings.length} recent review finding${evidence.recurring_findings.length === 1 ? '' : 's'} linked to this repo.`,
+    },
+  ];
+
+  return (
+    <div className="mt-3 rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 p-2.5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="cv-label">Outcome calibration</div>
+          <div className="mt-1 max-w-3xl text-xs leading-relaxed text-[var(--text-secondary)]">
+            {evidence.summary}
+          </div>
+        </div>
+        <Badge
+          variant="outline"
+          className={cn(
+            'shrink-0 border text-[10px] uppercase tracking-wider',
+            outcomeCalibrationTone(evidence.calibration)
+          )}
+        >
+          {evidence.calibration}
+        </Badge>
+      </div>
+
+      <div className="mt-3 rounded border border-[var(--cv-line)] bg-[var(--bg-surface)]/70 p-2.5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="cv-label">Outcome trend</div>
+            <div className="mt-1 max-w-3xl text-xs leading-relaxed text-[var(--text-secondary)]">
+              {evidence.trend.summary}
+            </div>
+          </div>
+          <Badge
+            variant="outline"
+            className={cn(
+              'shrink-0 border text-[10px] uppercase tracking-wider',
+              outcomeTrendTone(evidence.trend.direction)
+            )}
+          >
+            {evidence.trend.direction} · {evidence.trend.confidence}
+          </Badge>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {[evidence.trend.recent, evidence.trend.prior].map((window) => (
+            <div
+              key={window.label}
+              className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 p-2 text-xs"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                  {window.label}
+                </div>
+                <div className="font-mono text-[10px] text-[var(--text-muted)]">
+                  {trendWindowDateRange(window)}
+                </div>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Proof
+                  </div>
+                  <div className="mt-0.5 font-mono text-sm text-emerald-200">
+                    {window.proof_count}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Risk
+                  </div>
+                  <div className="mt-0.5 font-mono text-sm text-yellow-200">
+                    {trendRiskCount(window)}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-1.5 font-mono text-[10px] uppercase text-[var(--text-muted)]">
+                qa/proof failures {window.failure_count} · findings {window.finding_count} · review
+                failures {window.review_failure_count}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {evidence.trust_actions.length > 0 && (
+        <div className="mt-3 rounded border border-[var(--cv-line)] bg-[var(--bg-surface)]/70 p-2.5">
+          <div className="cv-label mb-2">Trust actions</div>
+          <div className="grid gap-2 lg:grid-cols-2">
+            {evidence.trust_actions.slice(0, 6).map((action) => (
+              <div
+                key={`${action.priority}-${action.label}-${action.source_id ?? action.source_path ?? ''}`}
+                className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 p-2 text-xs"
+              >
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="font-medium text-[var(--text-primary)]">{action.label}</div>
+                    <div className="mt-1 leading-relaxed text-[var(--text-secondary)]">
+                      {action.detail}
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      'shrink-0 border text-[10px] uppercase tracking-wider',
+                      trustActionTone(action.priority)
+                    )}
+                  >
+                    {action.priority}
+                  </Badge>
+                </div>
+                {action.command && (
+                  <div className="mt-2 rounded border border-[var(--cv-line)] bg-[var(--bg-surface)] px-2 py-1 font-mono text-[10px] text-[var(--cv-accent)]">
+                    {action.command}
+                  </div>
+                )}
+                {action.source_path && (
+                  <div className="mt-2">
+                    <SourceLink path={action.source_path} repoPath={repoPath} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 grid gap-2 md:grid-cols-4">
+        {totals.map((item) => (
+          <button
+            type="button"
+            key={item.label}
+            onClick={() => setZoomMetric(item)}
+            className="rounded border border-[var(--cv-line)] bg-[var(--bg-surface)]/70 p-2 text-left text-xs transition-colors hover:border-[var(--cv-accent)]/50 focus:outline-none focus:ring-2 focus:ring-[var(--cv-accent)]/35"
+          >
+            <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+              {item.label}
+            </div>
+            <div
+              className={cn(
+                'mt-1 font-mono text-sm',
+                item.bad > 0 ? 'text-red-200' : 'text-[var(--text-primary)]'
+              )}
+            >
+              {item.value}
+            </div>
+          </button>
+        ))}
+      </div>
+      <OutcomeMetricDialog
+        metric={zoomMetric}
+        evidence={evidence}
+        repoPath={repoPath}
+        onOpenChange={setZoomMetric}
+      />
+
+      {(evidence.qa_runs.length > 0 || evidence.procedure_events.length > 0) && (
+        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+          {evidence.qa_runs.length > 0 && (
+            <div>
+              <div className="cv-label mb-1.5">Recent QA runs</div>
+              <div className="space-y-1.5">
+                {evidence.qa_runs.slice(0, 4).map((run) => (
+                  <div
+                    key={run.id}
+                    className="rounded border border-[var(--cv-line)] bg-[var(--bg-surface)]/70 p-2 text-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-[var(--text-primary)]">
+                          {run.goal || run.route || run.loop_id}
+                        </div>
+                        <div className="mt-0.5 font-mono text-[10px] uppercase text-[var(--text-muted)]">
+                          {run.runner_type} · {formatOutcomeDate(run.created_at)} ·{' '}
+                          {run.duration_ms}ms
+                        </div>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'shrink-0 border text-[10px] uppercase tracking-wider',
+                          outcomeStatusTone('', run.pass)
+                        )}
+                      >
+                        {run.pass ? 'pass' : 'fail'}
+                      </Badge>
+                    </div>
+                    {(run.console_errors > 0 || run.error) && (
+                      <div className="mt-1.5 leading-relaxed text-red-200">
+                        {run.error || `${run.console_errors} console error(s)`}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {evidence.procedure_events.length > 0 && (
+            <div>
+              <div className="cv-label mb-1.5">Recent proof gates</div>
+              <div className="space-y-1.5">
+                {evidence.procedure_events.slice(0, 4).map((event) => (
+                  <div
+                    key={event.id}
+                    className="rounded border border-[var(--cv-line)] bg-[var(--bg-surface)]/70 p-2 text-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-[var(--text-primary)]">
+                          {event.step_id}
+                        </div>
+                        <div className="mt-0.5 font-mono text-[10px] uppercase text-[var(--text-muted)]">
+                          {event.source} · {formatOutcomeDate(event.created_at)}
+                        </div>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'shrink-0 border text-[10px] uppercase tracking-wider',
+                          outcomeStatusTone(event.status)
+                        )}
+                      >
+                        {event.status}
+                      </Badge>
+                    </div>
+                    <div className="mt-1.5 leading-relaxed text-[var(--text-secondary)]">
+                      {event.summary}
+                    </div>
+                    {event.artifact && (
+                      <div className="mt-1 font-mono text-[10px] text-[var(--text-muted)]">
+                        {event.artifact}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {evidence.recurring_findings.length > 0 && (
+        <div className="mt-3">
+          <div className="cv-label mb-1.5">Recent review findings</div>
+          <div className="flex flex-wrap gap-1.5">
+            {evidence.recurring_findings.slice(0, 6).map((finding) => (
+              <span
+                key={`${finding.file_path ?? 'repo'}-${finding.title ?? ''}-${finding.created_at}`}
+                className="rounded border border-[var(--cv-line)] bg-[var(--bg-surface)]/70 px-2 py-1 text-xs"
+              >
+                {finding.file_path ? (
+                  <SourceLink path={finding.file_path} repoPath={repoPath} />
+                ) : (
+                  <span className="text-[var(--text-secondary)]">repo</span>
+                )}
+                {finding.title && (
+                  <span className="ml-1 text-[var(--text-secondary)]">{finding.title}</span>
+                )}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InventoryComparisonPanel({
+  comparison,
+  loading,
+  repoPath,
+}: {
+  comparison: InventoryComparison | null;
+  loading: boolean;
+  repoPath: string;
+}) {
+  const [zoomDelta, setZoomDelta] = useState<SnapshotDelta | null>(null);
+
+  if (loading) {
+    return (
+      <div className="mt-4 rounded-md border border-[var(--cv-line)] bg-[var(--bg-surface)] p-3 text-xs text-[var(--text-secondary)]">
+        <div className="flex items-center gap-2">
+          <Loader2 size={14} className="animate-spin text-[var(--cv-accent)]" />
+          Comparing against the previous unpack for this repo…
+        </div>
+      </div>
+    );
+  }
+
+  if (!comparison) {
+    return (
+      <div className="mt-4 rounded-md border border-[var(--cv-line)] bg-[var(--bg-surface)] p-3 text-xs text-[var(--text-secondary)]">
+        <div className="flex items-center gap-2 text-[var(--text-primary)]">
+          <History size={14} className="text-[var(--cv-accent)]" />
+          No previous unpack baseline yet.
+        </div>
+        <div className="mt-1">
+          Generate another unpack later and this panel will show score, graph, stack, and file-list
+          movement between runs.
+        </div>
+      </div>
+    );
+  }
+
+  const commitChanged = comparison.currentCommit !== comparison.previousCommit;
+  return (
+    <div className="mt-4 rounded-md border border-[var(--cv-line)] bg-[var(--bg-surface)] p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
+            <History size={14} className="text-[var(--cv-accent)]" />
+            Changed since previous unpack
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-[var(--text-secondary)]">
+            Baseline from {new Date(comparison.previousCreatedAt).toLocaleString()} at{' '}
+            <span className="font-mono">{commitLabel(comparison.previousCommit)}</span>. Current
+            inventory is <span className="font-mono">{commitLabel(comparison.currentCommit)}</span>.
+          </p>
+        </div>
+        <Badge
+          variant="outline"
+          className={cn(
+            'shrink-0 border text-[10px] uppercase tracking-wider',
+            commitChanged
+              ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200'
+              : 'border-slate-500/30 bg-slate-500/10 text-slate-300'
+          )}
+        >
+          {commitChanged ? 'commit changed' : 'same commit'}
+        </Badge>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+        {comparison.deltas.map((delta) => (
+          <button
+            type="button"
+            key={delta.label}
+            onClick={() => setZoomDelta(delta)}
+            className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 p-2 text-left text-xs transition-colors hover:border-[var(--cv-accent)]/50 focus:outline-none focus:ring-2 focus:ring-[var(--cv-accent)]/35"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                  {delta.label}
+                </div>
+                <div className="mt-1 font-mono text-[var(--text-primary)]">{delta.current}</div>
+                <div className="text-[10px] text-[var(--text-muted)]">was {delta.previous}</div>
+              </div>
+              <Badge
+                variant="outline"
+                className={cn(
+                  'shrink-0 border text-[10px] uppercase tracking-wider',
+                  snapshotToneClass(delta.tone)
+                )}
+              >
+                {delta.delta}
+              </Badge>
+            </div>
+            {delta.detail && (
+              <div className="mt-1.5 leading-relaxed text-[var(--text-secondary)]">
+                {delta.detail}
+              </div>
+            )}
+          </button>
+        ))}
+      </div>
+      <ComparisonDeltaDialog
+        delta={zoomDelta}
+        comparison={comparison}
+        repoPath={repoPath}
+        onOpenChange={setZoomDelta}
+      />
+
+      {comparison.commitRange && (
+        <div className="mt-3 rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 p-2.5">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="cv-label">Commits between snapshots</div>
+            <div className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+              {comparison.commitRange.commit_count.toLocaleString()} commit
+              {comparison.commitRange.commit_count === 1 ? '' : 's'}
+              {comparison.commitRange.truncated ? ' · latest shown' : ''}
+            </div>
+          </div>
+          {comparison.commitRange.commits.length > 0 ? (
+            <div className="mt-2 grid gap-2">
+              {comparison.commitRange.commits.slice(0, 8).map((commit) => (
+                <div
+                  key={commit.sha}
+                  className="rounded border border-[var(--cv-line)] bg-[var(--bg-surface)]/70 p-2 text-xs"
+                >
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-[var(--cv-accent)]">
+                          {shortCommit(commit.sha)}
+                        </span>
+                        <span className="truncate text-[var(--text-primary)]">
+                          {commit.subject || '(no subject)'}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 font-mono text-[10px] uppercase text-[var(--text-muted)]">
+                        {commit.date || 'unknown date'} · {commit.author || 'unknown author'}
+                      </div>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className="shrink-0 border border-cyan-500/30 bg-cyan-500/10 text-[10px] uppercase tracking-wider text-cyan-200"
+                    >
+                      +{commit.additions.toLocaleString()} / -{commit.deletions.toLocaleString()}
+                    </Badge>
+                  </div>
+                  {commit.files.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {commit.files.slice(0, 6).map((file) => (
+                        <span
+                          key={`${commit.sha}-${file.path}`}
+                          className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)] px-1.5 py-0.5"
+                        >
+                          <SourceLink path={file.path} repoPath={repoPath} />
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-2 text-xs text-[var(--text-secondary)]">
+              No non-merge commits were found between these snapshot commits.
+            </div>
+          )}
+        </div>
+      )}
+
+      {comparison.commitRangeError && (
+        <div className="mt-3 rounded border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-xs leading-relaxed text-yellow-100">
+          Commit-range evidence was unavailable: {comparison.commitRangeError}
+        </div>
+      )}
+
+      {comparison.outcomeEvidence && (
+        <OutcomeCalibrationPanel evidence={comparison.outcomeEvidence} repoPath={repoPath} />
+      )}
+
+      {comparison.outcomeError && (
+        <div className="mt-3 rounded border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-xs leading-relaxed text-yellow-100">
+          Outcome calibration was unavailable: {comparison.outcomeError}
+        </div>
+      )}
+
+      {comparison.verificationLeads.length > 0 && (
+        <div className="mt-3 rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 p-2.5">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="cv-label">Delta verification leads</div>
+            <div className="text-[10px] text-[var(--text-muted)]">
+              Commands inferred from manifests, QA posture, history hints, and changed files.
+            </div>
+          </div>
+          <div className="mt-2 grid gap-2 lg:grid-cols-2">
+            {comparison.verificationLeads.map((lead) => (
+              <div
+                key={verificationLeadKey(lead)}
+                className="rounded border border-[var(--cv-line)] bg-[var(--bg-surface)]/70 p-2 text-xs"
+              >
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="font-mono text-[var(--cv-accent)]">{lead.command}</div>
+                    <div className="mt-1 leading-relaxed text-[var(--text-secondary)]">
+                      {lead.reason}
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      'shrink-0 border text-[10px] uppercase tracking-wider',
+                      confidenceTone(lead.confidence)
+                    )}
+                  >
+                    {lead.confidence}
+                  </Badge>
+                </div>
+                {lead.sources.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {lead.sources.map((source) => (
+                      <span
+                        key={`${lead.command}-${source}`}
+                        className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)] px-1.5 py-0.5"
+                      >
+                        <SourceLink path={source} repoPath={repoPath} />
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(comparison.addedStackTags.length > 0 || comparison.removedStackTags.length > 0) && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {comparison.addedStackTags.map((tag) => (
+            <Badge
+              key={`added-${tag}`}
+              variant="secondary"
+              className="border border-emerald-500/30 bg-emerald-500/10 text-[10px] uppercase tracking-wider text-emerald-200"
+            >
+              + {tag}
+            </Badge>
+          ))}
+          {comparison.removedStackTags.map((tag) => (
+            <Badge
+              key={`removed-${tag}`}
+              variant="secondary"
+              className="border border-red-500/30 bg-red-500/10 text-[10px] uppercase tracking-wider text-red-200"
+            >
+              - {tag}
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {(comparison.addedFiles.length > 0 || comparison.removedFiles.length > 0) && (
+        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+          {comparison.addedFiles.length > 0 && (
+            <div>
+              <div className="cv-label mb-1.5">New files in scan</div>
+              <div className="space-y-1">
+                {comparison.addedFiles.map((file) => (
+                  <div
+                    key={`added-${file}`}
+                    className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 px-2 py-1 text-xs"
+                  >
+                    <SourceLink path={file} repoPath={repoPath} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {comparison.removedFiles.length > 0 && (
+            <div>
+              <div className="cv-label mb-1.5">No longer in scan</div>
+              <div className="space-y-1">
+                {comparison.removedFiles.map((file) => (
+                  <div
+                    key={`removed-${file}`}
+                    className="rounded border border-[var(--cv-line)] bg-[var(--bg-main)]/45 px-2 py-1 text-xs text-[var(--text-secondary)]"
+                  >
+                    {file}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

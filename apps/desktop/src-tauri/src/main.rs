@@ -425,6 +425,8 @@ fn main() {
             commands::unpack::generate_unpack_report,
             commands::unpack::list_repo_unpack_reports,
             commands::unpack::get_repo_unpack_report,
+            commands::unpack::compare_unpack_snapshot_commits,
+            commands::unpack::get_unpack_outcome_evidence,
             commands::unpack::delete_repo_unpack_report,
             commands::unpack::export_repo_unpack_report,
             commands::unpack::import_repo_graph_json,

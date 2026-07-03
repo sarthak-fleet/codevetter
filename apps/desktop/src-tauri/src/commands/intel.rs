@@ -165,12 +165,49 @@ pub struct WeeklyVelocityBucket {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntelCommitEvidence {
+    pub sha: String,
+    pub date: String,
+    pub subject: String,
+    pub tool: String,
+    pub is_ai: bool,
+    pub additions: u64,
+    pub deletions: u64,
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntelBlindSpotCommit {
+    pub sha: String,
+    pub date: String,
+    pub subject: String,
+    pub tool: String,
+    pub additions: u64,
+    pub deletions: u64,
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntelAttributionBlindSpot {
+    pub kind: String,
+    pub label: String,
+    pub severity: String,
+    pub metric_impact: String,
+    pub detail: String,
+    pub commits: u64,
+    pub additions: u64,
+    pub deletions: u64,
+    pub sample_commits: Vec<IntelBlindSpotCommit>,
+    pub sample_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepoAttributionReport {
     pub repo_path: String,
     pub windows: Vec<WindowReport>,
     pub by_author: Vec<AuthorRow>,
     pub top_files: Vec<FileChurn>,
-    pub day_of_week: [u64; 7], // Mon..Sun
+    pub day_of_week: [u64; 7],               // Mon..Sun
     pub daily_series: Vec<DailyAttribution>, // last 90d, zero-filled
     // v1.1.77 additions:
     /// 7 rows × 24 cols. row 0 = Mon, col 0 = 00:00 (UTC). Cell = commit count.
@@ -179,6 +216,11 @@ pub struct RepoAttributionReport {
     pub weekly_velocity: Vec<WeeklyVelocityBucket>,
     /// Top 15 directories by churn (additions + deletions), all time.
     pub top_directories: Vec<DirectoryChurn>,
+    /// Bounded latest commits with classification and touched-file evidence for metric drilldowns.
+    pub recent_commits: Vec<IntelCommitEvidence>,
+    /// Deterministic warnings for attribution/counting blind spots such as generated churn,
+    /// release noise, bulk formatting, and weak AI markers.
+    pub blind_spots: Vec<IntelAttributionBlindSpot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -396,9 +438,7 @@ fn classify_commit(c: &ParsedCommit) -> (&'static str, bool) {
 // ─── Public commands ────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn attribute_repo_commits(
-    repo_path: String,
-) -> Result<RepoAttributionReport, String> {
+pub async fn attribute_repo_commits(repo_path: String) -> Result<RepoAttributionReport, String> {
     attribute_repo_path(&repo_path)
 }
 
@@ -428,7 +468,10 @@ pub(crate) fn compute_ai_acceleration(repo_path: &str) -> Option<AiAcceleration>
         .collect();
     classified.sort_by_key(|(ts, _)| *ts);
 
-    let first_ai_ts = classified.iter().find(|(_, is_ai)| *is_ai).map(|(ts, _)| *ts)?;
+    let first_ai_ts = classified
+        .iter()
+        .find(|(_, is_ai)| *is_ai)
+        .map(|(ts, _)| *ts)?;
     let earliest = classified.first()?.0;
     let latest = classified.last()?.0;
 
@@ -441,8 +484,14 @@ pub(crate) fn compute_ai_acceleration(repo_path: &str) -> Option<AiAcceleration>
     // Per-day commit rates, counted as "commits whose timestamp is strictly
     // before / on-or-after the first AI commit". Includes AI commits in the
     // after window — they're the cause of the acceleration we're measuring.
-    let before_count = classified.iter().filter(|(ts, _)| *ts < first_ai_ts).count() as f64;
-    let after_count = classified.iter().filter(|(ts, _)| *ts >= first_ai_ts).count() as f64;
+    let before_count = classified
+        .iter()
+        .filter(|(ts, _)| *ts < first_ai_ts)
+        .count() as f64;
+    let after_count = classified
+        .iter()
+        .filter(|(ts, _)| *ts >= first_ai_ts)
+        .count() as f64;
     let before_rate = before_count / before_days;
     let after_rate = after_count / after_days;
     if before_rate <= 0.0 {
@@ -474,9 +523,7 @@ pub struct AiAcceleration {
 }
 
 #[tauri::command]
-pub async fn get_ai_acceleration(
-    repo_path: String,
-) -> Result<Option<AiAcceleration>, String> {
+pub async fn get_ai_acceleration(repo_path: String) -> Result<Option<AiAcceleration>, String> {
     Ok(compute_ai_acceleration(&repo_path))
 }
 
@@ -555,6 +602,8 @@ fn summarize(repo_path: String, commits: &[ParsedCommit]) -> RepoAttributionRepo
     let hour_of_week = hour_of_week_histogram(commits);
     let weekly_velocity = weekly_velocity_12w(&classified, now_ts);
     let top_directories = directory_churn(commits, &classified, 15);
+    let recent_commits = recent_commit_evidence(&classified, 24);
+    let blind_spots = attribution_blind_spots(&classified, 8);
 
     RepoAttributionReport {
         repo_path,
@@ -566,6 +615,8 @@ fn summarize(repo_path: String, commits: &[ParsedCommit]) -> RepoAttributionRepo
         hour_of_week,
         weekly_velocity,
         top_directories,
+        recent_commits,
+        blind_spots,
     }
 }
 
@@ -653,7 +704,10 @@ fn window_for<'a>(
 pub(crate) fn is_revert_or_fixup(body: &str) -> bool {
     let subject = body.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
     let lower = subject.trim_start().to_ascii_lowercase();
-    if lower.starts_with("revert ") || lower.starts_with("revert: ") || lower.starts_with("revert\"") {
+    if lower.starts_with("revert ")
+        || lower.starts_with("revert: ")
+        || lower.starts_with("revert\"")
+    {
         return true;
     }
     if lower.starts_with("fixup!") || lower.starts_with("squash!") || lower.starts_with("amend!") {
@@ -666,11 +720,19 @@ pub(crate) fn is_revert_or_fixup(body: &str) -> bool {
         let mut i = 3;
         if i < bytes.len() && bytes[i] == b'(' {
             // skip to matching `)`
-            while i < bytes.len() && bytes[i] != b')' { i += 1; }
-            if i < bytes.len() { i += 1; }
+            while i < bytes.len() && bytes[i] != b')' {
+                i += 1;
+            }
+            if i < bytes.len() {
+                i += 1;
+            }
         }
-        if i < bytes.len() && bytes[i] == b'!' { i += 1; }
-        if i < bytes.len() && bytes[i] == b':' { return true; }
+        if i < bytes.len() && bytes[i] == b'!' {
+            i += 1;
+        }
+        if i < bytes.len() && bytes[i] == b':' {
+            return true;
+        }
     }
     false
 }
@@ -709,18 +771,20 @@ fn author_rollup<'a>(classified: &[ClassifiedRef<'a>]) -> Vec<AuthorRow> {
             c.commit.author_email.to_lowercase()
         };
 
-        let entry = by_email.entry(email_key.clone()).or_insert_with(|| AuthorRow {
-            name: c.commit.author_name.clone(),
-            email: c.commit.author_email.clone(),
-            commits: 0,
-            ai_commits: 0,
-            human_commits: 0,
-            additions: 0,
-            deletions: 0,
-            active_days: 0,
-            last_commit: c.day.clone(),
-            tool_mix: Vec::new(),
-        });
+        let entry = by_email
+            .entry(email_key.clone())
+            .or_insert_with(|| AuthorRow {
+                name: c.commit.author_name.clone(),
+                email: c.commit.author_email.clone(),
+                commits: 0,
+                ai_commits: 0,
+                human_commits: 0,
+                additions: 0,
+                deletions: 0,
+                active_days: 0,
+                last_commit: c.day.clone(),
+                tool_mix: Vec::new(),
+            });
 
         entry.commits += 1;
         entry.additions += c.commit.additions;
@@ -834,7 +898,9 @@ fn daily_series_90d<'a>(classified: &[ClassifiedRef<'a>], now_ts: i64) -> Vec<Da
     };
     let mut out: Vec<DailyAttribution> = Vec::with_capacity(90);
     for i in 0..90 {
-        let day = (now_day - Duration::days(89 - i)).format("%Y-%m-%d").to_string();
+        let day = (now_day - Duration::days(89 - i))
+            .format("%Y-%m-%d")
+            .to_string();
         let (ai, human) = by_day.get(&day).copied().unwrap_or((0, 0));
         out.push(DailyAttribution {
             date: day,
@@ -859,10 +925,14 @@ fn unix_to_day_and_weekday(ts: i64) -> (String, usize) {
 }
 
 fn max_ts(commits: &[ParsedCommit]) -> i64 {
-    commits.iter().map(|c| c.timestamp).max().unwrap_or_else(|| {
-        // Empty repo: fall back to now so the empty windows return cleanly.
-        chrono::Utc::now().timestamp()
-    })
+    commits
+        .iter()
+        .map(|c| c.timestamp)
+        .max()
+        .unwrap_or_else(|| {
+            // Empty repo: fall back to now so the empty windows return cleanly.
+            chrono::Utc::now().timestamp()
+        })
 }
 
 // ─── v1.1.77 helpers ────────────────────────────────────────────────────────
@@ -906,7 +976,9 @@ fn weekly_velocity_12w<'a>(
     // Bucket the classified commits into weeks.
     let mut by_week: BTreeMap<NaiveDate, (u64, u64, u64, u64, u64)> = BTreeMap::new();
     for c in classified {
-        let Some(dt) = Utc.timestamp_opt(c.commit.timestamp, 0).single() else { continue; };
+        let Some(dt) = Utc.timestamp_opt(c.commit.timestamp, 0).single() else {
+            continue;
+        };
         let d = dt.date_naive();
         if d < earliest_monday {
             continue;
@@ -930,8 +1002,7 @@ fn weekly_velocity_12w<'a>(
     for i in 0..12 {
         let monday = earliest_monday + Duration::weeks(i);
         let key = monday;
-        let (total, ai, human, add, del) =
-            by_week.get(&key).copied().unwrap_or((0, 0, 0, 0, 0));
+        let (total, ai, human, add, del) = by_week.get(&key).copied().unwrap_or((0, 0, 0, 0, 0));
         out.push(WeeklyVelocityBucket {
             week_start: monday.format("%Y-%m-%d").to_string(),
             total_commits: total,
@@ -972,16 +1043,14 @@ fn directory_churn<'a>(
             std::collections::HashSet::new();
         for f in &c.files {
             let dir = top_directory(&f.path).to_string();
-            let entry = by_dir
-                .entry(dir.clone())
-                .or_insert_with(|| DirectoryChurn {
-                    path: dir.clone(),
-                    commits: 0,
-                    additions: 0,
-                    deletions: 0,
-                    ai_commits: 0,
-                    human_commits: 0,
-                });
+            let entry = by_dir.entry(dir.clone()).or_insert_with(|| DirectoryChurn {
+                path: dir.clone(),
+                commits: 0,
+                additions: 0,
+                deletions: 0,
+                ai_commits: 0,
+                human_commits: 0,
+            });
             entry.additions += f.additions;
             entry.deletions += f.deletions;
             if dirs_in_this_commit.insert(dir) {
@@ -1004,6 +1073,336 @@ fn directory_churn<'a>(
     });
     rows.truncate(top_n);
     rows
+}
+
+fn recent_commit_evidence<'a>(
+    classified: &[ClassifiedRef<'a>],
+    limit: usize,
+) -> Vec<IntelCommitEvidence> {
+    let mut rows: Vec<&ClassifiedRef<'a>> = classified.iter().collect();
+    rows.sort_by(|a, b| {
+        b.commit
+            .timestamp
+            .cmp(&a.commit.timestamp)
+            .then_with(|| a.commit.sha.cmp(&b.commit.sha))
+    });
+    rows.into_iter()
+        .take(limit)
+        .map(|c| IntelCommitEvidence {
+            sha: c.commit.sha.clone(),
+            date: c.day.clone(),
+            subject: commit_subject(&c.commit.body),
+            tool: c.tool.to_string(),
+            is_ai: c.is_ai,
+            additions: c.commit.additions,
+            deletions: c.commit.deletions,
+            files: c
+                .commit
+                .files
+                .iter()
+                .take(8)
+                .map(|f| f.path.clone())
+                .collect(),
+        })
+        .collect()
+}
+
+fn attribution_blind_spots<'a>(
+    classified: &[ClassifiedRef<'a>],
+    sample_limit: usize,
+) -> Vec<IntelAttributionBlindSpot> {
+    let total_commits = classified.len() as u64;
+    let total_churn: u64 = classified
+        .iter()
+        .map(|c| c.commit.additions + c.commit.deletions)
+        .sum();
+    if total_commits == 0 {
+        return Vec::new();
+    }
+
+    let bulk: Vec<&ClassifiedRef<'a>> = classified
+        .iter()
+        .filter(|c| {
+            let churn = c.commit.additions + c.commit.deletions;
+            churn >= 2_000 || c.commit.files.len() >= 40
+        })
+        .collect();
+    let generated: Vec<&ClassifiedRef<'a>> = classified
+        .iter()
+        .filter(|c| commit_generated_churn(c.commit) >= 500)
+        .collect();
+    let release_noise: Vec<&ClassifiedRef<'a>> = classified
+        .iter()
+        .filter(|c| is_release_or_dependency_noise(c.commit))
+        .collect();
+    let weak_marker_count = classified.iter().filter(|c| c.tool == TOOL_HUMAN).count() as u64;
+
+    let mut out = Vec::new();
+    if !bulk.is_empty() {
+        let (additions, deletions) = churn_for(&bulk);
+        let churn_share = ratio(additions + deletions, total_churn);
+        out.push(IntelAttributionBlindSpot {
+            kind: "bulk_change".to_string(),
+            label: "Bulk change batches".to_string(),
+            severity: severity_for(churn_share, 0.35, 0.15),
+            metric_impact: "Batch size and throughput can look worse than review complexity if one large formatting or migration commit dominates.".to_string(),
+            detail: format!(
+                "{} commit{} account for {:.1}% of measured churn.",
+                bulk.len(),
+                plural_s(bulk.len() as u64),
+                churn_share * 100.0
+            ),
+            commits: bulk.len() as u64,
+            additions,
+            deletions,
+            sample_commits: sample_blind_spot_commits(&bulk, sample_limit),
+            sample_files: sample_changed_files(&bulk, sample_limit),
+        });
+    }
+
+    if !generated.is_empty() {
+        let (additions, deletions) = churn_for(&generated);
+        let churn_share = ratio(additions + deletions, total_churn);
+        out.push(IntelAttributionBlindSpot {
+            kind: "generated_or_vendor_noise".to_string(),
+            label: "Generated or vendored churn".to_string(),
+            severity: severity_for(churn_share, 0.25, 0.08),
+            metric_impact: "Changed-line and hottest-area metrics may be inflated by files people rarely review line-by-line.".to_string(),
+            detail: format!(
+                "{} commit{} include substantial generated, lockfile, vendor, snapshot, build, or minified churn.",
+                generated.len(),
+                plural_s(generated.len() as u64)
+            ),
+            commits: generated.len() as u64,
+            additions,
+            deletions,
+            sample_commits: sample_blind_spot_commits(&generated, sample_limit),
+            sample_files: sample_generated_files(&generated, sample_limit),
+        });
+    }
+
+    if !release_noise.is_empty() {
+        let (additions, deletions) = churn_for(&release_noise);
+        let commit_share = ratio(release_noise.len() as u64, total_commits);
+        out.push(IntelAttributionBlindSpot {
+            kind: "release_or_dependency_noise".to_string(),
+            label: "Release/dependency noise".to_string(),
+            severity: severity_for(commit_share, 0.18, 0.07),
+            metric_impact: "Release, version bump, changelog, and dependency commits can distort AI share and throughput trends.".to_string(),
+            detail: format!(
+                "{} commit{} look like releases, version bumps, changelog updates, or dependency maintenance.",
+                release_noise.len(),
+                plural_s(release_noise.len() as u64)
+            ),
+            commits: release_noise.len() as u64,
+            additions,
+            deletions,
+            sample_commits: sample_blind_spot_commits(&release_noise, sample_limit),
+            sample_files: sample_changed_files(&release_noise, sample_limit),
+        });
+    }
+
+    let weak_marker_share = ratio(weak_marker_count, total_commits);
+    if weak_marker_count >= 8 && weak_marker_share >= 0.35 {
+        out.push(IntelAttributionBlindSpot {
+            kind: "weak_ai_markers".to_string(),
+            label: "Weak AI attribution markers".to_string(),
+            severity: severity_for(weak_marker_share, 0.75, 0.5),
+            metric_impact: "Human-labeled commits mostly mean no known AI marker was found; they do not prove the work was human-authored.".to_string(),
+            detail: format!(
+                "{} of {} commits have no known AI or automation marker.",
+                weak_marker_count, total_commits
+            ),
+            commits: weak_marker_count,
+            additions: 0,
+            deletions: 0,
+            sample_commits: sample_blind_spot_commits(
+                &classified
+                    .iter()
+                    .filter(|c| c.tool == TOOL_HUMAN)
+                    .collect::<Vec<_>>(),
+                sample_limit,
+            ),
+            sample_files: Vec::new(),
+        });
+    }
+
+    out.sort_by(|a, b| {
+        severity_rank(&b.severity)
+            .cmp(&severity_rank(&a.severity))
+            .then((b.additions + b.deletions).cmp(&(a.additions + a.deletions)))
+            .then(b.commits.cmp(&a.commits))
+    });
+    out
+}
+
+fn churn_for(classified: &[&ClassifiedRef<'_>]) -> (u64, u64) {
+    classified.iter().fold((0, 0), |(add, del), c| {
+        (add + c.commit.additions, del + c.commit.deletions)
+    })
+}
+
+fn ratio(part: u64, whole: u64) -> f64 {
+    if whole == 0 {
+        0.0
+    } else {
+        part as f64 / whole as f64
+    }
+}
+
+fn severity_for(value: f64, high: f64, medium: f64) -> String {
+    if value >= high {
+        "high".to_string()
+    } else if value >= medium {
+        "medium".to_string()
+    } else {
+        "low".to_string()
+    }
+}
+
+fn severity_rank(value: &str) -> u8 {
+    match value {
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0,
+    }
+}
+
+fn sample_blind_spot_commits(
+    classified: &[&ClassifiedRef<'_>],
+    limit: usize,
+) -> Vec<IntelBlindSpotCommit> {
+    let mut rows = classified.to_vec();
+    rows.sort_by(|a, b| {
+        let a_churn = a.commit.additions + a.commit.deletions;
+        let b_churn = b.commit.additions + b.commit.deletions;
+        b_churn
+            .cmp(&a_churn)
+            .then(b.commit.timestamp.cmp(&a.commit.timestamp))
+            .then(a.commit.sha.cmp(&b.commit.sha))
+    });
+    rows.into_iter()
+        .take(limit)
+        .map(|c| IntelBlindSpotCommit {
+            sha: c.commit.sha.clone(),
+            date: c.day.clone(),
+            subject: commit_subject(&c.commit.body),
+            tool: c.tool.to_string(),
+            additions: c.commit.additions,
+            deletions: c.commit.deletions,
+            files: c
+                .commit
+                .files
+                .iter()
+                .take(8)
+                .map(|f| f.path.clone())
+                .collect(),
+        })
+        .collect()
+}
+
+fn sample_changed_files(classified: &[&ClassifiedRef<'_>], limit: usize) -> Vec<String> {
+    let mut by_path: HashMap<String, u64> = HashMap::new();
+    for c in classified {
+        for f in &c.commit.files {
+            *by_path.entry(f.path.clone()).or_insert(0) += f.additions + f.deletions;
+        }
+    }
+    let mut rows: Vec<(String, u64)> = by_path.into_iter().collect();
+    rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    rows.into_iter().take(limit).map(|(path, _)| path).collect()
+}
+
+fn sample_generated_files(classified: &[&ClassifiedRef<'_>], limit: usize) -> Vec<String> {
+    let mut by_path: HashMap<String, u64> = HashMap::new();
+    for c in classified {
+        for f in &c.commit.files {
+            if file_is_generated_or_vendor(&f.path) {
+                *by_path.entry(f.path.clone()).or_insert(0) += f.additions + f.deletions;
+            }
+        }
+    }
+    let mut rows: Vec<(String, u64)> = by_path.into_iter().collect();
+    rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    rows.into_iter().take(limit).map(|(path, _)| path).collect()
+}
+
+fn commit_generated_churn(commit: &ParsedCommit) -> u64 {
+    commit
+        .files
+        .iter()
+        .filter(|f| file_is_generated_or_vendor(&f.path))
+        .map(|f| f.additions + f.deletions)
+        .sum()
+}
+
+fn file_is_generated_or_vendor(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    let name = lower.rsplit('/').next().unwrap_or(lower.as_str());
+    lower.contains("/generated/")
+        || lower.contains("/__generated__/")
+        || lower.contains("/vendor/")
+        || lower.contains("/dist/")
+        || lower.contains("/build/")
+        || lower.contains("/coverage/")
+        || lower.contains("/snapshots/")
+        || lower.contains("/snapshot/")
+        || name.ends_with(".snap")
+        || name.ends_with(".lock")
+        || name == "pnpm-lock.yaml"
+        || name == "package-lock.json"
+        || name == "yarn.lock"
+        || name == "cargo.lock"
+        || name.ends_with(".min.js")
+        || name.ends_with(".min.css")
+        || name.ends_with(".generated.ts")
+        || name.ends_with(".generated.tsx")
+        || name.ends_with(".generated.js")
+        || name.ends_with(".pb.go")
+}
+
+fn is_release_or_dependency_noise(commit: &ParsedCommit) -> bool {
+    let subject = commit_subject(&commit.body).to_ascii_lowercase();
+    subject.starts_with("release")
+        || subject.starts_with("chore(release)")
+        || subject.starts_with("chore: release")
+        || subject.contains("version bump")
+        || subject.contains("bump version")
+        || subject.contains("bump ")
+        || subject.contains("update dependencies")
+        || subject.contains("dependency")
+        || subject.contains("dependabot")
+        || subject.contains("renovate")
+        || commit.files.iter().any(|f| {
+            let lower = f.path.to_ascii_lowercase();
+            matches!(
+                lower.as_str(),
+                "changelog.md"
+                    | "changes.md"
+                    | "release.md"
+                    | "pnpm-lock.yaml"
+                    | "package-lock.json"
+                    | "yarn.lock"
+                    | "cargo.lock"
+            ) || lower.starts_with(".changeset/")
+        })
+}
+
+fn plural_s(count: u64) -> &'static str {
+    if count == 1 {
+        ""
+    } else {
+        "s"
+    }
+}
+
+fn commit_subject(body: &str) -> String {
+    let subject = body
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("");
+    subject.chars().take(180).collect()
 }
 
 pub(crate) fn top_directory(path: &str) -> &str {
@@ -1339,14 +1738,7 @@ mod tests {
             "feat\n\nCo-Authored-By: openai-codex <c@o>\n",
             &[],
         );
-        let cursor = mk_record(
-            "3",
-            "Cursor Agent",
-            "agent@cursor.com",
-            3,
-            "feat\n",
-            &[],
-        );
+        let cursor = mk_record("3", "Cursor Agent", "agent@cursor.com", 3, "feat\n", &[]);
         let human = mk_record("4", "Alice", "alice@x", 4, "feat\n", &[]);
         let bot = mk_record(
             "5",
@@ -1358,9 +1750,72 @@ mod tests {
         );
         let raw = [claude, codex, cursor, human, bot].concat();
         let commits = parse_git_log(&raw);
-        let tools: Vec<&'static str> =
-            commits.iter().map(|c| classify_commit(c).0).collect();
-        assert_eq!(tools, vec![TOOL_CLAUDE, TOOL_CODEX, TOOL_CURSOR, TOOL_HUMAN, TOOL_AUTOMATION]);
+        let tools: Vec<&'static str> = commits.iter().map(|c| classify_commit(c).0).collect();
+        assert_eq!(
+            tools,
+            vec![
+                TOOL_CLAUDE,
+                TOOL_CODEX,
+                TOOL_CURSOR,
+                TOOL_HUMAN,
+                TOOL_AUTOMATION
+            ]
+        );
+    }
+
+    #[test]
+    fn summarize_reports_attribution_blind_spots() {
+        let mut raw = String::new();
+        raw.push_str(&mk_record(
+            "g",
+            "Alice",
+            "alice@example.com",
+            1_700_000_000,
+            "regenerate client\n",
+            &[(4_000, 100, "src/generated/client.ts")],
+        ));
+        raw.push_str(&mk_record(
+            "r",
+            "Alice",
+            "alice@example.com",
+            1_700_086_400,
+            "chore: release v1.2.3\n",
+            &[(200, 20, "CHANGELOG.md")],
+        ));
+        raw.push_str(&mk_record(
+            "b",
+            "Alice",
+            "alice@example.com",
+            1_700_172_800,
+            "format codebase\n",
+            &[(3_000, 3_000, "src/app.ts")],
+        ));
+        for idx in 0..8 {
+            raw.push_str(&mk_record(
+                &format!("h{idx}"),
+                "Alice",
+                "alice@example.com",
+                1_700_259_200 + idx * 86_400,
+                "small change\n",
+                &[(5, 1, "src/lib.ts")],
+            ));
+        }
+        let commits = parse_git_log(&raw);
+        let report = summarize("/tmp/repo".to_string(), &commits);
+        let kinds: std::collections::HashSet<&str> = report
+            .blind_spots
+            .iter()
+            .map(|spot| spot.kind.as_str())
+            .collect();
+
+        assert!(kinds.contains("bulk_change"));
+        assert!(kinds.contains("generated_or_vendor_noise"));
+        assert!(kinds.contains("release_or_dependency_noise"));
+        assert!(kinds.contains("weak_ai_markers"));
+        assert!(report
+            .blind_spots
+            .iter()
+            .any(|spot| !spot.sample_commits.is_empty()));
     }
 
     #[test]
@@ -1421,7 +1876,23 @@ mod tests {
 
         // daily_series has 90 buckets, all zero-filled except one.
         assert_eq!(report.daily_series.len(), 90);
-        assert!(report.daily_series.iter().any(|d| d.ai_commits + d.human_commits > 0));
+        assert!(report
+            .daily_series
+            .iter()
+            .any(|d| d.ai_commits + d.human_commits > 0));
+
+        // recent_commits gives the UI concrete evidence rows for zoomed metrics.
+        assert_eq!(report.recent_commits.len(), 3);
+        assert_eq!(report.recent_commits[0].sha, "a");
+        let ai_commit = report
+            .recent_commits
+            .iter()
+            .find(|commit| commit.sha == "b")
+            .expect("AI commit evidence");
+        assert!(ai_commit.is_ai);
+        assert_eq!(ai_commit.tool, TOOL_CLAUDE);
+        assert_eq!(ai_commit.subject, "feat");
+        assert_eq!(ai_commit.files, vec!["f2".to_string()]);
     }
 
     #[test]
@@ -1568,7 +2039,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
         assert_eq!(grid[0].len(), 24);
         assert_eq!(grid[0][9], 2); // Mon 09:00
         assert_eq!(grid[1][14], 1); // Tue 14:00
-        // Everything else stays zero.
+                                    // Everything else stays zero.
         let total: u64 = grid.iter().flat_map(|row| row.iter()).sum();
         assert_eq!(total, 3);
     }
@@ -1649,14 +2120,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
     fn windows_include_size_and_revert_stats() {
         let ts = chrono::Utc::now().timestamp() - 86_400;
         let raw = [
-            mk_record(
-                "h1",
-                "Alice",
-                "a@x",
-                ts,
-                "feat: thing\n",
-                &[(50, 10, "f1")],
-            ),
+            mk_record("h1", "Alice", "a@x", ts, "feat: thing\n", &[(50, 10, "f1")]),
             mk_record(
                 "h2",
                 "Alice",
@@ -1665,14 +2129,21 @@ Co-Authored-By: Claude <noreply@anthropic.com>
                 "fix: regression\n",
                 &[(2, 2, "f1")],
             ),
-            mk_record("h3", "Alice", "a@x", ts, "Revert \"feat\"\n", &[(0, 60, "f1")]),
+            mk_record(
+                "h3",
+                "Alice",
+                "a@x",
+                ts,
+                "Revert \"feat\"\n",
+                &[(0, 60, "f1")],
+            ),
         ]
         .concat();
         let commits = parse_git_log(&raw);
         let report = summarize("/tmp/r".into(), &commits);
         let all = &report.windows[0];
         assert_eq!(all.revert_or_fixup_commits, 2); // "fix:" + "Revert"
-        // p50 with 3 sample sizes {60, 4, 60} sorted = {4, 60, 60} → p50 = 60.
+                                                    // p50 with 3 sample sizes {60, 4, 60} sorted = {4, 60, 60} → p50 = 60.
         assert_eq!(all.commit_size_p50, 60);
         assert_eq!(all.commit_size_max, 60);
     }
@@ -1691,7 +2162,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>
         ));
         std::fs::create_dir_all(&tmp).unwrap();
         let run = |args: &[&str]| {
-            let s = Command::new("git").args(args).current_dir(&tmp).status().unwrap();
+            let s = Command::new("git")
+                .args(args)
+                .current_dir(&tmp)
+                .status()
+                .unwrap();
             assert!(s.success(), "git {args:?} failed");
         };
         run(&["init", "-q"]);
@@ -1716,8 +2191,14 @@ Co-Authored-By: Claude <noreply@anthropic.com>
         assert_eq!(all.total_commits, 2);
         assert_eq!(all.ai_commits, 1);
         assert_eq!(all.human_commits, 1);
-        assert!(all.ai_additions > 0, "AI commit should have non-zero additions");
-        assert!(all.human_additions > 0, "human commit should have non-zero additions");
+        assert!(
+            all.ai_additions > 0,
+            "AI commit should have non-zero additions"
+        );
+        assert!(
+            all.human_additions > 0,
+            "human commit should have non-zero additions"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

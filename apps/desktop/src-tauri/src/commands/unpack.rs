@@ -339,6 +339,130 @@ pub struct ReportSection {
     pub claims: Vec<ReportClaim>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SnapshotChangedFile {
+    pub path: String,
+    pub additions: u64,
+    pub deletions: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SnapshotCommitEvidence {
+    pub sha: String,
+    pub date: String,
+    pub author: String,
+    pub subject: String,
+    pub additions: u64,
+    pub deletions: u64,
+    pub files: Vec<SnapshotChangedFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SnapshotCommitRange {
+    pub base_commit: String,
+    pub head_commit: String,
+    pub commit_count: u64,
+    pub commits: Vec<SnapshotCommitEvidence>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UnpackOutcomeReviewEvidence {
+    pub id: String,
+    pub review_type: Option<String>,
+    pub status: String,
+    pub review_action: Option<String>,
+    pub findings_count: Option<i64>,
+    pub score_composite: Option<f64>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UnpackOutcomeQaEvidence {
+    pub id: String,
+    pub review_id: Option<String>,
+    pub loop_id: String,
+    pub runner_type: String,
+    pub route: Option<String>,
+    pub goal: Option<String>,
+    pub pass: bool,
+    pub duration_ms: i64,
+    pub console_errors: i64,
+    pub error: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UnpackOutcomeProcedureEvidence {
+    pub id: String,
+    pub review_id: String,
+    pub step_id: String,
+    pub status: String,
+    pub source: String,
+    pub summary: String,
+    pub artifact: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UnpackOutcomeFindingEvidence {
+    pub file_path: Option<String>,
+    pub title: Option<String>,
+    pub severity: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UnpackOutcomeTrustAction {
+    pub priority: String,
+    pub label: String,
+    pub detail: String,
+    pub source_kind: String,
+    pub source_id: Option<String>,
+    pub source_path: Option<String>,
+    pub command: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UnpackOutcomeTrendWindow {
+    pub label: String,
+    pub proof_count: usize,
+    pub failure_count: usize,
+    pub finding_count: usize,
+    pub review_failure_count: usize,
+    pub oldest_at: Option<String>,
+    pub newest_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UnpackOutcomeTrend {
+    pub direction: String,
+    pub confidence: String,
+    pub total_signals: usize,
+    pub recent: UnpackOutcomeTrendWindow,
+    pub prior: UnpackOutcomeTrendWindow,
+    pub summary: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UnpackOutcomeEvidence {
+    pub repo_path: String,
+    pub reviews: Vec<UnpackOutcomeReviewEvidence>,
+    pub qa_runs: Vec<UnpackOutcomeQaEvidence>,
+    pub procedure_events: Vec<UnpackOutcomeProcedureEvidence>,
+    pub recurring_findings: Vec<UnpackOutcomeFindingEvidence>,
+    pub review_count: usize,
+    pub failed_review_count: usize,
+    pub qa_pass_count: usize,
+    pub qa_fail_count: usize,
+    pub procedure_pass_count: usize,
+    pub procedure_fail_count: usize,
+    pub calibration: String,
+    pub summary: String,
+    pub trend: UnpackOutcomeTrend,
+    pub trust_actions: Vec<UnpackOutcomeTrustAction>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct UnpackReport {
     pub system_map: Option<ReportSection>,
@@ -610,6 +734,33 @@ pub async fn get_repo_unpack_report(db: State<'_, DbState>, id: String) -> Resul
 }
 
 #[tauri::command]
+pub async fn compare_unpack_snapshot_commits(
+    repo_path: String,
+    base_commit: String,
+    head_commit: String,
+) -> Result<SnapshotCommitRange, String> {
+    tokio::task::spawn_blocking(move || {
+        build_snapshot_commit_range(&repo_path, &base_commit, &head_commit, 24)
+    })
+    .await
+    .map_err(|e| format!("snapshot comparison task join error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn get_unpack_outcome_evidence(
+    db: State<'_, DbState>,
+    repo_path: String,
+) -> Result<UnpackOutcomeEvidence, String> {
+    let repo_path = repo_path.trim().to_string();
+    if repo_path.is_empty() {
+        return Err("repo_path is required".to_string());
+    }
+
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    build_unpack_outcome_evidence(&conn, &repo_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn delete_repo_unpack_report(
     db: State<'_, DbState>,
     id: String,
@@ -685,6 +836,715 @@ pub async fn export_repo_unpack_report(
     };
 
     Ok(json!({ "content": content, "format": format }))
+}
+
+const SNAPSHOT_UNIT_SEP: char = '\u{1f}';
+const SNAPSHOT_REC_SEP: char = '\u{1e}';
+
+fn build_snapshot_commit_range(
+    repo_path: &str,
+    base_commit: &str,
+    head_commit: &str,
+    limit: usize,
+) -> Result<SnapshotCommitRange, String> {
+    let base = base_commit.trim();
+    let head = head_commit.trim();
+    if !is_safe_commit_id(base) || !is_safe_commit_id(head) {
+        return Err("Snapshot comparison needs concrete git commit SHAs.".to_string());
+    }
+
+    if base == head {
+        return Ok(SnapshotCommitRange {
+            base_commit: base.to_string(),
+            head_commit: head.to_string(),
+            commit_count: 0,
+            commits: Vec::new(),
+            truncated: false,
+        });
+    }
+
+    let range = format!("{base}..{head}");
+    let count_output = StdCommand::new("git")
+        .args(["rev-list", "--count", &range, "--"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to run git rev-list: {e}"))?;
+    if !count_output.status.success() {
+        let stderr = String::from_utf8_lossy(&count_output.stderr);
+        return Err(format!("git rev-list failed for snapshot range: {stderr}"));
+    }
+    let commit_count = String::from_utf8_lossy(&count_output.stdout)
+        .trim()
+        .parse::<u64>()
+        .unwrap_or(0);
+
+    let pretty = "%x1e%H%x1f%ad%x1f%an%x1f%s";
+    let max_count = limit.max(1).to_string();
+    let log_output = StdCommand::new("git")
+        .args([
+            "log",
+            "--no-merges",
+            "--date=short",
+            &format!("--pretty=format:{pretty}"),
+            "--numstat",
+            "-n",
+            &max_count,
+            &range,
+            "--",
+        ])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to run git log for snapshot range: {e}"))?;
+    if !log_output.status.success() {
+        let stderr = String::from_utf8_lossy(&log_output.stderr);
+        return Err(format!("git log failed for snapshot range: {stderr}"));
+    }
+
+    let commits = parse_snapshot_commit_log(&String::from_utf8_lossy(&log_output.stdout));
+    Ok(SnapshotCommitRange {
+        base_commit: base.to_string(),
+        head_commit: head.to_string(),
+        commit_count,
+        truncated: commit_count as usize > commits.len(),
+        commits,
+    })
+}
+
+fn is_safe_commit_id(value: &str) -> bool {
+    (7..=64).contains(&value.len()) && value.chars().all(|ch| ch.is_ascii_hexdigit())
+}
+
+fn build_unpack_outcome_evidence(
+    conn: &rusqlite::Connection,
+    repo_path: &str,
+) -> Result<UnpackOutcomeEvidence, rusqlite::Error> {
+    let review_rows = queries::list_local_reviews_filtered(conn, 16, 0, Some(repo_path))?;
+    let qa_rows = queries::list_synthetic_qa_runs_for_repo(conn, repo_path, 16)?;
+    let finding_rows = queries::get_recent_findings_for_repo(conn, repo_path, 16)?;
+
+    let mut procedure_rows = Vec::new();
+    for review in review_rows.iter().take(10) {
+        let mut events = queries::list_review_procedure_events(conn, &review.id)?;
+        procedure_rows.append(&mut events);
+    }
+    procedure_rows.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    procedure_rows.truncate(24);
+
+    let failed_review_count = review_rows
+        .iter()
+        .filter(|review| outcome_status_is_failure(&review.status))
+        .count();
+    let qa_pass_count = qa_rows.iter().filter(|run| run.pass).count();
+    let qa_fail_count = qa_rows.len().saturating_sub(qa_pass_count);
+    let procedure_pass_count = procedure_rows
+        .iter()
+        .filter(|event| outcome_status_is_success(&event.status))
+        .count();
+    let procedure_fail_count = procedure_rows
+        .iter()
+        .filter(|event| outcome_status_is_failure(&event.status))
+        .count();
+    let (calibration, summary) = calibrate_outcome_evidence(
+        qa_pass_count + procedure_pass_count,
+        qa_fail_count + procedure_fail_count + failed_review_count,
+        review_rows.len(),
+        qa_rows.len(),
+        procedure_rows.len(),
+    );
+
+    let reviews: Vec<UnpackOutcomeReviewEvidence> = review_rows
+        .iter()
+        .map(|review| UnpackOutcomeReviewEvidence {
+            id: review.id.clone(),
+            review_type: review.review_type.clone(),
+            status: review.status.clone(),
+            review_action: review.review_action.clone(),
+            findings_count: review.findings_count,
+            score_composite: review.score_composite,
+            created_at: review.created_at.clone(),
+        })
+        .collect();
+    let qa_runs: Vec<UnpackOutcomeQaEvidence> = qa_rows
+        .iter()
+        .map(|run| UnpackOutcomeQaEvidence {
+            id: run.id.clone(),
+            review_id: run.review_id.clone(),
+            loop_id: run.loop_id.clone(),
+            runner_type: run.runner_type.clone(),
+            route: run.route.clone(),
+            goal: run.goal.clone(),
+            pass: run.pass,
+            duration_ms: run.duration_ms,
+            console_errors: run.console_errors,
+            error: run.error.clone(),
+            created_at: run.created_at.clone(),
+        })
+        .collect();
+    let procedure_events: Vec<UnpackOutcomeProcedureEvidence> = procedure_rows
+        .iter()
+        .map(|event| UnpackOutcomeProcedureEvidence {
+            id: event.id.clone(),
+            review_id: event.review_id.clone(),
+            step_id: event.step_id.clone(),
+            status: event.status.clone(),
+            source: event.source.clone(),
+            summary: event.summary.clone(),
+            artifact: event.artifact.clone(),
+            created_at: event.created_at.clone(),
+        })
+        .collect();
+    let recurring_findings: Vec<UnpackOutcomeFindingEvidence> = finding_rows
+        .iter()
+        .map(|finding| UnpackOutcomeFindingEvidence {
+            file_path: finding.file_path.clone(),
+            title: Some(finding.title.clone()),
+            severity: finding.severity.clone(),
+            created_at: finding.created_at.clone(),
+        })
+        .collect();
+    let trend = outcome_trend(&reviews, &qa_runs, &procedure_events, &recurring_findings);
+    let trust_actions = outcome_trust_actions(
+        &reviews,
+        &qa_runs,
+        &procedure_events,
+        &recurring_findings,
+        &calibration,
+        &trend,
+    );
+
+    Ok(UnpackOutcomeEvidence {
+        repo_path: repo_path.to_string(),
+        reviews,
+        qa_runs,
+        procedure_events,
+        recurring_findings,
+        review_count: review_rows.len(),
+        failed_review_count,
+        qa_pass_count,
+        qa_fail_count,
+        procedure_pass_count,
+        procedure_fail_count,
+        calibration,
+        summary,
+        trend,
+        trust_actions,
+    })
+}
+
+fn outcome_status_is_success(status: &str) -> bool {
+    matches!(
+        status.trim().to_ascii_lowercase().as_str(),
+        "satisfied" | "passed" | "pass" | "completed" | "success" | "verified"
+    )
+}
+
+fn outcome_status_is_failure(status: &str) -> bool {
+    matches!(
+        status.trim().to_ascii_lowercase().as_str(),
+        "blocked" | "failed" | "fail" | "error" | "errored" | "timeout" | "cancelled"
+    )
+}
+
+fn calibrate_outcome_evidence(
+    pass_count: usize,
+    fail_count: usize,
+    review_count: usize,
+    qa_count: usize,
+    procedure_count: usize,
+) -> (String, String) {
+    if review_count == 0 && qa_count == 0 && procedure_count == 0 {
+        return (
+            "unknown".to_string(),
+            "No stored review, QA, or procedure outcomes for this repo yet.".to_string(),
+        );
+    }
+
+    if pass_count > 0 && fail_count > 0 {
+        return (
+            "mixed".to_string(),
+            format!(
+                "{pass_count} recent proof signal{} and {fail_count} recent failure signal{}.",
+                plural_s(pass_count),
+                plural_s(fail_count)
+            ),
+        );
+    }
+
+    if fail_count > 0 {
+        return (
+            "lowers".to_string(),
+            format!(
+                "{fail_count} recent failure signal{} should lower confidence until rechecked.",
+                plural_s(fail_count)
+            ),
+        );
+    }
+
+    if pass_count > 0 {
+        return (
+            "raises".to_string(),
+            format!(
+                "{pass_count} recent proof signal{} supports higher confidence for this repo.",
+                plural_s(pass_count)
+            ),
+        );
+    }
+
+    (
+        "neutral".to_string(),
+        "Stored reviews exist, but no pass/fail QA or procedure proof is attached yet.".to_string(),
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutcomeTrendSignalKind {
+    Proof,
+    Failure,
+    Finding,
+    ReviewFailure,
+}
+
+#[derive(Debug, Clone)]
+struct OutcomeTrendSignal {
+    created_at: String,
+    kind: OutcomeTrendSignalKind,
+}
+
+fn outcome_trend(
+    reviews: &[UnpackOutcomeReviewEvidence],
+    qa_runs: &[UnpackOutcomeQaEvidence],
+    procedure_events: &[UnpackOutcomeProcedureEvidence],
+    recurring_findings: &[UnpackOutcomeFindingEvidence],
+) -> UnpackOutcomeTrend {
+    let mut signals = Vec::new();
+
+    for run in qa_runs {
+        signals.push(OutcomeTrendSignal {
+            created_at: run.created_at.clone(),
+            kind: if run.pass {
+                OutcomeTrendSignalKind::Proof
+            } else {
+                OutcomeTrendSignalKind::Failure
+            },
+        });
+    }
+
+    for event in procedure_events {
+        if outcome_status_is_success(&event.status) {
+            signals.push(OutcomeTrendSignal {
+                created_at: event.created_at.clone(),
+                kind: OutcomeTrendSignalKind::Proof,
+            });
+        } else if outcome_status_is_failure(&event.status) {
+            signals.push(OutcomeTrendSignal {
+                created_at: event.created_at.clone(),
+                kind: OutcomeTrendSignalKind::Failure,
+            });
+        }
+    }
+
+    for review in reviews {
+        if outcome_status_is_failure(&review.status) {
+            signals.push(OutcomeTrendSignal {
+                created_at: review.created_at.clone(),
+                kind: OutcomeTrendSignalKind::ReviewFailure,
+            });
+        }
+    }
+
+    for finding in recurring_findings {
+        signals.push(OutcomeTrendSignal {
+            created_at: finding.created_at.clone(),
+            kind: OutcomeTrendSignalKind::Finding,
+        });
+    }
+
+    signals.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let split_at = signals.len().div_ceil(2);
+    let recent = outcome_trend_window("recent", &signals[..split_at]);
+    let prior = outcome_trend_window("prior", &signals[split_at..]);
+    let total_signals = signals.len();
+    let confidence = if total_signals >= 10 {
+        "high"
+    } else if total_signals >= 5 {
+        "medium"
+    } else {
+        "low"
+    };
+    let direction = outcome_trend_direction(&recent, &prior, total_signals);
+    let summary = outcome_trend_summary(&direction, confidence, &recent, &prior, total_signals);
+
+    UnpackOutcomeTrend {
+        direction,
+        confidence: confidence.to_string(),
+        total_signals,
+        recent,
+        prior,
+        summary,
+    }
+}
+
+fn outcome_trend_window(label: &str, signals: &[OutcomeTrendSignal]) -> UnpackOutcomeTrendWindow {
+    let proof_count = signals
+        .iter()
+        .filter(|signal| signal.kind == OutcomeTrendSignalKind::Proof)
+        .count();
+    let failure_count = signals
+        .iter()
+        .filter(|signal| signal.kind == OutcomeTrendSignalKind::Failure)
+        .count();
+    let finding_count = signals
+        .iter()
+        .filter(|signal| signal.kind == OutcomeTrendSignalKind::Finding)
+        .count();
+    let review_failure_count = signals
+        .iter()
+        .filter(|signal| signal.kind == OutcomeTrendSignalKind::ReviewFailure)
+        .count();
+    UnpackOutcomeTrendWindow {
+        label: label.to_string(),
+        proof_count,
+        failure_count,
+        finding_count,
+        review_failure_count,
+        oldest_at: signals.last().map(|signal| signal.created_at.clone()),
+        newest_at: signals.first().map(|signal| signal.created_at.clone()),
+    }
+}
+
+fn outcome_trend_risk_count(window: &UnpackOutcomeTrendWindow) -> usize {
+    window.failure_count + window.finding_count + window.review_failure_count
+}
+
+fn outcome_trend_signal_count(window: &UnpackOutcomeTrendWindow) -> usize {
+    window.proof_count + outcome_trend_risk_count(window)
+}
+
+fn outcome_trend_risk_rate(window: &UnpackOutcomeTrendWindow) -> f64 {
+    let total = outcome_trend_signal_count(window);
+    if total == 0 {
+        0.0
+    } else {
+        outcome_trend_risk_count(window) as f64 / total as f64
+    }
+}
+
+fn outcome_trend_direction(
+    recent: &UnpackOutcomeTrendWindow,
+    prior: &UnpackOutcomeTrendWindow,
+    total_signals: usize,
+) -> String {
+    if total_signals < 3 {
+        return "sparse".to_string();
+    }
+
+    let recent_risk = outcome_trend_risk_count(recent);
+    let prior_risk = outcome_trend_risk_count(prior);
+    let recent_rate = outcome_trend_risk_rate(recent);
+    let prior_rate = outcome_trend_risk_rate(prior);
+
+    if recent_risk > 0 && prior_risk == 0 && recent_rate >= 0.5 {
+        return "regressing".to_string();
+    }
+    if recent_risk == 0 && prior_risk > 0 && recent.proof_count > 0 {
+        return "improving".to_string();
+    }
+    if recent_rate > prior_rate + 0.25 {
+        return "regressing".to_string();
+    }
+    if prior_rate > recent_rate + 0.25 {
+        return "improving".to_string();
+    }
+    if recent_risk == 0 && prior_risk == 0 && recent.proof_count + prior.proof_count > 0 {
+        return "stable_green".to_string();
+    }
+    if recent_risk > 0 && prior_risk > 0 {
+        return "persistent_risk".to_string();
+    }
+
+    "flat".to_string()
+}
+
+fn outcome_trend_summary(
+    direction: &str,
+    confidence: &str,
+    recent: &UnpackOutcomeTrendWindow,
+    prior: &UnpackOutcomeTrendWindow,
+    total_signals: usize,
+) -> String {
+    if direction == "sparse" {
+        return format!(
+            "{total_signals} stored outcome signal{} is too sparse for a trend.",
+            plural_s(total_signals)
+        );
+    }
+
+    let recent_risk = outcome_trend_risk_count(recent);
+    let prior_risk = outcome_trend_risk_count(prior);
+    format!(
+        "{confidence} confidence {direction} trend: recent window has {} proof / {} risk signal{}, prior window had {} proof / {} risk signal{}.",
+        recent.proof_count,
+        recent_risk,
+        plural_s(recent_risk),
+        prior.proof_count,
+        prior_risk,
+        plural_s(prior_risk)
+    )
+}
+
+fn outcome_trust_actions(
+    reviews: &[UnpackOutcomeReviewEvidence],
+    qa_runs: &[UnpackOutcomeQaEvidence],
+    procedure_events: &[UnpackOutcomeProcedureEvidence],
+    recurring_findings: &[UnpackOutcomeFindingEvidence],
+    calibration: &str,
+    trend: &UnpackOutcomeTrend,
+) -> Vec<UnpackOutcomeTrustAction> {
+    let mut actions = Vec::new();
+
+    if reviews.is_empty() && qa_runs.is_empty() && procedure_events.is_empty() {
+        actions.push(UnpackOutcomeTrustAction {
+            priority: "high".to_string(),
+            label: "Establish a proof baseline".to_string(),
+            detail:
+                "No local review, QA, or proof-gate outcomes are attached to this repo yet."
+                    .to_string(),
+            source_kind: "baseline".to_string(),
+            source_id: None,
+            source_path: None,
+            command: Some("Run a review and attach a synthetic QA flow for this repo".to_string()),
+        });
+    }
+
+    for run in qa_runs.iter().filter(|run| !run.pass).take(2) {
+        let target = run
+            .goal
+            .as_deref()
+            .or(run.route.as_deref())
+            .unwrap_or(&run.loop_id);
+        let mut detail = format!(
+            "{target} failed via {} on {}; rerun after the changed area is fixed.",
+            run.runner_type, run.created_at
+        );
+        if run.console_errors > 0 {
+            detail.push_str(&format!(" {} console error(s) were recorded.", run.console_errors));
+        }
+        if let Some(error) = run.error.as_deref().filter(|value| !value.trim().is_empty()) {
+            detail.push_str(&format!(" Error: {error}"));
+        }
+        actions.push(UnpackOutcomeTrustAction {
+            priority: "high".to_string(),
+            label: "Rerun failing QA flow".to_string(),
+            detail,
+            source_kind: "qa_run".to_string(),
+            source_id: Some(run.id.clone()),
+            source_path: None,
+            command: Some(format!("Rerun Synthetic QA: {target}")),
+        });
+    }
+
+    for event in procedure_events
+        .iter()
+        .filter(|event| outcome_status_is_failure(&event.status))
+        .take(2)
+    {
+        actions.push(UnpackOutcomeTrustAction {
+            priority: "high".to_string(),
+            label: "Resolve failed proof gate".to_string(),
+            detail: format!(
+                "{} is {} from {}: {}",
+                event.step_id, event.status, event.source, event.summary
+            ),
+            source_kind: "procedure_event".to_string(),
+            source_id: Some(event.id.clone()),
+            source_path: event.artifact.clone(),
+            command: Some(format!("Re-run proof gate: {}", event.step_id)),
+        });
+    }
+
+    for review in reviews
+        .iter()
+        .filter(|review| outcome_status_is_failure(&review.status))
+        .take(1)
+    {
+        actions.push(UnpackOutcomeTrustAction {
+            priority: "high".to_string(),
+            label: "Re-check blocked review".to_string(),
+            detail: format!(
+                "{} review is {}; findings: {}.",
+                review.review_type.as_deref().unwrap_or("Local"),
+                review.status,
+                review
+                    .findings_count
+                    .map(|count| count.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            ),
+            source_kind: "review".to_string(),
+            source_id: Some(review.id.clone()),
+            source_path: None,
+            command: review
+                .review_action
+                .as_ref()
+                .map(|action| format!("Follow review action: {action}")),
+        });
+    }
+
+    for finding in recurring_findings.iter().take(2) {
+        let title = finding.title.as_deref().unwrap_or("review finding");
+        actions.push(UnpackOutcomeTrustAction {
+            priority: "medium".to_string(),
+            label: "Inspect recurring finding".to_string(),
+            detail: format!(
+                "{}{} was seen on {}; compare it against the current delta.",
+                finding
+                    .severity
+                    .as_deref()
+                    .map(|severity| format!("{severity} severity "))
+                    .unwrap_or_default(),
+                title,
+                finding.created_at
+            ),
+            source_kind: "finding".to_string(),
+            source_id: None,
+            source_path: finding.file_path.clone(),
+            command: None,
+        });
+    }
+
+    if calibration == "mixed" {
+        actions.push(UnpackOutcomeTrustAction {
+            priority: "medium".to_string(),
+            label: "Require fresh proof for this delta".to_string(),
+            detail: "Recent local outcomes are mixed, so old green evidence should not override new failures."
+                .to_string(),
+            source_kind: "calibration".to_string(),
+            source_id: None,
+            source_path: None,
+            command: Some("Run the highest-confidence verification lead before release".to_string()),
+        });
+    } else if calibration == "raises" && actions.is_empty() {
+        actions.push(UnpackOutcomeTrustAction {
+            priority: "low".to_string(),
+            label: "Keep proof attached".to_string(),
+            detail:
+                "Recent proof signals are green; attach the latest QA/procedure rows to the handoff."
+                    .to_string(),
+            source_kind: "calibration".to_string(),
+            source_id: None,
+            source_path: None,
+            command: None,
+        });
+    }
+
+    if trend.direction == "regressing" {
+        actions.push(UnpackOutcomeTrustAction {
+            priority: "high".to_string(),
+            label: "Investigate worsening outcome trend".to_string(),
+            detail: trend.summary.clone(),
+            source_kind: "trend".to_string(),
+            source_id: None,
+            source_path: None,
+            command: Some("Compare recent failures against the current unpack delta".to_string()),
+        });
+    } else if trend.direction == "persistent_risk" {
+        actions.push(UnpackOutcomeTrustAction {
+            priority: "medium".to_string(),
+            label: "Break persistent failure loop".to_string(),
+            detail: trend.summary.clone(),
+            source_kind: "trend".to_string(),
+            source_id: None,
+            source_path: None,
+            command: Some("Require a fresh green QA/proof gate before release".to_string()),
+        });
+    } else if trend.direction == "improving" && actions.is_empty() {
+        actions.push(UnpackOutcomeTrustAction {
+            priority: "low".to_string(),
+            label: "Preserve improving proof trail".to_string(),
+            detail: trend.summary.clone(),
+            source_kind: "trend".to_string(),
+            source_id: None,
+            source_path: None,
+            command: None,
+        });
+    }
+
+    actions.truncate(6);
+    actions
+}
+
+fn plural_s(count: usize) -> &'static str {
+    if count == 1 {
+        ""
+    } else {
+        "s"
+    }
+}
+
+fn parse_snapshot_commit_log(raw: &str) -> Vec<SnapshotCommitEvidence> {
+    let mut out = Vec::new();
+    for raw_record in raw.split(SNAPSHOT_REC_SEP) {
+        let record = raw_record.trim_matches(|c| c == '\n' || c == '\r');
+        if record.is_empty() {
+            continue;
+        }
+        let mut parts = record.splitn(4, SNAPSHOT_UNIT_SEP);
+        let sha = parts.next().unwrap_or("").trim();
+        let date = parts.next().unwrap_or("").trim();
+        let author = parts.next().unwrap_or("").trim();
+        let subject_and_numstat = parts.next().unwrap_or("");
+        if sha.is_empty() {
+            continue;
+        }
+        let mut lines = subject_and_numstat.lines();
+        let subject = lines.next().unwrap_or("").trim().to_string();
+        let mut files = Vec::new();
+        let mut additions = 0u64;
+        let mut deletions = 0u64;
+        for line in lines {
+            if !line_is_snapshot_numstat(line) {
+                continue;
+            }
+            let mut cols = line.splitn(3, '\t');
+            let add_raw = cols.next().unwrap_or("-");
+            let del_raw = cols.next().unwrap_or("-");
+            let path = cols.next().unwrap_or("").trim();
+            if path.is_empty() {
+                continue;
+            }
+            let add = add_raw.parse::<u64>().unwrap_or(0);
+            let del = del_raw.parse::<u64>().unwrap_or(0);
+            additions += add;
+            deletions += del;
+            files.push(SnapshotChangedFile {
+                path: path.to_string(),
+                additions: add,
+                deletions: del,
+            });
+        }
+        files.truncate(12);
+        out.push(SnapshotCommitEvidence {
+            sha: sha.to_string(),
+            date: date.to_string(),
+            author: author.to_string(),
+            subject,
+            additions,
+            deletions,
+            files,
+        });
+    }
+    out
+}
+
+fn line_is_snapshot_numstat(line: &str) -> bool {
+    let mut parts = line.splitn(3, '\t');
+    let add = parts.next().unwrap_or("");
+    let del = parts.next().unwrap_or("");
+    let path = parts.next().unwrap_or("");
+    if path.is_empty() {
+        return false;
+    }
+    let valid_count = |s: &str| s == "-" || s.chars().all(|ch| ch.is_ascii_digit());
+    valid_count(add) && valid_count(del)
 }
 
 #[tauri::command]
@@ -4277,6 +5137,174 @@ export async function loadEverything(ids: string[]) {
             .refactoring_targets
             .iter()
             .any(|target| target.contains("Hoist repeated I/O")));
+    }
+
+    #[test]
+    fn snapshot_commit_log_parses_commit_and_numstat_evidence() {
+        let raw = "\u{1e}abc1234\u{1f}2026-07-03\u{1f}Sarthak\u{1f}Improve unpack diffs\n12\t3\tsrc/unpack.ts\n-\t-\timage.png\n";
+        let commits = parse_snapshot_commit_log(raw);
+
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].sha, "abc1234");
+        assert_eq!(commits[0].date, "2026-07-03");
+        assert_eq!(commits[0].author, "Sarthak");
+        assert_eq!(commits[0].subject, "Improve unpack diffs");
+        assert_eq!(commits[0].additions, 12);
+        assert_eq!(commits[0].deletions, 3);
+        assert_eq!(commits[0].files.len(), 2);
+        assert_eq!(commits[0].files[0].path, "src/unpack.ts");
+        assert_eq!(commits[0].files[1].path, "image.png");
+        assert!(is_safe_commit_id("abc1234"));
+        assert!(!is_safe_commit_id("HEAD~1"));
+    }
+
+    #[test]
+    fn outcome_calibration_distinguishes_pass_fail_and_empty_evidence() {
+        let empty = calibrate_outcome_evidence(0, 0, 0, 0, 0);
+        assert_eq!(empty.0, "unknown");
+
+        let proof = calibrate_outcome_evidence(2, 0, 1, 1, 1);
+        assert_eq!(proof.0, "raises");
+        assert!(proof.1.contains("2 recent proof signals"));
+
+        let regression = calibrate_outcome_evidence(0, 1, 1, 1, 0);
+        assert_eq!(regression.0, "lowers");
+
+        let mixed = calibrate_outcome_evidence(1, 1, 1, 1, 1);
+        assert_eq!(mixed.0, "mixed");
+    }
+
+    #[test]
+    fn outcome_trust_actions_prioritize_failed_rows_and_missing_baselines() {
+        let baseline_trend = outcome_trend(&[], &[], &[], &[]);
+        let baseline = outcome_trust_actions(&[], &[], &[], &[], "unknown", &baseline_trend);
+        assert_eq!(baseline.len(), 1);
+        assert_eq!(baseline[0].label, "Establish a proof baseline");
+        assert_eq!(baseline[0].priority, "high");
+
+        let failing_qa = UnpackOutcomeQaEvidence {
+            id: "qa-1".to_string(),
+            review_id: Some("review-1".to_string()),
+            loop_id: "loop-1".to_string(),
+            runner_type: "playwright".to_string(),
+            route: Some("/unpack".to_string()),
+            goal: Some("Open metric zoom".to_string()),
+            pass: false,
+            duration_ms: 1200,
+            console_errors: 2,
+            error: Some("button not found".to_string()),
+            created_at: "2026-07-03T00:00:00Z".to_string(),
+        };
+        let failed_gate = UnpackOutcomeProcedureEvidence {
+            id: "gate-1".to_string(),
+            review_id: "review-1".to_string(),
+            step_id: "build".to_string(),
+            status: "failed".to_string(),
+            source: "local".to_string(),
+            summary: "Typecheck failed".to_string(),
+            artifact: Some("artifacts/typecheck.log".to_string()),
+            created_at: "2026-07-03T00:05:00Z".to_string(),
+        };
+        let finding = UnpackOutcomeFindingEvidence {
+            file_path: Some("apps/desktop/src/pages/RepoUnpacked.tsx".to_string()),
+            title: Some("Large evidence surface".to_string()),
+            severity: Some("medium".to_string()),
+            created_at: "2026-07-03T00:10:00Z".to_string(),
+        };
+
+        let trend = outcome_trend(&[], &[failing_qa.clone()], &[failed_gate.clone()], &[finding.clone()]);
+        let actions = outcome_trust_actions(
+            &[],
+            &[failing_qa],
+            &[failed_gate],
+            &[finding],
+            "mixed",
+            &trend,
+        );
+        assert!(actions
+            .iter()
+            .any(|action| action.label == "Rerun failing QA flow"
+                && action.command.as_deref() == Some("Rerun Synthetic QA: Open metric zoom")));
+        assert!(actions
+            .iter()
+            .any(|action| action.label == "Resolve failed proof gate"
+                && action.source_path.as_deref() == Some("artifacts/typecheck.log")));
+        assert!(actions
+            .iter()
+            .any(|action| action.label == "Inspect recurring finding"
+                && action.source_path.as_deref()
+                    == Some("apps/desktop/src/pages/RepoUnpacked.tsx")));
+        assert!(actions
+            .iter()
+            .any(|action| action.label == "Require fresh proof for this delta"));
+    }
+
+    #[test]
+    fn outcome_trend_detects_regression_and_improvement() {
+        let recent_fail = UnpackOutcomeQaEvidence {
+            id: "qa-fail".to_string(),
+            review_id: None,
+            loop_id: "loop-fail".to_string(),
+            runner_type: "playwright".to_string(),
+            route: Some("/unpack".to_string()),
+            goal: Some("Recent failing flow".to_string()),
+            pass: false,
+            duration_ms: 1100,
+            console_errors: 1,
+            error: Some("regression".to_string()),
+            created_at: "2026-07-03T00:00:00Z".to_string(),
+        };
+        let prior_pass_a = UnpackOutcomeQaEvidence {
+            id: "qa-pass-a".to_string(),
+            review_id: None,
+            loop_id: "loop-pass-a".to_string(),
+            runner_type: "playwright".to_string(),
+            route: Some("/unpack".to_string()),
+            goal: Some("Prior green flow".to_string()),
+            pass: true,
+            duration_ms: 900,
+            console_errors: 0,
+            error: None,
+            created_at: "2026-06-30T00:00:00Z".to_string(),
+        };
+        let prior_pass_b = UnpackOutcomeQaEvidence {
+            id: "qa-pass-b".to_string(),
+            review_id: None,
+            loop_id: "loop-pass-b".to_string(),
+            runner_type: "playwright".to_string(),
+            route: Some("/intel".to_string()),
+            goal: Some("Prior Intel green flow".to_string()),
+            pass: true,
+            duration_ms: 950,
+            console_errors: 0,
+            error: None,
+            created_at: "2026-06-29T00:00:00Z".to_string(),
+        };
+
+        let regressing = outcome_trend(
+            &[],
+            &[recent_fail.clone(), prior_pass_a.clone(), prior_pass_b.clone()],
+            &[],
+            &[],
+        );
+        assert_eq!(regressing.direction, "regressing");
+        assert_eq!(regressing.recent.failure_count, 1);
+        assert!(regressing.summary.contains("regressing trend"));
+
+        let recent_pass = UnpackOutcomeQaEvidence {
+            id: "qa-pass-now".to_string(),
+            pass: true,
+            created_at: "2026-07-04T00:00:00Z".to_string(),
+            ..recent_fail
+        };
+        let prior_fail = UnpackOutcomeQaEvidence {
+            id: "qa-fail-before".to_string(),
+            pass: false,
+            created_at: "2026-06-28T00:00:00Z".to_string(),
+            ..prior_pass_a
+        };
+        let improving = outcome_trend(&[], &[recent_pass, prior_pass_b, prior_fail], &[], &[]);
+        assert_eq!(improving.direction, "improving");
     }
 
     #[test]

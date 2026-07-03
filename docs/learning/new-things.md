@@ -64,6 +64,18 @@ Desktop Tauri 2 / Rust app that reviews agent-generated code diffs using pluggab
 - Gotcha (from code): The hardcoded `POSTHOG_KEY` and `POSTHOG_HOST` sit in a client-side TS file — the key is public by design (PostHog's browser SDK model), but the project slug is visible in source. (`apps/desktop/src/lib/analytics.ts:25–61`)
 - Source: https://posthog.com/docs/libraries/js
 
+## DORA software delivery metrics
+- What: Delivery-performance metrics covering deployment frequency, lead time, failed-deployment recovery time, and change failure rate.
+- Why here: TBD
+- Gotcha (from code): Intel derives DORA locally from git tags and revert/hotfix-shaped commits, so the UI labels the numbers as git-derived release health rather than production incident truth. (`apps/desktop/src/pages/Intel.tsx`)
+- Source: https://dora.dev/guides/dora-metrics/
+
+## Outcome calibration
+- What: Checking whether a confidence score or risk signal matches observed outcomes over time.
+- Why here: TBD
+- Gotcha (from code): Repo Unpacked's outcome trend only uses stored local reviews, QA runs, procedure gates, and findings; it is a bounded recent-vs-prior signal, not a learned predictor yet. (`apps/desktop/src-tauri/src/commands/unpack.rs`)
+- Source: https://pmc.ncbi.nlm.nih.gov/articles/PMC10529246/
+
 ## npm workspaces (monorepo)
 - What: Node's built-in multi-package monorepo support via `workspaces` in `package.json`.
 - Why here: TBD

@@ -1468,6 +1468,24 @@ pub fn list_synthetic_qa_runs_for_review(
     rows.collect()
 }
 
+pub fn list_synthetic_qa_runs_for_repo(
+    conn: &Connection,
+    repo_path: &str,
+    limit: i64,
+) -> Result<Vec<SyntheticQaRunRow>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, review_id, repo_path, loop_id, runner_type, base_url,
+                route, goal, pass, duration_ms, notes, screenshot_path,
+                artifacts, console_errors, error, trace_json, created_at
+         FROM synthetic_qa_runs
+         WHERE repo_path = ?1
+         ORDER BY created_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![repo_path, limit], synthetic_qa_run_from_row)?;
+    rows.collect()
+}
+
 pub fn list_local_reviews_filtered(
     conn: &Connection,
     limit: i64,
@@ -1857,9 +1875,7 @@ pub struct AgentUsageRow {
     pub cost: f64,
 }
 
-pub fn get_agent_usage_breakdown(
-    conn: &Connection,
-) -> Result<Vec<AgentUsageRow>, rusqlite::Error> {
+pub fn get_agent_usage_breakdown(conn: &Connection) -> Result<Vec<AgentUsageRow>, rusqlite::Error> {
     use chrono::{Datelike, Duration, Local};
     let today = Local::now().date_naive();
     let monday = today - Duration::days(today.weekday().num_days_from_monday() as i64);
@@ -1989,16 +2005,8 @@ pub fn get_token_usage_stats(conn: &Connection) -> Result<TokenUsageStats, rusql
             .map(|(_, v)| v.3)
             .sum::<f64>()
     };
-    let today_sum = day_map
-        .get(&today_str)
-        .map(|v| v.0)
-        .unwrap_or(0.0)
-        .round() as i64;
-    let today_generated = day_map
-        .get(&today_str)
-        .map(|v| v.1)
-        .unwrap_or(0.0)
-        .round() as i64;
+    let today_sum = day_map.get(&today_str).map(|v| v.0).unwrap_or(0.0).round() as i64;
+    let today_generated = day_map.get(&today_str).map(|v| v.1).unwrap_or(0.0).round() as i64;
     let today_cost = day_map.get(&today_str).map(|v| v.3).unwrap_or(0.0);
     let week_sum = sum_since(&monday_str, |v| v.0);
     let week_generated = sum_since(&monday_str, |v| v.1);
@@ -2018,7 +2026,14 @@ pub fn get_token_usage_stats(conn: &Connection) -> Result<TokenUsageStats, rusql
             .to_string();
         let (tokens, generated, cache, cost) = day_map
             .get(&d)
-            .map(|v| (v.0.round() as i64, v.1.round() as i64, v.2.round() as i64, v.3))
+            .map(|v| {
+                (
+                    v.0.round() as i64,
+                    v.1.round() as i64,
+                    v.2.round() as i64,
+                    v.3,
+                )
+            })
             .unwrap_or((0, 0, 0, 0.0));
         daily_series.push(DayBucket {
             date: d,
@@ -2537,7 +2552,14 @@ mod tests {
         // Full index writes the real counts.
         upsert_session(
             &conn,
-            &full(Some(1_000_000), Some(2_000), Some(50), Some(900_000), "m1", None),
+            &full(
+                Some(1_000_000),
+                Some(2_000),
+                Some(50),
+                Some(900_000),
+                "m1",
+                None,
+            ),
         )
         .expect("full upsert");
 
@@ -2653,6 +2675,10 @@ mod tests {
         assert!(!runs[0].pass);
         assert_eq!(runs[0].console_errors, 2);
         assert_eq!(runs[0].artifacts, vec!["/tmp/qa/trace.zip".to_string()]);
+
+        let repo_runs = list_synthetic_qa_runs_for_repo(&conn, "/tmp/repo", 10).expect("repo runs");
+        assert_eq!(repo_runs.len(), 1);
+        assert_eq!(repo_runs[0].id, inserted.id);
     }
 
     #[test]
@@ -2923,7 +2949,10 @@ mod tests {
             2,
             "an over-full FTS must be rebuilt to match the archive exactly"
         );
-        assert_eq!(sync_session_message_archive_fts(&conn).expect("settled2"), 0);
+        assert_eq!(
+            sync_session_message_archive_fts(&conn).expect("settled2"),
+            0
+        );
     }
 
     #[test]
