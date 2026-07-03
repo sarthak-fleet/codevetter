@@ -1626,8 +1626,27 @@ function UsageCalendarHeatmap({ data }: { data: AgentDayUsage[] }) {
   );
 }
 
-/** Usage by model ($). */
-function UsageByModel({ data }: { data: ModelUsage[] }) {
+/** Spend-by-model time windows. Keys map to the `days` arg of getUsageByModel. */
+const MODEL_RANGES = [
+  { key: 'd7', label: '1w', days: 7 },
+  { key: 'd30', label: '30d', days: 30 },
+  { key: 'd90', label: '90d', days: 90 },
+  { key: 'all', label: 'All time', days: undefined },
+] as const;
+type ModelRangeKey = (typeof MODEL_RANGES)[number]['key'];
+type ModelUsageRanges = Record<ModelRangeKey, ModelUsage[]>;
+
+const EMPTY_MODEL_USAGE_RANGES: ModelUsageRanges = {
+  d7: [],
+  d30: [],
+  d90: [],
+  all: [],
+};
+
+/** Usage by model ($) with a 1w / 30d / 90d / all-time window toggle. */
+function UsageByModel({ ranges }: { ranges: ModelUsageRanges }) {
+  const [range, setRange] = useState<ModelRangeKey>('d30');
+  const data = ranges[range];
   const max = Math.max(0.0001, ...data.map((d) => d.cost));
   const rows = data.slice(0, 8).map((m) => ({
     key: m.model,
@@ -1636,10 +1655,35 @@ function UsageByModel({ data }: { data: ModelUsage[] }) {
     sub: `${m.sessions}s`,
     color: modelColor(m.model),
   }));
+  const total = data.reduce((acc, m) => acc + m.cost, 0);
   return (
     <div>
-      <div className="mb-2 text-[11px] text-slate-500">By model · all time</div>
-      <HBarList rows={rows} max={max} empty="No model usage yet." format={formatMoney} />
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[11px] text-slate-500">
+          By model · spend{total > 0 ? ` · ${formatMoney(total)}` : ''}
+        </div>
+        <div className="inline-flex rounded-md border border-[#1a1a1a] bg-[#0b0d12] p-0.5">
+          {MODEL_RANGES.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => setRange(r.key)}
+              className={`rounded-sm px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                range === r.key
+                  ? 'bg-cyan-500/10 text-cyan-300'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <HBarList
+        rows={rows}
+        max={max}
+        empty={range === 'all' ? 'No model usage yet.' : 'No model usage in this window.'}
+        format={formatMoney}
+      />
     </div>
   );
 }
@@ -2124,7 +2168,7 @@ export default function Home() {
     _cachedDashboard?.tokenUsage ?? null
   );
   const [agentByDay, setAgentByDay] = useState<AgentDayUsage[]>([]);
-  const [modelUsage, setModelUsage] = useState<ModelUsage[]>([]);
+  const [modelUsage, setModelUsage] = useState<ModelUsageRanges>(EMPTY_MODEL_USAGE_RANGES);
   const [accounts, setAccounts] = useState<ProviderAccount[]>(_cachedDashboard?.accounts ?? []);
   const [accountUsages, setAccountUsages] = useState<Record<string, AccountUsage>>(
     _cachedDashboard?.usages ?? {}
@@ -2184,8 +2228,8 @@ export default function Home() {
       void getAgentUsageByDay(180)
         .then((v) => setAgentByDay(v))
         .catch(() => undefined);
-      void getUsageByModel()
-        .then((v) => setModelUsage(v))
+      void Promise.all(MODEL_RANGES.map((r) => getUsageByModel(r.days)))
+        .then(([d7, d30, d90, all]) => setModelUsage({ d7, d30, d90, all }))
         .catch(() => undefined);
 
       // Seed usage map with cached-ID results that came back alongside the rest.
@@ -2617,7 +2661,7 @@ export default function Home() {
         )}
 
         {/* Activity heatmap + model breakdown */}
-        {(agentByDay.length > 0 || modelUsage.length > 0) && (
+        {(agentByDay.length > 0 || modelUsage.all.length > 0) && (
           <div className="cv-frame overflow-hidden">
             <div className="cv-terminal-bar h-10 px-4">
               <Activity size={14} className="text-[var(--cv-accent)]" />
@@ -2625,7 +2669,7 @@ export default function Home() {
             </div>
             <div className="space-y-5 p-4">
               <UsageCalendarHeatmap data={agentByDay} />
-              <UsageByModel data={modelUsage} />
+              <UsageByModel ranges={modelUsage} />
             </div>
           </div>
         )}

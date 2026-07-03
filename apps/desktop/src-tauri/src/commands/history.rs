@@ -693,15 +693,24 @@ pub async fn get_agent_usage_by_day(
     queries::get_agent_usage_by_day(&conn, days.unwrap_or(30)).map_err(|e| e.to_string())
 }
 
-/// All-time generated/cache tokens grouped by model (per-message attribution
-/// where a session_model_usage breakdown exists; costs priced live from the
-/// current table so the split never inherits stale per-session costs).
+/// Generated/cache tokens grouped by model (per-message attribution where a
+/// session_model_usage breakdown exists; costs priced live from the current
+/// table so the split never inherits stale per-session costs). `days` limits
+/// to a rolling window ending today (session activity prorated per day, same
+/// attribution as the daily chart); omitted = all time.
 #[tauri::command]
 pub async fn get_usage_by_model(
     db: State<'_, DbState>,
+    days: Option<i64>,
 ) -> Result<Vec<queries::ModelUsage>, String> {
+    use chrono::{Duration, Local};
+    let since = days.map(|d| {
+        (Local::now().date_naive() - Duration::days(d.max(1) - 1))
+            .format("%Y-%m-%d")
+            .to_string()
+    });
     let conn = conn_lock(&db)?;
-    queries::get_usage_by_model(&conn, estimate_cost).map_err(|e| e.to_string())
+    queries::get_usage_by_model(&conn, estimate_cost, since.as_deref()).map_err(|e| e.to_string())
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -886,10 +895,16 @@ fn estimate_cost(
     // PRICING_REV in recompute_all_session_costs whenever these change so the
     // stored estimated_cost_usd is refreshed for already-indexed sessions.
     let (input_price, output_price, cache_read_price, cache_write_price) = match model {
+        // Claude Code's internal non-API marker — no tokens are billed.
+        m if m.contains("synthetic") => (0.0, 0.0, 0.0, 0.0),
         // Claude Fable 5 / Mythos 5 are $10/$50 (above Opus tier); cache-read
         // 0.1× input, cache-write 1.25× input.
         m if m.contains("fable") || m.contains("mythos") => (10.0, 50.0, 1.0, 12.5),
-        // Claude Opus 4.6+ dropped to $5/$25 (older Opus was $15/$75).
+        // Opus 4.1 / 4.0 (claude-opus-4-2025…) / Claude 3 Opus were $15/$75;
+        // Opus 4.5+ dropped to $5/$25.
+        m if m.contains("opus-4-1") || m.contains("opus-4-2025") || m.contains("3-opus") => {
+            (15.0, 75.0, 1.5, 18.75)
+        }
         m if m.contains("opus") => (5.0, 25.0, 0.50, 6.25),
         m if m.contains("sonnet") => (3.0, 15.0, 0.30, 3.75),
         // Haiku 4.5 is $1/$5 (older Haiku 3.5 was $0.25/$1.25).
@@ -898,6 +913,12 @@ fn estimate_cost(
         m if m.contains("gpt-4.1") => (2.0, 8.0, 0.5, 2.0),
         // OpenAI o3 repriced to $2/$8 (cached input $0.50).
         m if m.contains("o3") || m.contains("o4-mini") => (2.0, 8.0, 0.50, 2.0),
+        // Grok CLI internal fast models (grok-code-fast class ≈ $0.20/$1.50,
+        // cached $0.02) — far cheaper than grok-4; token counts are local
+        // estimates anyway.
+        m if m.contains("grok-code") || m.contains("grok-build") || m.contains("grok-composer") => {
+            (0.2, 1.5, 0.02, 0.2)
+        }
         m if m.contains("grok") => (3.0, 15.0, 0.75, 3.75),
         // GLM-5.2 (Z.ai): $1.40/$4.40, cached $0.26 (verified Jun 2026). Cache
         // creation storage is limited-time free → 0. Devin's internal models
@@ -928,7 +949,10 @@ fn estimate_cost(
 /// Rev 3 = GLM-5.2 $1.40/$4.40 + Devin-internal models.
 /// Rev 4 = Fable/Mythos 5 $10/$50 (was falling to the sonnet default) + session
 /// costs now sum per-model rows when a `session_model_usage` breakdown exists.
-const PRICING_REV: &str = "4";
+/// Rev 5 = `<synthetic>` prices to $0 (was sonnet default), Opus 4.1/4.0/3
+/// restored to $15/$75, Grok CLI fast models (grok-code/build/composer) at
+/// grok-code-fast pricing instead of grok-4.
+const PRICING_REV: &str = "5";
 
 /// Estimated cost for one session: per-model when a breakdown exists (correct
 /// for multi-model Claude sessions), else session-level `model_used` pricing.

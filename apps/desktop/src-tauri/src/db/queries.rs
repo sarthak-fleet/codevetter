@@ -1954,10 +1954,18 @@ pub struct AgentUsageRow {
 }
 
 pub fn get_agent_usage_breakdown(conn: &Connection) -> Result<Vec<AgentUsageRow>, rusqlite::Error> {
-    use chrono::{Datelike, Duration, Local};
+    use chrono::{Datelike, Duration, Local, TimeZone, Utc};
     let today = Local::now().date_naive();
     let monday = today - Duration::days(today.weekday().num_days_from_monday() as i64);
-    let week_start = format!("{}T00:00:00Z", monday.format("%Y-%m-%d"));
+    // Local Monday midnight expressed in UTC — `last_message` is stored as a
+    // UTC "…Z" timestamp, so a bare local date with a Z suffix would start
+    // the week hours early (5.5h in IST). Second-precision format still
+    // compares lexically against the stored millisecond timestamps.
+    let week_start = Local
+        .from_local_datetime(&monday.and_hms_opt(0, 0, 0).unwrap())
+        .earliest()
+        .map(|dt| dt.with_timezone(&Utc).format("%Y-%m-%dT%H:%M:%S").to_string())
+        .unwrap_or_else(|| format!("{}T00:00:00", monday.format("%Y-%m-%d")));
 
     // MAX(x, 0) guards the rare case where cache_read exceeds recorded input.
     let mut stmt = conn.prepare(
@@ -2387,30 +2395,71 @@ pub struct ModelUsage {
     pub cost: f64,
 }
 
-/// All-time generated/cache tokens + USD cost grouped by model, by cost desc.
+/// Generated/cache tokens + USD cost grouped by model, by cost desc.
 ///
 /// Prefers the per-message `session_model_usage` breakdown so multi-model
 /// Claude sessions split correctly; sessions without breakdown rows fall back
 /// to session-level `model_used`. Cost is recomputed from the grouped token
 /// sums via `estimate` (exact: pricing is linear in tokens), so the split
 /// never depends on the stored single-model per-session cost. `<synthetic>`
-/// (Claude Code's internal non-API marker) is folded into "unknown".
+/// (Claude Code's internal non-API marker) keeps its own bucket and prices
+/// to $0 in `estimate_cost`.
+///
+/// `since` (a `YYYY-MM-DD` local date) restricts to a rolling window: each
+/// session's per-model tokens are prorated by the fraction of its message
+/// activity on days >= `since` (same `cc_session_days` attribution as
+/// `get_token_usage_stats`, so windows agree with the daily chart). `None`
+/// keeps the exact all-time totals, including sessions without day rows.
 pub fn get_usage_by_model(
     conn: &Connection,
     estimate: impl Fn(&str, i64, i64, i64, i64) -> f64,
+    since: Option<&str>,
 ) -> Result<Vec<ModelUsage>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT model, COUNT(DISTINCT session_id),
-                COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
-                COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0)
+    let sql = if since.is_some() {
+        "WITH frac AS (
+             SELECT session_id,
+                    SUM(CASE WHEN day >= ?1 THEN msg_count ELSE 0 END) * 1.0
+                        / SUM(msg_count) AS f
+             FROM cc_session_days
+             GROUP BY session_id
+             HAVING SUM(CASE WHEN day >= ?1 THEN msg_count ELSE 0 END) > 0
+         )
+         SELECT model, COUNT(DISTINCT session_id),
+                COALESCE(SUM(input_tokens * f), 0), COALESCE(SUM(output_tokens * f), 0),
+                COALESCE(SUM(cache_read_tokens * f), 0),
+                COALESCE(SUM(cache_creation_tokens * f), 0)
          FROM (
-            SELECT CASE WHEN model = '<synthetic>' THEN 'unknown' ELSE model END AS model,
+            SELECT CASE WHEN u.model = '<synthetic>' THEN 'synthetic' ELSE u.model END AS model,
+                   u.session_id, u.input_tokens, u.output_tokens,
+                   u.cache_read_tokens, u.cache_creation_tokens, w.f AS f
+            FROM session_model_usage u
+            JOIN frac w ON w.session_id = u.session_id
+            UNION ALL
+            SELECT CASE WHEN COALESCE(NULLIF(s.model_used, ''), 'unknown') = '<synthetic>'
+                        THEN 'synthetic'
+                        ELSE COALESCE(NULLIF(s.model_used, ''), 'unknown') END,
+                   s.id, COALESCE(s.total_input_tokens, 0), COALESCE(s.total_output_tokens, 0),
+                   COALESCE(s.cache_read_tokens, 0), COALESCE(s.cache_creation_tokens, 0),
+                   w.f
+            FROM cc_sessions s
+            JOIN frac w ON w.session_id = s.id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM session_model_usage u WHERE u.session_id = s.id
+            )
+         )
+         GROUP BY model"
+    } else {
+        "SELECT model, COUNT(DISTINCT session_id),
+                COALESCE(SUM(input_tokens), 0.0), COALESCE(SUM(output_tokens), 0.0),
+                COALESCE(SUM(cache_read_tokens), 0.0), COALESCE(SUM(cache_creation_tokens), 0.0)
+         FROM (
+            SELECT CASE WHEN model = '<synthetic>' THEN 'synthetic' ELSE model END AS model,
                    session_id, input_tokens, output_tokens,
                    cache_read_tokens, cache_creation_tokens
             FROM session_model_usage
             UNION ALL
             SELECT CASE WHEN COALESCE(NULLIF(s.model_used, ''), 'unknown') = '<synthetic>'
-                        THEN 'unknown'
+                        THEN 'synthetic'
                         ELSE COALESCE(NULLIF(s.model_used, ''), 'unknown') END,
                    s.id, COALESCE(s.total_input_tokens, 0), COALESCE(s.total_output_tokens, 0),
                    COALESCE(s.cache_read_tokens, 0), COALESCE(s.cache_creation_tokens, 0)
@@ -2419,20 +2468,26 @@ pub fn get_usage_by_model(
                 SELECT 1 FROM session_model_usage u WHERE u.session_id = s.id
             )
          )
-         GROUP BY model",
-    )?;
-    let raw = stmt
-        .query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, i64>(2)?,
-                r.get::<_, i64>(3)?,
-                r.get::<_, i64>(4)?,
-                r.get::<_, i64>(5)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+         GROUP BY model"
+    };
+    let mut stmt = conn.prepare(sql)?;
+    // Prorated sums are fractional; read f64 and round once per model bucket.
+    let map_row = |r: &rusqlite::Row| -> rusqlite::Result<(String, i64, i64, i64, i64, i64)> {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, f64>(2)?.round() as i64,
+            r.get::<_, f64>(3)?.round() as i64,
+            r.get::<_, f64>(4)?.round() as i64,
+            r.get::<_, f64>(5)?.round() as i64,
+        ))
+    };
+    let raw = match since {
+        Some(s) => stmt
+            .query_map(params![s], map_row)?
+            .collect::<Result<Vec<_>, _>>()?,
+        None => stmt.query_map([], map_row)?.collect::<Result<Vec<_>, _>>()?,
+    };
     let mut out: Vec<ModelUsage> = raw
         .into_iter()
         .map(|(model, sessions, input, output, cache_read, cache_creation)| {

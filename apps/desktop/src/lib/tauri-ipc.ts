@@ -326,7 +326,7 @@ export interface AgentDayUsage {
   cost: number;
 }
 
-/** All-time generated/cache tokens + USD cost grouped by model. */
+/** Generated/cache tokens + USD cost grouped by model (all time or a rolling window). */
 export interface ModelUsage {
   model: string;
   sessions: number;
@@ -1184,8 +1184,8 @@ export async function getAgentUsageByDay(days?: number): Promise<AgentDayUsage[]
   });
 }
 
-export async function getUsageByModel(): Promise<ModelUsage[]> {
-  return safeInvoke<ModelUsage[]>('get_usage_by_model');
+export async function getUsageByModel(days?: number): Promise<ModelUsage[]> {
+  return safeInvoke<ModelUsage[]>('get_usage_by_model', { days });
 }
 
 // ─── Engineering Intelligence (/intel) ──────────────────────────────────────
