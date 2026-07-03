@@ -712,3 +712,158 @@ fn capitalize_ascii(value: &str) -> String {
         None => String::new(),
     }
 }
+
+/// Result of a `git diff HEAD -- <file>` check for a memory source file.
+#[derive(Serialize)]
+pub struct MemoryFileDiffResult {
+    /// True when the file is inside a git repo, is tracked, and has local
+    /// changes vs the last commit.
+    pub has_changes: bool,
+    /// Human-readable status: "modified", "clean", or "not_a_repo".
+    /// "not_a_repo" is also returned when the file is untracked.
+    pub status: String,
+    /// The unified diff text (secret-looking lines redacted). Empty when there
+    /// are no changes or when the file is not in a tracked git repo.
+    pub diff: String,
+}
+
+/// Run `git diff HEAD -- <path>` for a known memory source file.
+///
+/// Returns a `MemoryFileDiffResult` describing whether the file has local
+/// changes since the last commit, and the diff text with secret-like lines
+/// redacted. If the file is not inside a git repo, or is not tracked, the
+/// status is "not_a_repo" so the caller can hide the affordance entirely.
+#[tauri::command]
+pub fn get_memory_file_git_diff(path: String) -> Result<MemoryFileDiffResult, String> {
+    let file_path = PathBuf::from(&path);
+
+    // Gate: the path must be a known memory source.
+    let _ = find_allowed_candidate(&file_path)
+        .ok_or_else(|| "Path is not a known agent memory source.".to_string())?;
+
+    if !file_path.is_file() {
+        return Err(format!("File does not exist: {path}"));
+    }
+
+    // Determine the directory containing the file so we can invoke git.
+    let parent = file_path
+        .parent()
+        .ok_or_else(|| "Cannot determine parent directory".to_string())?;
+
+    // Detect whether we are inside a git repo.
+    let rev_parse = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(parent)
+        .output()
+        .map_err(|e| format!("Failed to run git: {e}"))?;
+
+    if !rev_parse.status.success() {
+        return Ok(MemoryFileDiffResult {
+            has_changes: false,
+            status: "not_a_repo".to_string(),
+            diff: String::new(),
+        });
+    }
+
+    let repo_root = PathBuf::from(
+        String::from_utf8_lossy(&rev_parse.stdout)
+            .trim()
+            .to_string(),
+    );
+
+    // Check whether the file is tracked by git (ls-files --error-unmatch
+    // exits non-zero for untracked files).
+    let ls_files = std::process::Command::new("git")
+        .args(["ls-files", "--error-unmatch", "--"])
+        .arg(&file_path)
+        .current_dir(&repo_root)
+        .output()
+        .map_err(|e| format!("Failed to run git ls-files: {e}"))?;
+
+    if !ls_files.status.success() {
+        // File is not tracked — hide the affordance.
+        return Ok(MemoryFileDiffResult {
+            has_changes: false,
+            status: "not_a_repo".to_string(),
+            diff: String::new(),
+        });
+    }
+
+    // Unstaged changes vs HEAD.
+    let diff_output = std::process::Command::new("git")
+        .args(["diff", "HEAD", "--"])
+        .arg(&file_path)
+        .current_dir(&repo_root)
+        .output()
+        .map_err(|e| format!("Failed to run git diff: {e}"))?;
+
+    let raw_diff = String::from_utf8_lossy(&diff_output.stdout).to_string();
+
+    if !raw_diff.trim().is_empty() {
+        return Ok(MemoryFileDiffResult {
+            has_changes: true,
+            status: "modified".to_string(),
+            diff: redact_diff(&raw_diff),
+        });
+    }
+
+    // Also check for staged-only changes (index vs HEAD).
+    let staged_output = std::process::Command::new("git")
+        .args(["diff", "--cached", "HEAD", "--"])
+        .arg(&file_path)
+        .current_dir(&repo_root)
+        .output()
+        .map_err(|e| format!("Failed to run git diff --cached: {e}"))?;
+
+    let staged_diff = String::from_utf8_lossy(&staged_output.stdout).to_string();
+
+    if !staged_diff.trim().is_empty() {
+        return Ok(MemoryFileDiffResult {
+            has_changes: true,
+            status: "modified".to_string(),
+            diff: redact_diff(&staged_diff),
+        });
+    }
+
+    Ok(MemoryFileDiffResult {
+        has_changes: false,
+        status: "clean".to_string(),
+        diff: String::new(),
+    })
+}
+
+/// Redact secret-looking lines from a unified diff while preserving diff
+/// metadata lines (those starting with `---`, `+++`, `@@`, `diff`, `index`).
+fn redact_diff(diff: &str) -> String {
+    diff.lines()
+        .map(|line| {
+            // Preserve diff metadata lines verbatim.
+            if line.starts_with("---")
+                || line.starts_with("+++")
+                || line.starts_with("@@")
+                || line.starts_with("diff ")
+                || line.starts_with("index ")
+            {
+                return line.to_string();
+            }
+
+            // Strip the leading sigil (+/-/ ) to check the payload.
+            let payload = line.trim_start_matches(['+', '-', ' ']);
+            let lower = payload.to_ascii_lowercase();
+
+            if is_secret_text(&lower) {
+                let sigil = if line.starts_with('+') {
+                    "+"
+                } else if line.starts_with('-') {
+                    "-"
+                } else {
+                    " "
+                };
+                format!("{sigil}[redacted secret-like line]")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}

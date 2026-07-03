@@ -1827,6 +1827,19 @@ export async function readAgentMemorySource(path: string): Promise<AgentMemoryDo
   return safeInvoke('read_agent_memory_source', { path });
 }
 
+export interface MemoryFileDiffResult {
+  /** True when the file has local changes vs the last commit. */
+  has_changes: boolean;
+  /** "modified" | "clean" | "not_a_repo". "not_a_repo" means untracked or not in a repo. */
+  status: 'modified' | 'clean' | 'not_a_repo';
+  /** Unified diff text with secret-like lines redacted. Empty when no changes. */
+  diff: string;
+}
+
+export async function getMemoryFileGitDiff(path: string): Promise<MemoryFileDiffResult> {
+  return safeInvoke('get_memory_file_git_diff', { path });
+}
+
 // ─── GitHub PR & CI Operations ──────────────────────────────────────────────
 
 export interface PullRequestInfo {

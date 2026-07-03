@@ -327,6 +327,7 @@ fn main() {
             commands::session_intelligence::list_ai_session_adapter_runs,
             commands::agent_memories::list_agent_memory_sources,
             commands::agent_memories::read_agent_memory_source,
+            commands::agent_memories::get_memory_file_git_diff,
             // History / indexer
             commands::history::trigger_index,
             commands::history::get_index_stats,
