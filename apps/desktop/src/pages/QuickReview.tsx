@@ -32,6 +32,7 @@ import { Link } from 'react-router-dom';
 
 import BlastRadiusPanel from '@/components/blast-radius-panel';
 import AgentStatusTimeline from '@/components/quick-review/AgentStatusTimeline';
+import ReviewMemoryGraphPanel from '@/components/quick-review/ReviewMemoryGraphPanel';
 import SyntheticQaPanel from '@/components/quick-review/SyntheticQaPanel';
 import SandboxRunner from '@/components/SandboxRunner';
 import ScoreBadge from '@/components/score-badge';
@@ -3987,97 +3988,21 @@ export default function QuickReview() {
               />
 
               {reviewMemoryGraph && reviewMemoryGraph.nodes.length > 0 && (
-                <div className="shrink-0 border-t border-[var(--cv-line)] bg-[#07080a] px-3 py-2">
-                  <div className="mb-2 flex items-center gap-2">
-                    <GitBranch size={12} className="shrink-0 text-cyan-300" />
-                    <span className="cv-label min-w-0 flex-1 truncate text-slate-300">
-                      Review memory graph · {reviewMemoryGraph.nodes.length} nodes
-                    </span>
-                    {reviewMemoryGraph.truncated && (
-                      <Badge variant="outline" className="rounded-full px-1.5 py-0 text-[9px]">
-                        capped
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 gap-1.5">
-                    {reviewMemoryGraph.nodes.slice(0, 5).map((node) => (
-                      <div
-                        key={node.id}
-                        className="rounded-lg border border-[var(--cv-line)] bg-[#050505] px-2 py-1.5"
-                      >
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="shrink-0 rounded bg-cyan-500/10 px-1.5 py-0.5 text-[9px] text-cyan-200">
-                            {node.kind}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-300">
-                            {node.label}
-                          </span>
-                        </div>
-                        {node.detail && (
-                          <p className="mt-1 line-clamp-1 text-[10px] text-slate-500">
-                            {node.detail}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {reviewMemoryGraph.edges.length > 0 && (
-                    <div className="mt-2 font-mono text-[9px] text-slate-600">
-                      {reviewMemoryGraph.edges.slice(0, 3).map((edge) => (
-                        <div key={`${edge.from}-${edge.kind}-${edge.to}`} className="truncate">
-                          {edge.from} {'->'} {edge.to} · {edge.kind}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <ReviewMemoryGraphPanel
+                  graph={reviewMemoryGraph}
+                  title="Review memory graph"
+                  accent="cyan"
+                  nodeLimit={5}
+                />
               )}
 
               {focusedReviewMemoryGraph && focusedReviewMemoryGraph.nodes.length > 0 && (
-                <div className="shrink-0 border-t border-[var(--cv-line)] bg-[#07080a] px-3 py-2">
-                  <div className="mb-2 flex items-center gap-2">
-                    <GitBranch size={12} className="shrink-0 text-emerald-300" />
-                    <span className="cv-label min-w-0 flex-1 truncate text-slate-300">
-                      Finding graph focus · {focusedReviewMemoryGraph.nodes.length} nodes
-                    </span>
-                    {focusedReviewMemoryGraph.truncated && (
-                      <Badge variant="outline" className="rounded-full px-1.5 py-0 text-[9px]">
-                        capped
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 gap-1.5">
-                    {focusedReviewMemoryGraph.nodes.slice(0, 4).map((node) => (
-                      <div
-                        key={node.id}
-                        className="rounded-lg border border-emerald-500/20 bg-[#050505] px-2 py-1.5"
-                      >
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-200">
-                            {node.kind}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-300">
-                            {node.label}
-                          </span>
-                        </div>
-                        {node.detail && (
-                          <p className="mt-1 line-clamp-1 text-[10px] text-slate-500">
-                            {node.detail}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {focusedReviewMemoryGraph.edges.length > 0 && (
-                    <div className="mt-2 font-mono text-[9px] text-slate-600">
-                      {focusedReviewMemoryGraph.edges.slice(0, 3).map((edge) => (
-                        <div key={`${edge.from}-${edge.kind}-${edge.to}`} className="truncate">
-                          {edge.from} {'->'} {edge.to} · {edge.kind}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <ReviewMemoryGraphPanel
+                  graph={focusedReviewMemoryGraph}
+                  title="Finding graph focus"
+                  accent="emerald"
+                  nodeLimit={4}
+                />
               )}
 
               {historyExplanations.length > 0 && (
