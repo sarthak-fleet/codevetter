@@ -6,6 +6,7 @@
     "apps/*"
   ],
   "scripts": {
+    "bench:public": "node scripts/run-public-benchmark.mjs",
     "bench:catch-rate": "node scripts/run-catch-rate-benchmark.mjs",
     "bench:curation": "node scripts/report-benchmark-curation.mjs",
     "bench:new-case": "node scripts/create-benchmark-case.mjs",

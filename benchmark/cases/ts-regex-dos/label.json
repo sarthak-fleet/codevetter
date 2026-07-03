@@ -1,0 +1,16 @@
+{
+  "id": "ts-regex-dos",
+  "title": "Catastrophic backtracking regex (ReDoS) in TypeScript",
+  "language": "typescript",
+  "source_file": "source.ts",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "redos-nested-quantifier",
+      "type": "regex_dos",
+      "severity": "high",
+      "location": { "file": "source.ts", "lines": [4, 4] },
+      "description": "The regex uses a nested + quantifier ((...+)+) causing exponential backtracking on non-matching inputs; a long crafted string hangs the event loop and denies service to all other requests."
+    }
+  ]
+}

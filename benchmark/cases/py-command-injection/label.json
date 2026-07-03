@@ -1,0 +1,16 @@
+{
+  "id": "py-command-injection",
+  "title": "Command injection via subprocess shell=True in Python",
+  "language": "python",
+  "source_file": "source.py",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "shell-true-command-injection",
+      "type": "command_injection",
+      "severity": "high",
+      "location": { "file": "source.py", "lines": [9, 10] },
+      "description": "subprocess.run is called with shell=True and a string command containing user-controlled host, allowing shell metacharacters to inject arbitrary commands."
+    }
+  ]
+}

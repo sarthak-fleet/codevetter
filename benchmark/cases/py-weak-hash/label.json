@@ -1,0 +1,16 @@
+{
+  "id": "py-weak-hash",
+  "title": "Weak password hashing with MD5 in Python",
+  "language": "python",
+  "source_file": "source.py",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "md5-unsalted-password-hash",
+      "type": "weak_crypto",
+      "severity": "high",
+      "location": { "file": "source.py", "lines": [7, 7] },
+      "description": "Passwords are hashed with unsalted MD5, which is cryptographically broken and trivially reversed with rainbow tables; identical passwords produce identical hashes."
+    }
+  ]
+}

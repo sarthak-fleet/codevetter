@@ -1,0 +1,16 @@
+{
+  "id": "ts-prototype-pollution",
+  "title": "Prototype pollution via recursive merge in TypeScript",
+  "language": "typescript",
+  "source_file": "source.ts",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "proto-pollution-merge",
+      "type": "prototype_pollution",
+      "severity": "high",
+      "location": { "file": "source.ts", "lines": [11, 19] },
+      "description": "The recursive merge walks user-supplied keys without blocking __proto__/constructor/prototype, so a payload like {\"__proto__\": {\"admin\": true}} pollutes Object.prototype and escalates privileges across the application."
+    }
+  ]
+}

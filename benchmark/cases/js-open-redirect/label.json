@@ -1,0 +1,16 @@
+{
+  "id": "js-open-redirect",
+  "title": "Open redirect via unvalidated URL in Express",
+  "language": "javascript",
+  "source_file": "source.js",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "open-redirect-next-param",
+      "type": "open_redirect",
+      "severity": "medium",
+      "location": { "file": "source.js", "lines": [9, 10] },
+      "description": "The next query parameter is passed directly to res.redirect without an allowlist or same-origin check, enabling phishing redirects off the trusted domain."
+    }
+  ]
+}

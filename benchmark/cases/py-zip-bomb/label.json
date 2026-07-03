@@ -1,0 +1,16 @@
+{
+  "id": "py-zip-bomb",
+  "title": "Unbounded zip extraction (zip bomb) in Python",
+  "language": "python",
+  "source_file": "source.py",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "unbounded-zip-extractall",
+      "type": "resource_exhaustion",
+      "severity": "high",
+      "location": { "file": "source.py", "lines": [9, 9] },
+      "description": "extractall is called without checking uncompressed sizes or compression ratios, so a small zip bomb can decompress to petabytes and exhaust disk and memory."
+    }
+  ]
+}

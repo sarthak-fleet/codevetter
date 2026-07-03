@@ -8,7 +8,7 @@ fi
 SECRETS=$(git ls-files -z 2>/dev/null \
   | xargs -0 grep -lE \
     'sk-(proj-|ant-)?[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|gho_[A-Za-z0-9]{36}|AIzaSy[A-Za-z0-9_-]{33}|xoxb-[A-Za-z0-9-]+|-----BEGIN (RSA |EC )?PRIVATE KEY-----' 2>/dev/null \
-  | grep -vE '(\.example$|\.sample$|/tests?/|/__tests__/|/fixtures?/|/mocks?/|/vendor/|/\.tmp-)' \
+  | grep -vE '(\.example$|\.sample$|/tests?/|/__tests__/|/fixtures?/|/mocks?/|/vendor/|/\.tmp-|^benchmark/cases/)' \
   || true)
 
 if [ -n "$SECRETS" ]; then

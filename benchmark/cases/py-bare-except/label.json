@@ -1,0 +1,16 @@
+{
+  "id": "py-bare-except",
+  "title": "Bare except swallows all errors in Python",
+  "language": "python",
+  "source_file": "source.py",
+  "category": "bug",
+  "ground_truth": [
+    {
+      "id": "bare-except-swallows-errors",
+      "type": "swallowed_error",
+      "severity": "medium",
+      "location": { "file": "source.py", "lines": [9, 11] },
+      "description": "A bare except catches BaseException (including KeyboardInterrupt and SystemExit), hides JSON parse failures, and silently returns an empty dict so callers never learn the config failed to parse."
+    }
+  ]
+}

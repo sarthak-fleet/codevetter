@@ -1,0 +1,16 @@
+{
+  "id": "py-hardcoded-secret",
+  "title": "Hardcoded cloud API credentials in Python",
+  "language": "python",
+  "source_file": "source.py",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "hardcoded-aws-access-key",
+      "type": "hardcoded_secret",
+      "severity": "high",
+      "location": { "file": "source.py", "lines": [10, 11] },
+      "description": "A live AWS access key id and secret access key are hardcoded in source. Anyone with repository access can extract and abuse these credentials."
+    }
+  ]
+}

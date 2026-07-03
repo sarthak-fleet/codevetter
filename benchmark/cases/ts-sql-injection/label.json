@@ -1,0 +1,16 @@
+{
+  "id": "ts-sql-injection",
+  "title": "SQL injection via string concatenation in TypeScript",
+  "language": "typescript",
+  "source_file": "source.ts",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "sql-injection-email-concat",
+      "type": "sql_injection",
+      "severity": "high",
+      "location": { "file": "source.ts", "lines": [14, 14] },
+      "description": "User-controlled emailInput is concatenated directly into the SQL query string, allowing injection of arbitrary SQL by breaking out of the single-quoted value."
+    }
+  ]
+}

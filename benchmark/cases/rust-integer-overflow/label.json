@@ -1,0 +1,23 @@
+{
+  "id": "rust-integer-overflow",
+  "title": "Unchecked integer arithmetic in Rust",
+  "language": "rust",
+  "source_file": "source.rs",
+  "category": "bug",
+  "ground_truth": [
+    {
+      "id": "credit-overflow-wrap",
+      "type": "integer_overflow",
+      "severity": "high",
+      "location": { "file": "source.rs", "lines": [11, 11] },
+      "description": "credit uses += on u64 without checked/saturating arithmetic; in release builds an overflowing credit wraps the balance silently, enabling balance manipulation."
+    },
+    {
+      "id": "debit-underflow-wrap",
+      "type": "integer_overflow",
+      "severity": "high",
+      "location": { "file": "source.rs", "lines": [18, 18] },
+      "description": "debit uses -= on u64 without checked arithmetic; an over-debit underflows, panicking in debug or wrapping to a huge balance in release."
+    }
+  ]
+}

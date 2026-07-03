@@ -1,0 +1,16 @@
+{
+  "id": "go-race-condition",
+  "title": "Data race on a shared map in Go",
+  "language": "go",
+  "source_file": "source.go",
+  "category": "concurrency",
+  "ground_truth": [
+    {
+      "id": "unsynchronized-map-read",
+      "type": "race_condition",
+      "severity": "high",
+      "location": { "file": "source.go", "lines": [21, 21] },
+      "description": "Get reads the shared map without holding the mutex while Set writes to it under the lock, causing a concurrent map read/write data race."
+    }
+  ]
+}

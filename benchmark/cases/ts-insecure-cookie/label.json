@@ -1,0 +1,16 @@
+{
+  "id": "ts-insecure-cookie",
+  "title": "Insecure session cookie attributes in TypeScript",
+  "language": "typescript",
+  "source_file": "source.ts",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "cookie-missing-secure-httponly-samesite",
+      "type": "insecure_cookie",
+      "severity": "high",
+      "location": { "file": "source.ts", "lines": [8, 8] },
+      "description": "The session cookie is set without Secure, HttpOnly, or SameSite attributes, so it is transmitted over HTTP, readable by JavaScript/XSS, and vulnerable to CSRF."
+    }
+  ]
+}

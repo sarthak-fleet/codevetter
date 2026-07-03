@@ -1,0 +1,16 @@
+{
+  "id": "ts-missing-await",
+  "title": "Missing await on async operation in TypeScript",
+  "language": "typescript",
+  "source_file": "source.ts",
+  "category": "bug",
+  "ground_truth": [
+    {
+      "id": "fire-and-forget-delete-session",
+      "type": "missing_await",
+      "severity": "medium",
+      "location": { "file": "source.ts", "lines": [8, 8] },
+      "description": "deleteSession returns a promise but is not awaited, so a rejection becomes an unhandled promise rejection and logout resolves before the session is actually deleted, leaving stale sessions."
+    }
+  ]
+}

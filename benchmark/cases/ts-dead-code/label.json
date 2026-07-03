@@ -1,0 +1,23 @@
+{
+  "id": "ts-dead-code",
+  "title": "Unreachable code after unconditional return",
+  "language": "typescript",
+  "source_file": "source.ts",
+  "category": "maintainability",
+  "ground_truth": [
+    {
+      "id": "unreachable-branch-after-return",
+      "type": "dead_code",
+      "severity": "medium",
+      "location": { "file": "source.ts", "lines": [12, 15] },
+      "description": "The if (score >= 70) branch and final return are unreachable because an unconditional return at line 8 always exits the function first."
+    },
+    {
+      "id": "unused-helper-function",
+      "type": "dead_code",
+      "severity": "low",
+      "location": { "file": "source.ts", "lines": [18, 20] },
+      "description": "neverCalled is defined but never referenced anywhere, so it is dead code that should be removed."
+    }
+  ]
+}

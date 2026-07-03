@@ -1,0 +1,16 @@
+{
+  "id": "java-insecure-random",
+  "title": "Predictable PRNG for security tokens in Java",
+  "language": "java",
+  "source_file": "source.java",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "predictable-reset-token",
+      "type": "insecure_random",
+      "severity": "high",
+      "location": { "file": "source.java", "lines": [10, 11] },
+      "description": "Reset tokens are generated with java.util.Random, a predictable PRNG whose seed is recoverable from observed outputs, allowing token forgery. SecureRandom should be used instead."
+    }
+  ]
+}

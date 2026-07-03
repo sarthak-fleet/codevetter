@@ -21,7 +21,8 @@
       "!apps/desktop/src-tauri/gen/schemas/**",
       "!**/*.css",
       "!**/*.astro",
-      "!**/design.html"
+      "!**/design.html",
+      "!benchmark/cases/**"
     ]
   },
   "formatter": {

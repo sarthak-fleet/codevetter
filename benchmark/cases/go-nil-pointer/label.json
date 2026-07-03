@@ -1,0 +1,16 @@
+{
+  "id": "go-nil-pointer",
+  "title": "Nil-pointer dereference on missing map value in Go",
+  "language": "go",
+  "source_file": "source.go",
+  "category": "bug",
+  "ground_truth": [
+    {
+      "id": "nil-pointer-missing-user",
+      "type": "nil_dereference",
+      "severity": "medium",
+      "location": { "file": "source.go", "lines": [16, 16] },
+      "description": "FindUser dereferences u.Email without checking that the map lookup returned a non-nil pointer, so a missing id causes a nil pointer dereference and a process crash."
+    }
+  ]
+}

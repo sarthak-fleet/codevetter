@@ -1,0 +1,16 @@
+{
+  "id": "ts-xss",
+  "title": "Reflected XSS via dangerouslySetInnerHTML in React",
+  "language": "typescript",
+  "source_file": "source.tsx",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "xss-dangerously-set-inner-html",
+      "type": "xss",
+      "severity": "high",
+      "location": { "file": "source.tsx", "lines": [12, 12] },
+      "description": "User-supplied comment body is rendered as raw HTML via dangerouslySetInnerHTML without any sanitization, enabling stored/reflected XSS."
+    }
+  ]
+}

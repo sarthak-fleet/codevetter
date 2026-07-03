@@ -1,0 +1,16 @@
+{
+  "id": "go-hardcoded-credentials",
+  "title": "Hardcoded database credentials in Go",
+  "language": "go",
+  "source_file": "source.go",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "hardcoded-dsn-credentials",
+      "type": "hardcoded_secret",
+      "severity": "high",
+      "location": { "file": "source.go", "lines": [7, 9] },
+      "description": "Production database username, password, and host are committed in plaintext as package-level constants, exposing credentials to anyone with repository access."
+    }
+  ]
+}

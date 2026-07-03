@@ -46,6 +46,9 @@ playwright-report/
 apps/desktop/synthetic-qa-artifacts/
 .playwright-mcp/
 
+# Public benchmark reviewer output (drop tool outputs here, not tracked)
+benchmark/reviews/
+
 # Coverage
 coverage/
 apps/desktop/coverage/

@@ -1,0 +1,16 @@
+{
+  "id": "js-eval-injection",
+  "title": "Arbitrary code execution via eval() in JavaScript",
+  "language": "javascript",
+  "source_file": "source.js",
+  "category": "security",
+  "ground_truth": [
+    {
+      "id": "eval-on-user-input",
+      "type": "code_injection",
+      "severity": "high",
+      "location": { "file": "source.js", "lines": [7, 7] },
+      "description": "Caller-supplied expression is passed directly to eval(), turning any user-controlled value into executing JavaScript and enabling arbitrary code execution."
+    }
+  ]
+}

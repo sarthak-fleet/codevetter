@@ -1,0 +1,16 @@
+{
+  "id": "ts-type-confusion",
+  "title": "Type-safety bypass via `as any` in TypeScript",
+  "language": "typescript",
+  "source_file": "source.ts",
+  "category": "bug",
+  "ground_truth": [
+    {
+      "id": "as-any-type-confusion",
+      "type": "type_confusion",
+      "severity": "medium",
+      "location": { "file": "source.ts", "lines": [19, 19] },
+      "description": "The payload is cast through `as any` to Order, bypassing the compiler so a Refund-shaped object is treated as an Order; at runtime items is undefined and the .length access throws or silently corrupts downstream totals."
+    }
+  ]
+}

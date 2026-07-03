@@ -25,6 +25,7 @@ Internal (fleet):
 
 ## Timeline
 
+- **2026-07-03:** Published 27 hand-labeled public benchmark cases (`benchmark/cases/`) covering 7 languages (TypeScript, Python, Go, Rust, JavaScript, Java) and 15+ vulnerability types (SQL injection, XSS, hardcoded secrets, race conditions, path traversal, SSRF, prototype pollution, regex DoS, zip bombs, etc.). Scorer script (`scripts/run-public-benchmark.mjs`) validates labels and computes catch-rate/precision/F1 per reviewer. `npm run bench:public`. Enterprise claims now backed by external, repeatable proof.
 - **2026-07-02/03:** Streamlined telemetry + fleet navigation, guarded manual deploy command in CI, polished repo intelligence evidence surfaces.
 - **2026-06-28:** Devin agent indexing, agent hide/show filter, Grok parser improvements; PROJECT_STATUS audited as source of truth.
 - **2026-06-21 (v1.1.99) — Codex cost over-count fix:** Codex reports session-CUMULATIVE token totals; the incremental indexer was ADDING that running total every pass, inflating one session to 61.5B tokens / $35k (true: 391M / ~$220) and making "today" read ~$12.9k. Fix: `tokens_absolute` flag so cumulative tokens are SET not added, plus a one-time `fix_codex_token_totals` repair re-reading each Codex file. Verified on a live-DB copy: today $12,896→$377, year $82k→$38k (Claude cache-read costs, which are real, dominate the remainder). Guarded by `eval_append_delta_sets_cumulative_tokens_but_adds_per_message`.
