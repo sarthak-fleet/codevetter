@@ -21,7 +21,7 @@ const canonical = `${SITE_URL}${path === '/' ? '' : path}`;
 // project serves /, so this absolute URL falls back to a stable image
 // asset if we publish one to public/og.png later. For now, keep the
 // existing visual contract.
-const OG_IMAGE = `${SITE_URL}/opengraph-image.png`;
+const OG_IMAGE = `${SITE_URL}/og-image.svg`;
 ---
 
 <!doctype html>
@@ -33,6 +33,9 @@ const OG_IMAGE = `${SITE_URL}/opengraph-image.png`;
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="application-name" content="CodeVetter" />
+    <meta name="keywords" content="AI code review, agent code review, desktop code review, AI code security, vulnerability scanner, Cursor alternative, Claude Code review, Devin review, diff review tool, offline code review" />
+    <meta name="author" content="CodeVetter" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
 
     <link rel="canonical" href={canonical} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -48,6 +51,29 @@ const OG_IMAGE = `${SITE_URL}/opengraph-image.png`;
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={OG_IMAGE} />
+    <meta name="twitter:site" content="@sarthakcodes" />
+    <meta name="twitter:creator" content="@sarthakcodes" />
+
+    <script type="application/ld+json" set:html={JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "CodeVetter",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "macOS, Windows, Linux",
+      "url": "https://codevetter.com",
+      "description": "Desktop-first code review for agent-generated code. Runs offline. Multi-LLM. Catches 14 vulnerability classes that Cursor, Claude Code, and Devin routinely miss.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD",
+        "description": "Free for solo use."
+      },
+      "author": {
+        "@type": "Organization",
+        "name": "CodeVetter",
+        "url": "https://codevetter.com"
+      }
+    })} />
 
   </head>
   <body>
