@@ -1,10 +1,20 @@
-import { CheckCircle2, ClipboardCheck, Plus, Save } from 'lucide-react';
-import { useState } from 'react';
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ClipboardCheck,
+  Copy,
+  CopyPlus,
+  Plus,
+  Save,
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
+  buildStandardsContext,
   DEFAULT_STANDARDS_PACKS,
   getActiveStandardsPack,
   getStandardsPacks,
@@ -13,6 +23,7 @@ import {
   saveReviewConfig,
   type StandardsPack,
 } from '@/lib/review-service';
+import { getStandardsPackUsage, isTauriAvailable } from '@/lib/tauri-ipc';
 
 function fallbackConfig(): ReviewConfig {
   return {
@@ -45,15 +56,59 @@ function makePackId(name: string) {
   );
 }
 
+/** Ensure an id doesn't collide with an existing pack (built-in or custom). */
+function uniquePackId(base: string, existing: StandardsPack[]): string {
+  const taken = new Set(existing.map((p) => p.id));
+  if (!taken.has(base)) return base;
+  for (let i = 2; i < 100; i += 1) {
+    const candidate = `${base}-${i}`.slice(0, 48);
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${base}-${Date.now()}`;
+}
+
+interface PackUsage {
+  reviewCount: number;
+  totalFindings: number;
+}
+
 export default function Rubrics() {
   const [config, setConfig] = useState<ReviewConfig>(loadRubricConfig);
   const [draftName, setDraftName] = useState('');
   const [draftFocus, setDraftFocus] = useState('');
   const [draftChecks, setDraftChecks] = useState('');
   const [saved, setSaved] = useState(false);
+  const [usage, setUsage] = useState<Record<string, PackUsage>>({});
+  const [expandedPreview, setExpandedPreview] = useState<string | null>(null);
+  const [copiedPreview, setCopiedPreview] = useState<string | null>(null);
 
   const packs = getStandardsPacks(config);
   const activePack = getActiveStandardsPack(config);
+  const customRules = config.customRules ?? [];
+
+  // Usage is keyed by pack NAME (the value persisted on each review), not id.
+  useEffect(() => {
+    if (!isTauriAvailable()) return;
+    let cancelled = false;
+    getStandardsPackUsage()
+      .then((rows) => {
+        if (cancelled) return;
+        const map: Record<string, PackUsage> = {};
+        for (const row of rows) {
+          map[row.standards_pack] = {
+            reviewCount: row.review_count,
+            totalFindings: row.total_findings,
+          };
+        }
+        setUsage(map);
+      })
+      .catch(() => {
+        // Non-fatal — packs simply show "no usage yet".
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function persist(next: ReviewConfig) {
     setConfig(next);
@@ -64,6 +119,34 @@ export default function Rubrics() {
 
   function selectPack(packId: string) {
     persist({ ...config, activeStandardsPack: packId });
+  }
+
+  function clonePack(source: StandardsPack) {
+    const cloneName = `${source.name} (copy)`;
+    const cloneId = uniquePackId(makePackId(cloneName), packs);
+    const clone: StandardsPack = {
+      id: cloneId,
+      name: cloneName,
+      focus: source.focus,
+      checks: [...source.checks],
+    };
+    persist({
+      ...config,
+      activeStandardsPack: clone.id,
+      standardsPacks: [...(config.standardsPacks ?? []), clone],
+    });
+    setExpandedPreview(clone.id);
+  }
+
+  async function copyPreview(pack: StandardsPack) {
+    const text = buildStandardsContext(pack, customRules);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedPreview(pack.id);
+      window.setTimeout(() => setCopiedPreview((cur) => (cur === pack.id ? null : cur)), 1600);
+    } catch {
+      // Clipboard unavailable — no-op.
+    }
   }
 
   function addCustomPack() {
@@ -77,7 +160,7 @@ export default function Rubrics() {
     }
 
     const pack: StandardsPack = {
-      id: makePackId(draftName),
+      id: uniquePackId(makePackId(draftName), packs),
       name: draftName.trim(),
       focus: draftFocus.trim(),
       checks,
@@ -111,6 +194,7 @@ export default function Rubrics() {
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
               Pick the standard CodeVetter should apply when it asks a CLI agent to review a diff.
+              Each review records the pack it ran with, so usage below reflects real runs.
             </p>
           </div>
           {saved && (
@@ -125,6 +209,9 @@ export default function Rubrics() {
           <section className="grid gap-4">
             {packs.map((pack) => {
               const active = activePack.id === pack.id;
+              const packUsage = usage[pack.name];
+              const previewOpen = expandedPreview === pack.id;
+              const previewText = buildStandardsContext(pack, customRules);
               return (
                 <Card
                   key={pack.id}
@@ -137,15 +224,27 @@ export default function Rubrics() {
                       <h2 className="text-lg font-semibold text-slate-100">{pack.name}</h2>
                       <p className="mt-2 text-sm leading-6 text-slate-400">{pack.focus}</p>
                     </div>
-                    <Button
-                      type="button"
-                      onClick={() => selectPack(pack.id)}
-                      className="shrink-0"
-                      variant={active ? 'secondary' : 'default'}
-                    >
-                      {active ? 'Active' : 'Use pack'}
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        type="button"
+                        onClick={() => clonePack(pack)}
+                        variant="ghost"
+                        size="sm"
+                        title="Duplicate into a new editable pack"
+                      >
+                        <CopyPlus size={14} className="mr-1.5" />
+                        Duplicate
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={() => selectPack(pack.id)}
+                        variant={active ? 'secondary' : 'default'}
+                      >
+                        {active ? 'Active' : 'Use pack'}
+                      </Button>
+                    </div>
                   </div>
+
                   <ul className="mt-4 space-y-2 text-sm text-slate-300">
                     {pack.checks.map((check) => (
                       <li key={check} className="flex gap-2">
@@ -154,6 +253,55 @@ export default function Rubrics() {
                       </li>
                     ))}
                   </ul>
+
+                  <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
+                    {packUsage ? (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="font-medium text-slate-300">
+                          {packUsage.reviewCount} review{packUsage.reviewCount === 1 ? '' : 's'}
+                        </span>
+                        <span aria-hidden>·</span>
+                        <span>
+                          {packUsage.totalFindings} finding
+                          {packUsage.totalFindings === 1 ? '' : 's'}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="italic">No usage yet</span>
+                    )}
+                  </div>
+
+                  <div className="mt-4 border-t border-[#1a1a1a] pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedPreview(previewOpen ? null : pack.id)}
+                      className="flex w-full items-center gap-1.5 text-xs font-medium text-slate-400 transition-colors hover:text-slate-200"
+                    >
+                      {previewOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      Prompt preview
+                      <span className="ml-1 font-normal text-slate-600">
+                        exact context injected into reviews
+                      </span>
+                    </button>
+                    {previewOpen && (
+                      <div className="mt-3">
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            onClick={() => void copyPreview(pack)}
+                            variant="ghost"
+                            size="sm"
+                          >
+                            <Copy size={13} className="mr-1.5" />
+                            {copiedPreview === pack.id ? 'Copied' : 'Copy'}
+                          </Button>
+                        </div>
+                        <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border border-[#1a1a1a] bg-[#08090d] p-3 font-mono text-xs leading-5 text-slate-300">
+                          {previewText}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
                 </Card>
               );
             })}
