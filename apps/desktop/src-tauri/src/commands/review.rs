@@ -1100,6 +1100,39 @@ pub async fn get_review(db: State<'_, DbState>, id: String) -> Result<Value, Str
     }))
 }
 
+/// Record (or clear) the owner's usefulness verdict on a finding.
+/// `disposition` must be `"accepted"`, `"dismissed"`, or `None` to clear
+/// back to unreviewed. Returns `{ "updated": <rows> }`.
+#[tauri::command]
+pub async fn set_finding_disposition(
+    db: State<'_, DbState>,
+    finding_id: String,
+    disposition: Option<String>,
+) -> Result<Value, String> {
+    let normalized = match disposition.as_deref() {
+        None => None,
+        Some("accepted") => Some("accepted"),
+        Some("dismissed") => Some("dismissed"),
+        Some(other) => {
+            return Err(format!(
+                "invalid disposition '{other}' (expected 'accepted', 'dismissed', or null)"
+            ))
+        }
+    };
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let updated = queries::set_finding_disposition(&conn, &finding_id, normalized)
+        .map_err(|e| e.to_string())?;
+    Ok(json!({ "updated": updated }))
+}
+
+/// All-time + last-30-days finding-disposition rollup for the Roadmap page.
+#[tauri::command]
+pub async fn get_finding_disposition_stats(db: State<'_, DbState>) -> Result<Value, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let stats = queries::get_finding_disposition_stats(&conn).map_err(|e| e.to_string())?;
+    serde_json::to_value(stats).map_err(|e| e.to_string())
+}
+
 /// Run a code review via a CLI agent (claude or gemini).
 ///
 /// 1. Gets the git diff for the given range

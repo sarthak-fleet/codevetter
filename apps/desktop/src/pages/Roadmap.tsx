@@ -1,16 +1,19 @@
-import { Activity, Loader2, RefreshCw, Search } from 'lucide-react';
+import { Activity, Loader2, RefreshCw, Search, ThumbsUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type {
+  FindingDispositionStats,
+  FindingDispositionWindow,
   SessionAdapterRun,
   SessionMessageArchiveSearchRow,
   SessionScorecard,
 } from '@/lib/tauri-ipc';
 import {
   getAiSessionScorecard,
+  getFindingDispositionStats,
   isTauriAvailable,
   listAiSessionAdapterRuns,
   listenToSessionArchiveUpdates,
@@ -230,9 +233,68 @@ function ArchiveSearchPanel() {
   );
 }
 
+function DispositionWindowStat({
+  label,
+  window: win,
+}: {
+  label: string;
+  window: FindingDispositionWindow;
+}) {
+  const reviewed = win.accepted + win.dismissed;
+  const ratePct = Math.round(win.acceptance_rate * 100);
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="cv-label text-slate-600">{label}</div>
+      <div className="mt-1 flex items-baseline gap-1.5">
+        <span className="text-2xl font-semibold tabular-nums text-slate-100">
+          {reviewed > 0 ? `${ratePct}%` : '—'}
+        </span>
+        <span className="font-mono text-[10px] uppercase text-slate-600">acceptance</span>
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px] uppercase text-slate-500">
+        <span className="text-emerald-400">{win.accepted} accepted</span>
+        <span className="text-slate-600">·</span>
+        <span className="text-slate-400">{win.dismissed} dismissed</span>
+        <span className="text-slate-600">·</span>
+        <span>{win.unreviewed} unreviewed</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Is the reviewer earning its keep" — acceptance rate of review findings the
+ * owner has acted on, all-time and over the last 30 days.
+ */
+function FindingDispositionPanel({ stats }: { stats: FindingDispositionStats | null }) {
+  if (!stats) return null;
+  const totalReviewed =
+    stats.all_time.accepted + stats.all_time.dismissed + stats.all_time.unreviewed;
+  return (
+    <div className="cv-panel overflow-hidden">
+      <div className="cv-terminal-bar h-10 px-4">
+        <ThumbsUp size={14} className="text-[var(--cv-accent)]" />
+        <span className="cv-label">finding usefulness</span>
+      </div>
+      {totalReviewed === 0 ? (
+        <div className="bg-[#07080a] px-4 py-5 text-xs text-slate-600">
+          No findings yet. Accept or dismiss review findings to build the signal.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4 border-t border-[#171717] bg-[#08090a] p-4 sm:flex-row sm:gap-6">
+          <DispositionWindowStat label="all time" window={stats.all_time} />
+          <div className="hidden w-px self-stretch bg-[#171717] sm:block" />
+          <DispositionWindowStat label="last 30 days" window={stats.last_30_days} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Roadmap() {
   const [scorecard, setScorecard] = useState<SessionScorecard | null>(null);
   const [adapterRuns, setAdapterRuns] = useState<SessionAdapterRun[]>([]);
+  const [dispositionStats, setDispositionStats] = useState<FindingDispositionStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -240,12 +302,14 @@ export default function Roadmap() {
     setLoading(true);
     setError(null);
     try {
-      const [scorecardResult, adapterRunsResult] = await Promise.all([
+      const [scorecardResult, adapterRunsResult, dispositionResult] = await Promise.all([
         getAiSessionScorecard({ limit: 50 }),
         listAiSessionAdapterRuns({ limit: 12 }),
+        getFindingDispositionStats(),
       ]);
       setScorecard(scorecardResult);
       setAdapterRuns(adapterRunsResult);
+      setDispositionStats(dispositionResult);
     } catch (err) {
       console.error('[CodeVetter] Roadmap load failed:', err);
       setError("Couldn't load roadmap telemetry. Your saved data is safe.");
@@ -288,6 +352,7 @@ export default function Roadmap() {
         )}
 
         <RoadmapReleaseBanner />
+        <FindingDispositionPanel stats={dispositionStats} />
         <VerificationWorkbenchPanel scorecard={scorecard} />
         <SessionScorecardPanel scorecard={scorecard} />
         <AdapterSourceHealthPanel runs={adapterRuns} />

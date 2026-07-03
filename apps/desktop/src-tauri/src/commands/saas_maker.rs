@@ -1406,6 +1406,7 @@ mod tests {
             confidence: Some(0.9),
             fingerprint: None,
             discovery_method: method.map(String::from),
+            disposition: None,
         }
     }
 

@@ -63,6 +63,8 @@ pub struct LocalReviewFindingRow {
     pub confidence: Option<f64>,
     pub fingerprint: Option<String>,
     pub discovery_method: Option<String>,
+    /// Owner's usefulness verdict: "accepted" | "dismissed" | None (unreviewed).
+    pub disposition: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1281,6 +1283,81 @@ pub fn insert_review_finding(
     Ok(id)
 }
 
+/// Record (or clear) the owner's usefulness verdict on a single finding.
+/// `disposition` is `Some("accepted"|"dismissed")` to set, or `None` to
+/// clear back to unreviewed. Returns the number of rows updated (0 if the
+/// finding id is unknown). Callers must validate the value before calling.
+pub fn set_finding_disposition(
+    conn: &Connection,
+    finding_id: &str,
+    disposition: Option<&str>,
+) -> Result<usize, rusqlite::Error> {
+    conn.execute(
+        "UPDATE local_review_findings SET disposition = ?2 WHERE id = ?1",
+        params![finding_id, disposition],
+    )
+}
+
+/// Aggregate finding-disposition counts over a time window.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FindingDispositionWindow {
+    pub accepted: i64,
+    pub dismissed: i64,
+    pub unreviewed: i64,
+    /// accepted / (accepted + dismissed), 0.0 when nothing has been reviewed.
+    pub acceptance_rate: f64,
+}
+
+/// All-time + last-30-days disposition rollup — the "is the reviewer earning
+/// its keep" signal surfaced on the Roadmap page.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FindingDispositionStats {
+    pub all_time: FindingDispositionWindow,
+    pub last_30_days: FindingDispositionWindow,
+}
+
+fn disposition_window(
+    conn: &Connection,
+    since: Option<&str>,
+) -> Result<FindingDispositionWindow, rusqlite::Error> {
+    // Join to the parent review for the timestamp so the window filter uses
+    // when the review ran, not a per-finding column (findings have none).
+    let (accepted, dismissed, unreviewed): (i64, i64, i64) = conn.query_row(
+        "SELECT
+             COALESCE(SUM(CASE WHEN f.disposition = 'accepted' THEN 1 ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN f.disposition = 'dismissed' THEN 1 ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN f.disposition IS NULL THEN 1 ELSE 0 END), 0)
+         FROM local_review_findings f
+         JOIN local_reviews r ON r.id = f.review_id
+         WHERE (?1 IS NULL OR r.created_at >= ?1)",
+        params![since],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    let reviewed = accepted + dismissed;
+    let acceptance_rate = if reviewed > 0 {
+        accepted as f64 / reviewed as f64
+    } else {
+        0.0
+    };
+    Ok(FindingDispositionWindow {
+        accepted,
+        dismissed,
+        unreviewed,
+        acceptance_rate,
+    })
+}
+
+/// Compute all-time and last-30-days finding-disposition stats.
+pub fn get_finding_disposition_stats(
+    conn: &Connection,
+) -> Result<FindingDispositionStats, rusqlite::Error> {
+    let since_30d = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
+    Ok(FindingDispositionStats {
+        all_time: disposition_window(conn, None)?,
+        last_30_days: disposition_window(conn, Some(&since_30d))?,
+    })
+}
+
 /// Persist T-Rex sandbox verdict on a review so the UI can read it back
 /// without re-running the sandbox.
 pub fn update_sandbox_verdict(
@@ -1601,7 +1678,7 @@ pub fn get_local_review_with_findings(
 
     let mut stmt = conn.prepare(
         "SELECT id, review_id, severity, title, summary, suggestion,
-                file_path, line, confidence, fingerprint, discovery_method
+                file_path, line, confidence, fingerprint, discovery_method, disposition
          FROM local_review_findings
          WHERE review_id = ?1
          ORDER BY severity DESC, line ASC",
@@ -1620,6 +1697,7 @@ pub fn get_local_review_with_findings(
                 confidence: row.get(8)?,
                 fingerprint: row.get(9)?,
                 discovery_method: row.get(10)?,
+                disposition: row.get(11)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -2711,6 +2789,103 @@ mod tests {
         assert_eq!(events[0].step_id, "verify_ui_route_change");
         assert_eq!(events[0].status, "satisfied");
         assert_eq!(events[0].artifact.as_deref(), Some("artifacts/review.png"));
+    }
+
+    #[test]
+    fn finding_disposition_round_trips_and_rolls_up() {
+        let conn = Connection::open_in_memory().expect("memory db");
+        schema::run_migrations(&conn).expect("schema");
+        let review_id = create_local_review(
+            &conn,
+            &LocalReviewInput {
+                review_type: Some("cli".to_string()),
+                source_label: Some("HEAD".to_string()),
+                repo_path: Some("/tmp/repo".to_string()),
+                repo_full_name: None,
+                pr_number: None,
+                agent_used: Some("claude".to_string()),
+                status: Some("completed".to_string()),
+            },
+        )
+        .expect("review");
+
+        let finding = |title: &str| {
+            let id = insert_review_finding(
+                &conn,
+                &LocalReviewFindingInput {
+                    review_id: review_id.clone(),
+                    severity: "high".to_string(),
+                    title: title.to_string(),
+                    summary: "s".to_string(),
+                    suggestion: None,
+                    file_path: Some("src/a.ts".to_string()),
+                    line: Some(1),
+                    confidence: Some(0.9),
+                    fingerprint: None,
+                    discovery_method: None,
+                },
+            )
+            .expect("finding");
+            id
+        };
+
+        let f_accept = finding("accept me");
+        let f_dismiss = finding("dismiss me");
+        let _f_unreviewed = finding("leave me");
+
+        // New findings start unreviewed (disposition NULL).
+        let (_review, rows) = get_local_review_with_findings(&conn, &review_id).expect("load");
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().all(|r| r.disposition.is_none()));
+
+        // Set dispositions.
+        assert_eq!(
+            set_finding_disposition(&conn, &f_accept, Some("accepted")).expect("set"),
+            1
+        );
+        assert_eq!(
+            set_finding_disposition(&conn, &f_dismiss, Some("dismissed")).expect("set"),
+            1
+        );
+
+        // Read back through the review loader (what the UI receives).
+        let (_review, rows) = get_local_review_with_findings(&conn, &review_id).expect("reload");
+        let by_title = |t: &str| {
+            rows.iter()
+                .find(|r| r.title.as_deref() == Some(t))
+                .and_then(|r| r.disposition.clone())
+        };
+        assert_eq!(by_title("accept me").as_deref(), Some("accepted"));
+        assert_eq!(by_title("dismiss me").as_deref(), Some("dismissed"));
+        assert_eq!(by_title("leave me"), None);
+
+        // Rollup: 1 accepted, 1 dismissed, 1 unreviewed → 50% acceptance.
+        let stats = get_finding_disposition_stats(&conn).expect("stats");
+        assert_eq!(stats.all_time.accepted, 1);
+        assert_eq!(stats.all_time.dismissed, 1);
+        assert_eq!(stats.all_time.unreviewed, 1);
+        assert!((stats.all_time.acceptance_rate - 0.5).abs() < 1e-9);
+        // The review was created just now, so the 30-day window matches all-time.
+        assert_eq!(stats.last_30_days.accepted, 1);
+        assert_eq!(stats.last_30_days.dismissed, 1);
+
+        // Clearing a disposition returns it to unreviewed and lowers the count.
+        assert_eq!(
+            set_finding_disposition(&conn, &f_accept, None).expect("clear"),
+            1
+        );
+        let stats = get_finding_disposition_stats(&conn).expect("stats2");
+        assert_eq!(stats.all_time.accepted, 0);
+        assert_eq!(stats.all_time.dismissed, 1);
+        assert_eq!(stats.all_time.unreviewed, 2);
+        // Only dismissed among reviewed → 0% acceptance.
+        assert!((stats.all_time.acceptance_rate - 0.0).abs() < 1e-9);
+
+        // Unknown finding id updates nothing.
+        assert_eq!(
+            set_finding_disposition(&conn, "does-not-exist", Some("accepted")).expect("noop"),
+            0
+        );
     }
 
     #[test]

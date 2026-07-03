@@ -218,7 +218,13 @@ export interface LocalReviewFindingRow {
   line: number | null;
   confidence: number | null;
   fingerprint: string | null;
+  discovery_method: string | null;
+  /** Owner's usefulness verdict: "accepted" | "dismissed" | null (unreviewed). */
+  disposition: FindingDisposition | null;
 }
+
+/** Owner's usefulness verdict on a review finding. */
+export type FindingDisposition = 'accepted' | 'dismissed';
 
 /** Matches the Rust `IndexStats` struct exactly (+ last_indexed_at from preferences). */
 export interface IndexStats {
@@ -426,6 +432,39 @@ export async function getReview(
   return safeInvoke('get_review', { id });
 }
 
+/**
+ * Record (or clear) the owner's usefulness verdict on a persisted finding.
+ * Pass `null` to clear back to unreviewed.
+ */
+export async function setFindingDisposition(
+  findingId: string,
+  disposition: FindingDisposition | null
+): Promise<{ updated: number }> {
+  return safeInvoke('set_finding_disposition', {
+    finding_id: findingId,
+    disposition,
+  });
+}
+
+/** One time window of the finding-disposition rollup. */
+export interface FindingDispositionWindow {
+  accepted: number;
+  dismissed: number;
+  unreviewed: number;
+  /** accepted / (accepted + dismissed); 0 when nothing is reviewed. */
+  acceptance_rate: number;
+}
+
+/** All-time + last-30-days finding-disposition rollup (Roadmap page). */
+export interface FindingDispositionStats {
+  all_time: FindingDispositionWindow;
+  last_30_days: FindingDispositionWindow;
+}
+
+export async function getFindingDispositionStats(): Promise<FindingDispositionStats> {
+  return safeInvoke('get_finding_disposition_stats');
+}
+
 export async function listReviews(
   limit?: number,
   offset?: number,
@@ -442,6 +481,12 @@ export async function listReviews(
 // ─── CLI Review ──────────────────────────────────────────────────────────────
 
 export interface CliReviewFinding {
+  /**
+   * Persisted `local_review_findings.id`. Present on findings loaded from a
+   * saved review (which is where disposition tracking applies); undefined on
+   * fresh in-webview review results that haven't been saved/reloaded yet.
+   */
+  id?: string;
   severity: string;
   title: string;
   summary: string;
@@ -451,6 +496,8 @@ export interface CliReviewFinding {
   confidence?: number;
   /** "inspection" (LLM review) or "execution" (T-Rex sandbox). Undefined on legacy rows; treat as "inspection". */
   discovery_method?: 'inspection' | 'execution';
+  /** Owner's usefulness verdict; only meaningful on persisted findings. */
+  disposition?: FindingDisposition | null;
 }
 
 export interface EvidenceCandidate {

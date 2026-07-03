@@ -1,4 +1,13 @@
-import { CheckCircle, CheckSquare2, ClipboardCheck, Copy, ListOrdered, Square } from 'lucide-react';
+import {
+  Check,
+  CheckCircle,
+  CheckSquare2,
+  ClipboardCheck,
+  Copy,
+  ListOrdered,
+  Square,
+  X,
+} from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -6,7 +15,7 @@ import type { AgentFixPacket } from '@/lib/agent-fix-packet';
 import { queueGuidance, severityColor } from '@/lib/quick-review-format';
 import { defaultFindingEvidence, type FindingEvidence } from '@/lib/quick-review-types';
 import type { HistoryFindingSummary } from '@/lib/review-proof';
-import type { CliReviewFinding } from '@/lib/tauri-ipc';
+import type { CliReviewFinding, FindingDisposition } from '@/lib/tauri-ipc';
 import { cn } from '@/lib/utils';
 
 export interface FindingsListPanelProps {
@@ -25,6 +34,8 @@ export interface FindingsListPanelProps {
   selectedFindingIdx: number | null;
   selectedFindings: Set<number>;
   toggleFinding: (idx: number) => void;
+  /** Record / clear the owner's usefulness verdict on a finding (by sorted idx). */
+  handleSetDisposition: (idx: number, disposition: FindingDisposition) => void;
 }
 
 export default function FindingsListPanel({
@@ -43,13 +54,34 @@ export default function FindingsListPanel({
   selectedFindingIdx,
   selectedFindings,
   toggleFinding,
+  handleSetDisposition,
 }: FindingsListPanelProps) {
+  // Per-review usefulness counts — the "is the reviewer worth acting on" signal.
+  const dispositionCounts = sortedFindings.reduce(
+    (acc, finding) => {
+      if (finding.disposition === 'accepted') acc.accepted += 1;
+      else if (finding.disposition === 'dismissed') acc.dismissed += 1;
+      else acc.unreviewed += 1;
+      return acc;
+    },
+    { accepted: 0, dismissed: 0, unreviewed: 0 }
+  );
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-4">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <span className="cv-label">review comments</span>
-        <span className="cv-label">{sortedFindings.length} total</span>
+        <span className="cv-label shrink-0">{sortedFindings.length} total</span>
       </div>
+      {sortedFindings.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[10px] uppercase tracking-[0.08em] text-slate-500">
+          <span className="text-emerald-400">{dispositionCounts.accepted} accepted</span>
+          <span className="text-slate-600">·</span>
+          <span className="text-slate-400">{dispositionCounts.dismissed} dismissed</span>
+          <span className="text-slate-600">·</span>
+          <span>{dispositionCounts.unreviewed} unreviewed</span>
+        </div>
+      )}
       <div className="mb-3 rounded-xl border border-[var(--cv-line)] bg-[#050505] p-3">
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -145,6 +177,10 @@ export default function FindingsListPanel({
           const historySummary = historyFindingSummaries.get(idx);
           const historySample =
             historySummary?.topDecision ?? historySummary?.topCommit ?? historySummary?.topClaim;
+          const isDismissed = finding.disposition === 'dismissed';
+          const isAccepted = finding.disposition === 'accepted';
+          // Disposition writes need a persisted finding row (loaded reviews).
+          const canDisposition = Boolean(finding.id);
           return (
             <div
               key={idx}
@@ -162,7 +198,9 @@ export default function FindingsListPanel({
                 selectedFindingIdx === idx
                   ? 'border-[rgba(125,211,252,0.42)] bg-cyan-500/10'
                   : 'border-[var(--cv-line)] bg-[#07080a] hover:border-[var(--cv-line-strong)] hover:bg-white/[0.035]',
-                selectedFindings.has(idx) && 'shadow-[inset_3px_0_0_rgba(125,211,252,0.82)]'
+                selectedFindings.has(idx) && 'shadow-[inset_3px_0_0_rgba(125,211,252,0.82)]',
+                isAccepted && 'shadow-[inset_3px_0_0_rgba(52,211,153,0.7)]',
+                isDismissed && 'opacity-55'
               )}
             >
               <div className="flex items-center gap-2">
@@ -209,7 +247,54 @@ export default function FindingsListPanel({
                     {evidence.status.replace('_', ' ')}
                   </Badge>
                 )}
-                <span className="truncate text-xs font-medium text-slate-100">{finding.title}</span>
+                <span
+                  className={cn(
+                    'min-w-0 flex-1 truncate text-xs font-medium text-slate-100',
+                    isDismissed && 'text-slate-500 line-through'
+                  )}
+                >
+                  {finding.title}
+                </span>
+                {canDisposition && (
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <button
+                      type="button"
+                      aria-label={isAccepted ? 'Clear accepted' : 'Mark useful (accept)'}
+                      aria-pressed={isAccepted}
+                      title="Useful — worth acting on"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleSetDisposition(idx, 'accepted');
+                      }}
+                      className={cn(
+                        'flex h-6 w-6 items-center justify-center rounded-md border transition-colors',
+                        isAccepted
+                          ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300'
+                          : 'border-[var(--cv-line)] text-slate-500 hover:border-emerald-500/40 hover:text-emerald-300'
+                      )}
+                    >
+                      <Check size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={isDismissed ? 'Clear dismissed' : 'Dismiss (not useful)'}
+                      aria-pressed={isDismissed}
+                      title="Not useful — dismiss"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleSetDisposition(idx, 'dismissed');
+                      }}
+                      className={cn(
+                        'flex h-6 w-6 items-center justify-center rounded-md border transition-colors',
+                        isDismissed
+                          ? 'border-slate-500/50 bg-slate-500/15 text-slate-300'
+                          : 'border-[var(--cv-line)] text-slate-500 hover:border-slate-400/40 hover:text-slate-300'
+                      )}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                )}
               </div>
               <p className="mt-2 line-clamp-2 text-[11px] leading-5 text-slate-500">
                 {finding.summary}

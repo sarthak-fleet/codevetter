@@ -97,6 +97,14 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         "ALTER TABLE local_review_findings ADD COLUMN discovery_method TEXT NOT NULL DEFAULT 'inspection'",
         [],
     );
+    // Per-finding usefulness signal: did the owner act on this finding?
+    // 'accepted' | 'dismissed' | NULL (unreviewed). Nullable so legacy rows
+    // and fresh findings default to unreviewed. Powers the "is the reviewer
+    // earning its keep" acceptance-rate rollup (get_finding_disposition_stats).
+    let _ = conn.execute(
+        "ALTER TABLE local_review_findings ADD COLUMN disposition TEXT",
+        [],
+    );
     // T-Rex verdict — the autonomous APPROVE / NEEDS_REVIEW / BLOCK signal
     // produced after the sandbox run finishes. Stored on the review so the
     // UI can read it back without re-running.

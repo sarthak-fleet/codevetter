@@ -89,6 +89,7 @@ import type {
   CliReviewFinding,
   CliReviewResult,
   FileLineData,
+  FindingDisposition,
   FixFindingsResult,
   LocalReviewRow,
   PlaywrightSpecCandidate,
@@ -130,6 +131,7 @@ import {
   runReviewVerificationCommand,
   runSyntheticQa,
   sendTrayNotification,
+  setFindingDisposition,
   setPreference,
   suggestReviewVerificationCommands,
 } from '@/lib/tauri-ipc';
@@ -431,6 +433,7 @@ export default function QuickReview() {
         const data = await getReview(id);
         const review = data.review;
         const findings = (data.findings ?? []).map((f) => ({
+          id: f.id,
           severity: f.severity ?? 'info',
           title: f.title ?? '',
           summary: f.summary ?? '',
@@ -438,6 +441,8 @@ export default function QuickReview() {
           filePath: f.file_path ?? undefined,
           line: f.line ?? undefined,
           confidence: f.confidence ?? undefined,
+          discovery_method: (f.discovery_method as 'inspection' | 'execution' | null) ?? undefined,
+          disposition: f.disposition,
         }));
         setFixResult(null);
         setFixCompletedAt(null);
@@ -660,6 +665,12 @@ export default function QuickReview() {
   const patchQueue = useMemo(
     () => sortedFindings.filter((_, idx) => selectedFindings.has(idx)),
     [selectedFindings, sortedFindings]
+  );
+
+  // Findings eligible for bulk "select all" — dismissed ones are excluded.
+  const selectableFindingCount = useMemo(
+    () => sortedFindings.filter((finding) => finding.disposition !== 'dismissed').length,
+    [sortedFindings]
   );
 
   const patchQueueSeverityCounts = useMemo(
@@ -1945,12 +1956,73 @@ export default function QuickReview() {
     });
   }, []);
 
+  // Record / clear the owner's usefulness verdict on a finding. `idx` is into
+  // the sorted list. Clicking the already-active verdict clears it to NULL.
+  // Only persisted findings (loaded from a saved review, so they carry an id)
+  // can be dispositioned; fresh in-webview findings have no row to write.
+  const handleSetDisposition = useCallback(
+    async (idx: number, disposition: FindingDisposition) => {
+      const target = sortedFindings[idx];
+      const findingId = target?.id;
+      if (!findingId) return;
+      const next: FindingDisposition | null =
+        target.disposition === disposition ? null : disposition;
+      // Optimistic local update; matched by persisted id.
+      setResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              findings: prev.findings.map((finding) =>
+                finding.id === findingId ? { ...finding, disposition: next } : finding
+              ),
+            }
+          : prev
+      );
+      // Drop a dismissed finding from the fix selection so bulk patches skip it;
+      // it stays individually selectable afterward.
+      if (next === 'dismissed') {
+        setSelectedFindings((prev) => {
+          if (!prev.has(idx)) return prev;
+          const updated = new Set(prev);
+          updated.delete(idx);
+          return updated;
+        });
+      }
+      try {
+        await setFindingDisposition(findingId, next);
+      } catch (e) {
+        console.error('[CodeVetter] Failed to set finding disposition:', e);
+        setError("Couldn't save that finding verdict. Try again.");
+        // Roll back the optimistic change.
+        setResult((prev) =>
+          prev
+            ? {
+                ...prev,
+                findings: prev.findings.map((finding) =>
+                  finding.id === findingId
+                    ? { ...finding, disposition: target.disposition ?? null }
+                    : finding
+                ),
+              }
+            : prev
+        );
+      }
+    },
+    [sortedFindings]
+  );
+
   const toggleSelectAll = useCallback(() => {
     if (!result) return;
+    // "Select all" targets everything not dismissed — dismissed findings are
+    // excluded from bulk fix selection (but remain individually selectable).
+    const selectable = sortedFindings.reduce<number[]>((acc, finding, idx) => {
+      if (finding.disposition !== 'dismissed') acc.push(idx);
+      return acc;
+    }, []);
     setSelectedFindings((prev) =>
-      prev.size === result.findings.length ? new Set() : new Set(result.findings.map((_, i) => i))
+      prev.size >= selectable.length ? new Set() : new Set(selectable)
     );
-  }, [result]);
+  }, [result, sortedFindings]);
 
   const handleFixSelected = useCallback(async () => {
     if (!repoPath || !result || selectedFindings.size === 0) return;
@@ -2822,6 +2894,7 @@ export default function QuickReview() {
                 selectedFindingIdx={selectedFindingIdx}
                 selectedFindings={selectedFindings}
                 toggleFinding={toggleFinding}
+                handleSetDisposition={handleSetDisposition}
               />
 
               <AgentStatusTimeline
@@ -2884,10 +2957,11 @@ export default function QuickReview() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={toggleSelectAll}
+                    title="Select all findings for fix (dismissed excluded)"
                     className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-300"
                   >
-                    {selectedFindings.size === sortedFindings.length &&
-                    sortedFindings.length > 0 ? (
+                    {selectableFindingCount > 0 &&
+                    selectedFindings.size >= selectableFindingCount ? (
                       <CheckSquare2 size={14} className="text-[var(--cv-accent)]" />
                     ) : (
                       <Square size={14} />

@@ -308,6 +308,8 @@ fn main() {
             commands::review::get_local_diff,
             commands::review::save_review,
             commands::review::get_review,
+            commands::review::set_finding_disposition,
+            commands::review::get_finding_disposition_stats,
             commands::review::list_reviews,
             commands::review::run_cli_review,
             commands::review::fix_findings,
