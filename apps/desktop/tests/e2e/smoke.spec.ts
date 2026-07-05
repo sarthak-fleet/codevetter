@@ -46,11 +46,9 @@ test.describe('Smoke tests', () => {
     const nav = page.locator('nav');
     await expect(nav).toBeVisible();
 
-    // Nav links: Home, Review, Roadmap, Unpack, Intel, Fleet, T-Rex, Settings.
-    // The signed-in avatar chip only renders when authenticated; unsigned-in
-    // nav has exactly 8.
+    // Nav links: Home, Review, Workbench, Repo, T-Rex, Settings.
     const links = nav.locator('a');
-    await expect(links).toHaveCount(8);
+    await expect(links).toHaveCount(6);
   });
 
   test('Nav bar shows current page name', async ({ page }) => {
