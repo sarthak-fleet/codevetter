@@ -15,7 +15,7 @@ export function ProjectWorkspaceShell({
   return (
     <div
       className={cn(
-        'box-border flex h-full min-h-0 overflow-hidden bg-[radial-gradient(circle_at_45%_0%,rgba(125,211,252,0.07),transparent_34%)] pt-16',
+        'box-border flex h-full min-h-0 overflow-hidden bg-[radial-gradient(circle_at_45%_0%,rgba(125,211,252,0.07),transparent_34%)] pt-20',
         className
       )}
     >
