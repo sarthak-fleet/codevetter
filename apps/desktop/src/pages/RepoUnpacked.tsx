@@ -53,6 +53,7 @@ import { UnpackHistoryList } from '@/components/unpack-workspace/UnpackHistoryLi
 import { UnpackMissionControl } from '@/components/unpack-workspace/UnpackMissionControl';
 import { RepoMemoryGraphPanel } from '@/components/unpack-workspace/RepoMemoryGraphPanel';
 import { RepoMemoryPanel } from '@/components/unpack-workspace/RepoMemoryPanel';
+import { TasteVerdictCard } from '@/components/unpack-workspace/TasteVerdictCard';
 import { DisclosurePanel } from '@/components/unpack-workspace/DisclosurePanel';
 import { UnpackSectionNav } from '@/components/unpack-workspace/UnpackSectionNav';
 import { SourceLink } from '@/components/unpack-workspace/SourceLink';
@@ -1277,6 +1278,10 @@ export function UnpackProjectPanel({
           active={activeSection}
           onChange={handleSectionChange}
         />
+      ) : null}
+
+      {activeSection === 'overview' || !active?.inventory ? (
+        <TasteVerdictCard repoPath={repoPath} />
       ) : null}
 
       {activeSection === 'overview' && active?.inventory ? (

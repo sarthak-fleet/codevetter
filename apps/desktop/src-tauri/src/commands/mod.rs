@@ -29,6 +29,7 @@ pub mod sessions;
 pub mod setup;
 pub mod synthetic_qa;
 pub mod talks;
+pub mod taste;
 pub mod trex_watcher;
 pub mod unpack;
 pub mod unpack_agent_activity;

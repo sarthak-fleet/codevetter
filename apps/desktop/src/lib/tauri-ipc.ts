@@ -978,6 +978,28 @@ export async function getAudienceValidation(reviewId: string): Promise<AudienceV
   return safeInvoke('get_audience_validation', { reviewId });
 }
 
+export interface TasteVerdict {
+  repo_path: string;
+  grade: 'strong' | 'decent' | 'shaky' | 'unknown';
+  score: number | null;
+  confidence: 'low' | 'medium' | 'high';
+  evidence: string[];
+  gaps: string[];
+  review_count: number;
+  avg_review_score: number | null;
+  score_trend: number | null;
+  open_high_findings: number;
+  qa_runs: number;
+  qa_pass_rate: number | null;
+  audience_runs: number;
+  audience_human_fulfilled: number;
+  unpack_recent: boolean;
+}
+
+export async function getProjectTasteVerdict(repoPath: string): Promise<TasteVerdict> {
+  return safeInvoke('get_project_taste_verdict', { repoPath });
+}
+
 export async function recordReviewProcedureEvent(input: {
   reviewId: string;
   stepId: string;

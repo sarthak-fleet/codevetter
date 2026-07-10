@@ -348,6 +348,7 @@ fn main() {
             commands::audience_validation::add_audience_validation_response,
             commands::audience_validation::waive_audience_validation,
             commands::audience_validation::get_audience_validation,
+            commands::taste::get_project_taste_verdict,
             commands::procedure_events::record_review_procedure_event,
             commands::procedure_events::list_review_procedure_events,
             commands::procedure_events::suggest_review_verification_commands,
