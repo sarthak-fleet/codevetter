@@ -100,8 +100,7 @@ pub async fn get_dora_metrics(
 
     // Build release infos with prev tag context for "commits since previous".
     let mut release_infos: Vec<ReleaseInfo> = Vec::new();
-    let mut sorted_tags: Vec<&Tag> =
-        tags.iter().filter(|t| is_release_tag(&t.name)).collect();
+    let mut sorted_tags: Vec<&Tag> = tags.iter().filter(|t| is_release_tag(&t.name)).collect();
     sorted_tags.sort_by_key(|t| t.created_ts);
 
     for (i, t) in sorted_tags.iter().enumerate() {
@@ -114,14 +113,11 @@ pub async fn get_dora_metrics(
             .map(|p| p.created_ts);
         let commits_since = commits
             .iter()
-            .filter(|c| {
-                c.ts <= t.created_ts && prev_ts.map(|p| c.ts > p).unwrap_or(true)
-            })
+            .filter(|c| c.ts <= t.created_ts && prev_ts.map(|p| c.ts > p).unwrap_or(true))
             .count() as u64;
 
         let median_lead = median_lead_hours(t, prev_ts, &commits);
-        let triggered_hotfix =
-            detect_hotfix_after(t.created_ts, &commits, HOTFIX_LOOKAHEAD_DAYS);
+        let triggered_hotfix = detect_hotfix_after(t.created_ts, &commits, HOTFIX_LOOKAHEAD_DAYS);
 
         release_infos.push(ReleaseInfo {
             tag: t.name.clone(),
@@ -299,9 +295,7 @@ pub(crate) fn is_hotfix_or_revert(subject: &str) -> bool {
 fn median_lead_hours(tag: &Tag, prev_ts: Option<i64>, commits: &[Commit]) -> Option<f64> {
     let mut hours: Vec<f64> = commits
         .iter()
-        .filter(|c| {
-            c.ts <= tag.created_ts && prev_ts.map(|p| c.ts > p).unwrap_or(true)
-        })
+        .filter(|c| c.ts <= tag.created_ts && prev_ts.map(|p| c.ts > p).unwrap_or(true))
         .map(|c| ((tag.created_ts - c.ts) as f64) / 3600.0)
         .collect();
     median(&mut hours)
@@ -309,9 +303,9 @@ fn median_lead_hours(tag: &Tag, prev_ts: Option<i64>, commits: &[Commit]) -> Opt
 
 fn detect_hotfix_after(release_ts: i64, commits: &[Commit], lookahead_days: i64) -> bool {
     let upper = release_ts + lookahead_days * 86_400;
-    commits.iter().any(|c| {
-        c.ts > release_ts && c.ts <= upper && is_hotfix_or_revert(&c.subject)
-    })
+    commits
+        .iter()
+        .any(|c| c.ts > release_ts && c.ts <= upper && is_hotfix_or_revert(&c.subject))
 }
 
 fn mttr_hours_for_release(
@@ -342,8 +336,12 @@ fn weekly_deploy_buckets(releases: &[ReleaseInfo]) -> Vec<WeeklyDeploy> {
 
     let mut by_week: BTreeMap<NaiveDate, u64> = BTreeMap::new();
     for r in releases {
-        let Some(ts) = parse_rfc3339(&r.created_at) else { continue; };
-        let Some(dt) = Utc.timestamp_opt(ts, 0).single() else { continue; };
+        let Some(ts) = parse_rfc3339(&r.created_at) else {
+            continue;
+        };
+        let Some(dt) = Utc.timestamp_opt(ts, 0).single() else {
+            continue;
+        };
         let d = dt.date_naive();
         if d < earliest_monday {
             continue;
@@ -437,7 +435,7 @@ mod tests {
 
     #[test]
     fn median_handles_edge_cases() {
-        assert_eq!(median::<>(&mut []), None);
+        assert_eq!(median(&mut []), None);
         assert_eq!(median(&mut [5.0]), Some(5.0));
         assert_eq!(median(&mut [3.0, 1.0, 2.0]), Some(2.0));
         assert_eq!(median(&mut [1.0, 2.0, 3.0, 4.0]), Some(2.5));
@@ -467,7 +465,11 @@ mod tests {
         // Tag at ts before the hotfix commit → should detect.
         assert!(detect_hotfix_after(1_700_000_000 - 1, &commits, 7));
         // Tag well after the hotfix window → should not detect.
-        assert!(!detect_hotfix_after(1_700_000_000 + 100 * 86_400, &commits, 7));
+        assert!(!detect_hotfix_after(
+            1_700_000_000 + 100 * 86_400,
+            &commits,
+            7
+        ));
     }
 
     #[test]
@@ -493,7 +495,11 @@ mod tests {
         ));
         std::fs::create_dir_all(&tmp).unwrap();
         let run = |args: &[&str]| {
-            let s = SC::new("git").args(args).current_dir(&tmp).status().unwrap();
+            let s = SC::new("git")
+                .args(args)
+                .current_dir(&tmp)
+                .status()
+                .unwrap();
             assert!(s.success(), "git {args:?} failed");
         };
         run(&["init", "-q"]);
@@ -518,7 +524,10 @@ mod tests {
             .enable_all()
             .build()
             .unwrap()
-            .block_on(get_dora_metrics(tmp.to_string_lossy().to_string(), Some(365)))
+            .block_on(get_dora_metrics(
+                tmp.to_string_lossy().to_string(),
+                Some(365),
+            ))
             .unwrap();
         assert!(m.release_count >= 2);
         assert!(m.deploys_per_week > 0.0);

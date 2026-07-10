@@ -71,8 +71,8 @@ impl LocalServer {
 pub fn detect_dev_command(project_dir: &Path) -> Result<String, String> {
     let pkg_path = project_dir.join("package.json");
     if pkg_path.exists() {
-        let pkg_text = std::fs::read_to_string(&pkg_path)
-            .map_err(|e| format!("read {pkg_path:?}: {e}"))?;
+        let pkg_text =
+            std::fs::read_to_string(&pkg_path).map_err(|e| format!("read {pkg_path:?}: {e}"))?;
         let pkg: serde_json::Value =
             serde_json::from_str(&pkg_text).map_err(|e| format!("parse package.json: {e}"))?;
         let scripts = pkg.get("scripts");
@@ -98,7 +98,10 @@ mod tests {
 
     fn tmp_dir(name: &str) -> std::path::PathBuf {
         let mut p = std::env::temp_dir();
-        p.push(format!("codevetter-agent-test-{name}-{}", std::process::id()));
+        p.push(format!(
+            "codevetter-agent-test-{name}-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).unwrap();
         p

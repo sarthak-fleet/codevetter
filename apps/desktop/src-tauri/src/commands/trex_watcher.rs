@@ -19,8 +19,8 @@ use std::time::Duration;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, Manager, State};
 use tauri::async_runtime::{spawn as runtime_spawn, JoinHandle};
+use tauri::{AppHandle, Manager, State};
 use tokio::process::Command;
 use tokio::sync::oneshot;
 
@@ -97,8 +97,20 @@ pub async fn start_trex_watcher(
         .unwrap_or(DEFAULT_INTERVAL_SECS)
         .max(MIN_INTERVAL_SECS);
 
-    upsert_watcher_row(&db, &input.repo_path, interval, true, input.base_branch.as_deref())?;
-    spawn_watcher_task(&app, &handles, &input.repo_path, interval, input.base_branch.clone());
+    upsert_watcher_row(
+        &db,
+        &input.repo_path,
+        interval,
+        true,
+        input.base_branch.as_deref(),
+    )?;
+    spawn_watcher_task(
+        &app,
+        &handles,
+        &input.repo_path,
+        interval,
+        input.base_branch.clone(),
+    );
     read_watcher_row(&db, &input.repo_path)?
         .ok_or_else(|| "watcher row missing after upsert".to_string())
 }
@@ -161,7 +173,13 @@ pub fn resume_enabled_watchers(app: &AppHandle) {
         }
     };
     for w in rows.into_iter().filter(|w| w.enabled) {
-        spawn_watcher_task(app, &handles, &w.repo_path, w.interval_secs, w.base_branch.clone());
+        spawn_watcher_task(
+            app,
+            &handles,
+            &w.repo_path,
+            w.interval_secs,
+            w.base_branch.clone(),
+        );
     }
 }
 
@@ -226,7 +244,10 @@ fn spawn_watcher_task(
     if let Ok(mut map) = handles.0.lock() {
         map.insert(
             repo_path.to_string(),
-            WatcherSlot { handle: task, cancel: tx },
+            WatcherSlot {
+                handle: task,
+                cancel: tx,
+            },
         );
     }
 }
@@ -378,8 +399,8 @@ async fn list_open_prs(repo_path: &str) -> Result<Vec<OpenPr>, String> {
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    let v: Value = serde_json::from_slice(&output.stdout)
-        .map_err(|e| format!("parse gh pr list: {e}"))?;
+    let v: Value =
+        serde_json::from_slice(&output.stdout).map_err(|e| format!("parse gh pr list: {e}"))?;
     let arr = v.as_array().cloned().unwrap_or_default();
     let mut out = Vec::with_capacity(arr.len());
     for item in arr {
@@ -395,7 +416,11 @@ async fn list_open_prs(repo_path: &str) -> Result<Vec<OpenPr>, String> {
             .unwrap_or("")
             .to_string();
         if number > 0 && !head_ref.is_empty() && !head_sha.is_empty() {
-            out.push(OpenPr { number, head_ref, head_sha });
+            out.push(OpenPr {
+                number,
+                head_ref,
+                head_sha,
+            });
         }
     }
     Ok(out)
@@ -598,7 +623,11 @@ fn row_to_watcher(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrexWatcher> {
     })
 }
 
-fn latest_pr_run_sha(db: &DbState, repo_path: &str, pr_number: i64) -> Result<Option<String>, String> {
+fn latest_pr_run_sha(
+    db: &DbState,
+    repo_path: &str,
+    pr_number: i64,
+) -> Result<Option<String>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let result = conn.query_row(
         "SELECT head_sha FROM trex_pr_runs
@@ -639,7 +668,11 @@ fn insert_pr_run(db: &DbState, run: &TrexPrRun) -> Result<(), String> {
     Ok(())
 }
 
-fn list_pr_runs(db: &DbState, repo_path: Option<&str>, limit: u32) -> Result<Vec<TrexPrRun>, String> {
+fn list_pr_runs(
+    db: &DbState,
+    repo_path: Option<&str>,
+    limit: u32,
+) -> Result<Vec<TrexPrRun>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let sql = if repo_path.is_some() {
         "SELECT id, repo_path, pr_number, head_sha, verdict, confidence, summary,

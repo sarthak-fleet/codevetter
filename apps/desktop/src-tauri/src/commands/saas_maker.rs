@@ -275,9 +275,8 @@ pub async fn list_saas_maker_projects(
     db: State<'_, DbState>,
 ) -> Result<Vec<SaasMakerProject>, String> {
     let (token, _) = resolve_token(&db);
-    let token = token.ok_or_else(|| {
-        format!("SaaS Maker not configured. Set {TOKEN_ENV} or use Settings.")
-    })?;
+    let token = token
+        .ok_or_else(|| format!("SaaS Maker not configured. Set {TOKEN_ENV} or use Settings."))?;
     let base = resolve_base_url(&db);
     let url = format!("{base}/v1/projects");
     let resp = client()?
@@ -304,13 +303,11 @@ pub async fn update_saas_maker_task(
     patch: UpdateTaskPatch,
 ) -> Result<SaasMakerTask, String> {
     let (token, _) = resolve_token(&db);
-    let token = token.ok_or_else(|| {
-        format!("SaaS Maker not configured. Set {TOKEN_ENV} or use Settings.")
-    })?;
+    let token = token
+        .ok_or_else(|| format!("SaaS Maker not configured. Set {TOKEN_ENV} or use Settings."))?;
     let base = resolve_base_url(&db);
     let url = format!("{base}/v1/tasks/{}", urlencode(&task_id));
-    let payload = serde_json::to_value(&patch)
-        .map_err(|e| format!("serialize patch: {e}"))?;
+    let payload = serde_json::to_value(&patch).map_err(|e| format!("serialize patch: {e}"))?;
     let resp = client()?
         .patch(&url)
         .bearer_auth(&token)
@@ -514,7 +511,10 @@ fn build_task_payload(
         _ => "medium",
     };
     let description = build_description(review, finding, &discovery);
-    let title = finding.title.clone().unwrap_or_else(|| "CodeVetter finding".into());
+    let title = finding
+        .title
+        .clone()
+        .unwrap_or_else(|| "CodeVetter finding".into());
 
     json!({
         "title": title,
@@ -548,10 +548,17 @@ fn build_description(
         buf.push_str(&format!("**Location:** `{p}{suffix}`\n"));
     }
     buf.push_str(&format!("**Discovered via:** {discovery}\n"));
-    if let Some(repo) = review.repo_full_name.as_deref().or(review.repo_path.as_deref()) {
+    if let Some(repo) = review
+        .repo_full_name
+        .as_deref()
+        .or(review.repo_path.as_deref())
+    {
         buf.push_str(&format!("**Repo:** {repo}\n"));
     }
-    buf.push_str(&format!("\n_Pushed from CodeVetter review {}_\n", review.id));
+    buf.push_str(&format!(
+        "\n_Pushed from CodeVetter review {}_\n",
+        review.id
+    ));
     buf
 }
 
@@ -605,9 +612,13 @@ fn parse_project_list(body: &str) -> Result<Vec<SaasMakerProject>, String> {
 /// next dedup lookup sees the new state and the UI can decide whether to
 /// re-push or mark complete locally.
 fn refresh_sync_payload(db: &State<'_, DbState>, task: &SaasMakerTask) -> Result<(), String> {
-    let Ok(conn) = db.0.lock() else { return Ok(()); };
+    let Ok(conn) = db.0.lock() else {
+        return Ok(());
+    };
     let now = chrono::Utc::now().to_rfc3339();
-    let Ok(payload) = serde_json::to_string(task) else { return Ok(()); };
+    let Ok(payload) = serde_json::to_string(task) else {
+        return Ok(());
+    };
     let _ = conn.execute(
         "UPDATE saas_maker_sync
             SET last_payload = ?1, synced_at = ?2
@@ -662,8 +673,8 @@ pub async fn start_saas_maker_signin(db: State<'_, DbState>) -> Result<SignInSta
             body.chars().take(300).collect::<String>()
         ));
     }
-    let v: Value = serde_json::from_str(&body)
-        .map_err(|e| format!("/v1/cli/code response not JSON: {e}"))?;
+    let v: Value =
+        serde_json::from_str(&body).map_err(|e| format!("/v1/cli/code response not JSON: {e}"))?;
     let code = v
         .get("code")
         .and_then(|s| s.as_str())
@@ -760,7 +771,9 @@ pub async fn sign_out_of_saas_maker(db: State<'_, DbState>) -> Result<(), String
 #[tauri::command]
 pub async fn get_current_user(db: State<'_, DbState>) -> Result<Option<SaasMakerUser>, String> {
     let (token, _) = resolve_token(&db);
-    let Some(token) = token else { return Ok(None); };
+    let Some(token) = token else {
+        return Ok(None);
+    };
 
     // 1. Try cached user if fresh.
     if let Some((user, ts)) = read_cached_user(&db) {
@@ -803,7 +816,9 @@ pub async fn detect_project_for_repo(
     if let Some(slug) = lookup_local_repo_mapping(&db, &trimmed) {
         // Hydrate the project from the live list (best-effort — if offline,
         // we still report the slug).
-        let projects = list_saas_maker_projects(db.clone()).await.unwrap_or_default();
+        let projects = list_saas_maker_projects(db.clone())
+            .await
+            .unwrap_or_default();
         let proj = projects
             .into_iter()
             .find(|p| p.slug.as_deref() == Some(slug.as_str()))
@@ -976,7 +991,9 @@ pub(crate) fn parse_session_user(body: &str) -> Result<SaasMakerUser, String> {
 }
 
 fn cache_user(db: &State<'_, DbState>, user: &SaasMakerUser) {
-    let Ok(conn) = db.0.lock() else { return; };
+    let Ok(conn) = db.0.lock() else {
+        return;
+    };
     let payload = match serde_json::to_string(&json!({
         "user": user,
         "ts": chrono::Utc::now().to_rfc3339(),
@@ -1212,7 +1229,8 @@ mod tests {
 
     #[test]
     fn parses_task_list_with_data_envelope() {
-        let body = r#"{"data":[{"id":"t1","title":"Bug X","status":"todo"},{"id":"t2","title":"Bug Y"}]}"#;
+        let body =
+            r#"{"data":[{"id":"t1","title":"Bug X","status":"todo"},{"id":"t2","title":"Bug Y"}]}"#;
         let tasks = parse_task_list(body).unwrap();
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].id, "t1");
@@ -1388,7 +1406,10 @@ mod tests {
     fn poll_response_approved_extracts_token() {
         let v: Value =
             serde_json::from_str(r#"{"status":"approved","token":"sm_abc123"}"#).unwrap();
-        assert_eq!(parse_poll_response(&v), PollOutcome::Approved("sm_abc123".into()));
+        assert_eq!(
+            parse_poll_response(&v),
+            PollOutcome::Approved("sm_abc123".into())
+        );
     }
 
     #[test]

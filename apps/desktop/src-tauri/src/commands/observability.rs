@@ -137,9 +137,7 @@ pub async fn set_billing_config(
 // ─── Billing: snapshots ─────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_billing_snapshots(
-    db: State<'_, DbState>,
-) -> Result<Vec<BillingSnapshot>, String> {
+pub async fn get_billing_snapshots(db: State<'_, DbState>) -> Result<Vec<BillingSnapshot>, String> {
     let mut out = Vec::new();
     let anthropic_key = read_pref(&db, PREF_ANTHROPIC_ADMIN);
     out.push(match anthropic_key {
@@ -262,7 +260,10 @@ fn parse_anthropic_billing(body: &str) -> BillingSnapshot {
         error: if cents.is_some() {
             None
         } else {
-            Some("response shape didn't match any known billing field; show raw via /devtools".into())
+            Some(
+                "response shape didn't match any known billing field; show raw via /devtools"
+                    .into(),
+            )
         },
     }
 }
@@ -289,11 +290,7 @@ async fn fetch_openai_billing(admin_key: &str) -> BillingSnapshot {
     // path is now the Admin API: /v1/organization/costs?bucket_width=1d.
     // It's also moving — this is graceful-fallback land.
     let url = "https://api.openai.com/v1/organization/costs";
-    let res = client
-        .get(url)
-        .bearer_auth(admin_key)
-        .send()
-        .await;
+    let res = client.get(url).bearer_auth(admin_key).send().await;
     let resp = match res {
         Ok(r) => r,
         Err(e) => {
@@ -334,7 +331,10 @@ fn parse_openai_billing(body: &str) -> BillingSnapshot {
         .and_then(|d| d.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|item| item.pointer("/results/0/amount/value").and_then(|x| x.as_f64()))
+                .filter_map(|item| {
+                    item.pointer("/results/0/amount/value")
+                        .and_then(|x| x.as_f64())
+                })
                 .sum::<f64>()
         })
         .or_else(|| v.get("total_amount").and_then(|x| x.as_f64()));

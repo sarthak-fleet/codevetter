@@ -781,7 +781,10 @@ mod tests {
         );
         assert!(summary.parse_warnings.is_empty());
         // Per-model attribution: both usage-bearing messages are sonnet.
-        let sonnet = summary.model_usage.get("claude-sonnet-4").expect("sonnet row");
+        let sonnet = summary
+            .model_usage
+            .get("claude-sonnet-4")
+            .expect("sonnet row");
         assert_eq!(sonnet.message_count, 2);
         assert_eq!(sonnet.input_tokens, 135);
         assert_eq!(sonnet.output_tokens, 40);
@@ -828,12 +831,18 @@ mod tests {
         // Session-level model_used stays last-wins (display fallback only).
         assert_eq!(summary.model_used.as_deref(), Some("<synthetic>"));
 
-        let opus = summary.model_usage.get("claude-opus-4-7").expect("opus row");
+        let opus = summary
+            .model_usage
+            .get("claude-opus-4-7")
+            .expect("opus row");
         assert_eq!(opus.input_tokens, 1010);
         assert_eq!(opus.cache_read_tokens, 1000);
         assert_eq!(opus.output_tokens, 50);
 
-        let fable = summary.model_usage.get("claude-fable-5").expect("fable row");
+        let fable = summary
+            .model_usage
+            .get("claude-fable-5")
+            .expect("fable row");
         assert_eq!(fable.input_tokens, 205);
         assert_eq!(fable.output_tokens, 25);
 

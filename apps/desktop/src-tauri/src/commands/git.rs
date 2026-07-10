@@ -1728,11 +1728,18 @@ fn annotate_raw_session_context_items(items: &mut [Value], target_line: usize) {
     let command_lines: Vec<usize> = items
         .iter()
         .filter(|item| item.get("kind").and_then(Value::as_str) == Some("command"))
-        .filter_map(|item| item.get("line").and_then(Value::as_u64).map(|line| line as usize))
+        .filter_map(|item| {
+            item.get("line")
+                .and_then(Value::as_u64)
+                .map(|line| line as usize)
+        })
         .collect();
 
     for item in items.iter_mut() {
-        let Some(line_no) = item.get("line").and_then(Value::as_u64).map(|line| line as usize)
+        let Some(line_no) = item
+            .get("line")
+            .and_then(Value::as_u64)
+            .map(|line| line as usize)
         else {
             continue;
         };
@@ -2615,5 +2622,4 @@ mod tests {
         let s = build_compact_history_section_for_prompt("/tmp/x", &[], &conn);
         assert!(s.is_empty());
     }
-
 }

@@ -47,7 +47,10 @@ pub fn extract_action(text: &str) -> Result<AgentAction, String> {
     Err(format!(
         "found {} JSON blocks but none matched the AgentAction schema. Last block: {}",
         candidates.len(),
-        candidates.last().map(|s| preview(s, 240)).unwrap_or_default(),
+        candidates
+            .last()
+            .map(|s| preview(s, 240))
+            .unwrap_or_default(),
     ))
 }
 
@@ -128,7 +131,10 @@ mod tests {
 That should take us to the install page."##;
         let action = extract_action(txt).unwrap();
         match action {
-            AgentAction::Click { selector, reasoning } => {
+            AgentAction::Click {
+                selector,
+                reasoning,
+            } => {
                 assert_eq!(selector, "#dl");
                 assert_eq!(reasoning, "primary CTA");
             }

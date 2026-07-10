@@ -107,10 +107,8 @@ impl Browser {
         // Unique profile dir per launch so concurrent Browser instances (e.g.
         // multiple agent runs queued back-to-back, or parallel test threads)
         // don't deadlock on chromiumoxide's default singleton lock.
-        let profile_dir = std::env::temp_dir().join(format!(
-            "codevetter-chrome-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let profile_dir =
+            std::env::temp_dir().join(format!("codevetter-chrome-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&profile_dir)
             .map_err(|e| format!("create profile dir {profile_dir:?}: {e}"))?;
 
@@ -126,9 +124,7 @@ impl Browser {
             )
         })?;
 
-        let handler_task = tokio::spawn(async move {
-            while handler.next().await.is_some() {}
-        });
+        let handler_task = tokio::spawn(async move { while handler.next().await.is_some() {} });
 
         let page = inner
             .new_page("about:blank")
@@ -293,10 +289,9 @@ fn format_element_list(json_str: &str) -> String {
                 // Selector is optional — omitted when we don't have a stable one.
                 let label = it.label.replace('"', "'");
                 match it.selector.as_deref() {
-                    Some(sel) => out.push_str(&format!(
-                        "{} {} \"{}\" {}\n",
-                        it.idx, it.role, label, sel
-                    )),
+                    Some(sel) => {
+                        out.push_str(&format!("{} {} \"{}\" {}\n", it.idx, it.role, label, sel))
+                    }
                     None => out.push_str(&format!("{} {} \"{}\"\n", it.idx, it.role, label)),
                 }
             }
@@ -335,7 +330,8 @@ mod tests {
 
     #[test]
     fn format_element_list_escapes_inner_quotes() {
-        let json = r##"[{"idx":0,"role":"button","label":"Press \"Go\"","selector":"#g","top":0}]"##;
+        let json =
+            r##"[{"idx":0,"role":"button","label":"Press \"Go\"","selector":"#g","top":0}]"##;
         let out = format_element_list(json);
         assert!(out.contains("\"Press 'Go'\""), "{out}");
     }

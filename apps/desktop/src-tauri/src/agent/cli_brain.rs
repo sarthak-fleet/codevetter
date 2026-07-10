@@ -240,10 +240,7 @@ async fn spawn_codex(ctx: &BrainContext<'_>, model: Option<&str>) -> Result<Stri
         parse_codex_line(&line, &mut assembled);
     }
 
-    let status = child
-        .wait()
-        .await
-        .map_err(|e| format!("wait codex: {e}"))?;
+    let status = child.wait().await.map_err(|e| format!("wait codex: {e}"))?;
     if !status.success() {
         return Err(format!("codex exited with status {status}"));
     }
@@ -253,7 +250,9 @@ async fn spawn_codex(ctx: &BrainContext<'_>, model: Option<&str>) -> Result<Stri
 /// Append any text fragments from one claude stream-json line into the
 /// assembled buffer. Stays tolerant of unrelated event types.
 pub(crate) fn parse_claude_line(line: &str, out: &mut String) {
-    let Ok(v) = serde_json::from_str::<Value>(line) else { return };
+    let Ok(v) = serde_json::from_str::<Value>(line) else {
+        return;
+    };
     match v.get("type").and_then(|t| t.as_str()) {
         Some("assistant") => {
             if let Some(content) = v["message"]["content"].as_array() {
@@ -289,7 +288,9 @@ pub(crate) fn extract_session_id(line: &str) -> Option<String> {
 /// Append any text fragments from one codex `exec --json` line into the
 /// assembled buffer. We only care about `item.completed → agent_message`.
 pub(crate) fn parse_codex_line(line: &str, out: &mut String) {
-    let Ok(v) = serde_json::from_str::<Value>(line) else { return };
+    let Ok(v) = serde_json::from_str::<Value>(line) else {
+        return;
+    };
     if v.get("type").and_then(|t| t.as_str()) != Some("item.completed") {
         return;
     }

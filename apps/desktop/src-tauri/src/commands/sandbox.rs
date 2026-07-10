@@ -13,11 +13,11 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
+#[cfg(feature = "browser-agent")]
+use crate::agent::cli_brain::CliBrain;
 use crate::agent::local_server::LocalServer;
 #[cfg(feature = "browser-agent")]
 use crate::agent::runner::run_with_brain;
-#[cfg(feature = "browser-agent")]
-use crate::agent::cli_brain::CliBrain;
 #[cfg(feature = "browser-agent")]
 use crate::agent::types::AgentRunInput;
 use crate::agent::types::AgentStep;
@@ -52,8 +52,12 @@ pub struct SandboxOptions {
     #[serde(default)]
     pub test_cmd: Option<String>, // override auto-discovery
 }
-fn default_true() -> bool { true }
-fn default_provider() -> String { "claude".to_string() }
+fn default_true() -> bool {
+    true
+}
+fn default_provider() -> String {
+    "claude".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxRunInput {
@@ -113,9 +117,9 @@ pub struct SandboxRunResult {
     pub server_url: Option<String>,
     pub agent_steps: Vec<AgentStep>,
     pub test_result: Option<TestRunResult>,
-    pub verdict: String,         // APPROVE / NEEDS_REVIEW / BLOCK
-    pub confidence: f64,         // 0.0 – 1.0
-    pub summary: String,         // 1-2 sentences for the verdict panel
+    pub verdict: String, // APPROVE / NEEDS_REVIEW / BLOCK
+    pub confidence: f64, // 0.0 – 1.0
+    pub summary: String, // 1-2 sentences for the verdict panel
     pub findings: Vec<ExecutionFinding>,
     pub duration_ms: u64,
     pub error: Option<String>,
@@ -125,9 +129,16 @@ pub struct SandboxRunResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SandboxStep {
-    Phase { phase: String, detail: Option<String> },
-    Agent { step: AgentStep },
-    TestLog { line: String },
+    Phase {
+        phase: String,
+        detail: Option<String>,
+    },
+    Agent {
+        step: AgentStep,
+    },
+    TestLog {
+        line: String,
+    },
 }
 
 // ─── Tauri commands ─────────────────────────────────────────────────────────
@@ -161,15 +172,22 @@ pub async fn run_branch_sandbox_inner(
     });
 
     // 1. Worktree
-    let (worktree_path, _worktree_branch) = match create_sandbox_worktree(&input.repo_path, &input.branch) {
-        Ok(pair) => pair,
-        Err(e) => {
-            return Ok(failed_result(
-                run_id, &input, started.elapsed(), None, None,
-                vec![], None, &format!("Worktree setup failed: {e}"),
-            ));
-        }
-    };
+    let (worktree_path, _worktree_branch) =
+        match create_sandbox_worktree(&input.repo_path, &input.branch) {
+            Ok(pair) => pair,
+            Err(e) => {
+                return Ok(failed_result(
+                    run_id,
+                    &input,
+                    started.elapsed(),
+                    None,
+                    None,
+                    vec![],
+                    None,
+                    &format!("Worktree setup failed: {e}"),
+                ));
+            }
+        };
 
     // 2. Optionally install deps if absent.
     if has_package_json(&worktree_path).await && !has_node_modules(&worktree_path).await {
@@ -180,8 +198,14 @@ pub async fn run_branch_sandbox_inner(
         if let Err(e) = run_npm_install(&worktree_path).await {
             let _ = remove_worktree(&input.repo_path, &worktree_path);
             return Ok(failed_result(
-                run_id, &input, started.elapsed(), Some(worktree_path.display().to_string()), None,
-                vec![], None, &format!("npm install failed: {e}"),
+                run_id,
+                &input,
+                started.elapsed(),
+                Some(worktree_path.display().to_string()),
+                None,
+                vec![],
+                None,
+                &format!("npm install failed: {e}"),
             ));
         }
     }
@@ -264,7 +288,8 @@ pub async fn run_branch_sandbox_inner(
             phase: "tests".into(),
             detail: input.options.test_cmd.clone(),
         });
-        test_result = Some(run_project_tests(&worktree_path, input.options.test_cmd.as_deref()).await);
+        test_result =
+            Some(run_project_tests(&worktree_path, input.options.test_cmd.as_deref()).await);
     }
 
     // 6. Synthesize verdict
@@ -356,8 +381,7 @@ fn create_sandbox_worktree(repo_path: &str, branch: &str) -> Result<(PathBuf, St
 
     // Ensure parent + git exclude.
     if let Some(parent) = worktree_dir.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("create worktree parent: {e}"))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("create worktree parent: {e}"))?;
     }
     add_codevetter_worktrees_to_exclude(repo_path);
 
@@ -623,14 +647,19 @@ fn build_synthesis_prompt(
             crate::agent::types::AgentAction::Scroll { delta, .. } => format!("scroll {delta}"),
             crate::agent::types::AgentAction::Goto { url, .. } => format!("goto {url}"),
             crate::agent::types::AgentAction::Done { .. } => "done".into(),
-            crate::agent::types::AgentAction::GiveUp { reasoning } => format!("give_up: {reasoning}"),
+            crate::agent::types::AgentAction::GiveUp { reasoning } => {
+                format!("give_up: {reasoning}")
+            }
         };
         steps_blob.push_str(&format!(
             "  {}. {act} @ {} \"{}\"{}\n",
             s.index,
             s.url,
             s.page_title,
-            s.error.as_deref().map(|e| format!(" [error: {e}]")).unwrap_or_default()
+            s.error
+                .as_deref()
+                .map(|e| format!(" [error: {e}]"))
+                .unwrap_or_default()
         ));
     }
     if steps_blob.is_empty() {
@@ -712,10 +741,7 @@ async fn spawn_oneshot(cmd: &str, args: &[&str], prompt: &str) -> Result<String,
         .await
         .map_err(|e| format!("wait {cmd}: {e}"))?;
     if !out.status.success() {
-        return Err(format!(
-            "{cmd} exit {:?}",
-            out.status.code()
-        ));
+        return Err(format!("{cmd} exit {:?}", out.status.code()));
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
@@ -757,15 +783,25 @@ fn parse_synthesis(raw: &str) -> Result<Synthesis, String> {
 fn parse_finding(v: &Value) -> Option<ExecutionFinding> {
     let title = v.get("title").and_then(|s| s.as_str())?.to_string();
     Some(ExecutionFinding {
-        severity: v.get("severity").and_then(|s| s.as_str()).unwrap_or("medium").to_string(),
+        severity: v
+            .get("severity")
+            .and_then(|s| s.as_str())
+            .unwrap_or("medium")
+            .to_string(),
         title,
         summary: v
             .get("summary")
             .and_then(|s| s.as_str())
             .unwrap_or("")
             .to_string(),
-        suggestion: v.get("suggestion").and_then(|s| s.as_str()).map(String::from),
-        file_path: v.get("file_path").and_then(|s| s.as_str()).map(String::from),
+        suggestion: v
+            .get("suggestion")
+            .and_then(|s| s.as_str())
+            .map(String::from),
+        file_path: v
+            .get("file_path")
+            .and_then(|s| s.as_str())
+            .map(String::from),
         line: v.get("line").and_then(|s| s.as_i64()),
         evidence: v.get("evidence").and_then(|s| s.as_str()).map(String::from),
     })
@@ -792,13 +828,25 @@ fn scan_json_objects(s: &str) -> Vec<String> {
     let mut esc = false;
     for (i, &b) in bytes.iter().enumerate() {
         if in_string {
-            if esc { esc = false; continue; }
-            match b { b'\\' => esc = true, b'"' => in_string = false, _ => {} }
+            if esc {
+                esc = false;
+                continue;
+            }
+            match b {
+                b'\\' => esc = true,
+                b'"' => in_string = false,
+                _ => {}
+            }
             continue;
         }
         match b {
             b'"' => in_string = true,
-            b'{' => { if depth == 0 { start = i; } depth += 1; }
+            b'{' => {
+                if depth == 0 {
+                    start = i;
+                }
+                depth += 1;
+            }
             b'}' => {
                 depth -= 1;
                 if depth == 0 && i + 1 >= start {
@@ -853,7 +901,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(discover_test_command(&dir).await.as_deref(), Some("npm test --silent"));
+        assert_eq!(
+            discover_test_command(&dir).await.as_deref(),
+            Some("npm test --silent")
+        );
         cleanup(&dir);
     }
 
@@ -873,16 +924,26 @@ mod tests {
     #[tokio::test]
     async fn discovers_cargo_test() {
         let dir = tempdir();
-        tokio::fs::write(dir.join("Cargo.toml"), "[package]\nname=\"x\"\n").await.unwrap();
-        assert_eq!(discover_test_command(&dir).await.as_deref(), Some("cargo test --quiet"));
+        tokio::fs::write(dir.join("Cargo.toml"), "[package]\nname=\"x\"\n")
+            .await
+            .unwrap();
+        assert_eq!(
+            discover_test_command(&dir).await.as_deref(),
+            Some("cargo test --quiet")
+        );
         cleanup(&dir);
     }
 
     #[tokio::test]
     async fn discovers_pytest() {
         let dir = tempdir();
-        tokio::fs::write(dir.join("pytest.ini"), "[pytest]\n").await.unwrap();
-        assert_eq!(discover_test_command(&dir).await.as_deref(), Some("pytest -q"));
+        tokio::fs::write(dir.join("pytest.ini"), "[pytest]\n")
+            .await
+            .unwrap();
+        assert_eq!(
+            discover_test_command(&dir).await.as_deref(),
+            Some("pytest -q")
+        );
         cleanup(&dir);
     }
 
@@ -959,7 +1020,11 @@ Hope that helps!
         let repo = std::env::temp_dir().join(format!("cv-sandbox-repo-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&repo).unwrap();
         let run = |args: &[&str]| {
-            let s = SC::new("git").args(args).current_dir(&repo).status().unwrap();
+            let s = SC::new("git")
+                .args(args)
+                .current_dir(&repo)
+                .status()
+                .unwrap();
             assert!(s.success(), "git {args:?} failed");
         };
         run(&["init", "-q"]);
@@ -974,7 +1039,10 @@ Hope that helps!
         assert!(wt.exists());
 
         // tokio runtime for the async runner.
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         let r = rt.block_on(run_project_tests(&wt, Some("printf ok; exit 0")));
         assert_eq!(r.exit_code, Some(0));
 

@@ -60,12 +60,7 @@ where
     // `_dev_server` lives until end of function — Drop kills the process.
     let _dev_server = match input.project_dir.as_deref() {
         Some(dir) => Some(
-            LocalServer::start(
-                &PathBuf::from(dir),
-                &input.url,
-                Duration::from_secs(60),
-            )
-            .await?,
+            LocalServer::start(&PathBuf::from(dir), &input.url, Duration::from_secs(60)).await?,
         ),
         None => None,
     };
@@ -121,8 +116,7 @@ where
             }
             Err(e) => {
                 consecutive_brain_failures += 1;
-                let still_have_budget =
-                    consecutive_brain_failures < MAX_CONSECUTIVE_BRAIN_FAILURES;
+                let still_have_budget = consecutive_brain_failures < MAX_CONSECUTIVE_BRAIN_FAILURES;
 
                 let synthetic = if still_have_budget {
                     AgentAction::GiveUp {
@@ -314,10 +308,7 @@ mod tests {
         }
     }
     impl Brain for ScriptedBrain {
-        async fn next_action(
-            &self,
-            _ctx: BrainContext<'_>,
-        ) -> Result<AgentAction, String> {
+        async fn next_action(&self, _ctx: BrainContext<'_>) -> Result<AgentAction, String> {
             self.actions
                 .lock()
                 .unwrap()
@@ -339,10 +330,7 @@ mod tests {
         }
     }
     impl Brain for FlakyBrain {
-        async fn next_action(
-            &self,
-            _ctx: BrainContext<'_>,
-        ) -> Result<AgentAction, String> {
+        async fn next_action(&self, _ctx: BrainContext<'_>) -> Result<AgentAction, String> {
             let mut left = self.fails_remaining.lock().unwrap();
             if *left > 0 {
                 *left -= 1;
@@ -356,10 +344,7 @@ mod tests {
     }
 
     fn data_url(html: &str) -> String {
-        format!(
-            "data:text/html;charset=utf-8,{}",
-            urlencoding_lite(html)
-        )
+        format!("data:text/html;charset=utf-8,{}", urlencoding_lite(html))
     }
 
     /// Minimal URL-encode for the few characters that matter inside an inline

@@ -91,14 +91,18 @@ fn bench_index_parse() {
         std::hint::black_box(summary.message_count);
         let _ = std::fs::remove_file(&path);
     }
-    eprintln!("(parse time grows linearly with size — this is the cost an incremental reader removes)\n");
+    eprintln!(
+        "(parse time grows linearly with size — this is the cost an incremental reader removes)\n"
+    );
 }
 
 #[test]
 #[ignore = "perf bench; run with --ignored --nocapture"]
 fn bench_incremental_waste() {
     let base_mb = max_mb().min(64);
-    eprintln!("\n=== bench_incremental_waste (cost of re-parsing a whole file for a small append) ===");
+    eprintln!(
+        "\n=== bench_incremental_waste (cost of re-parsing a whole file for a small append) ==="
+    );
     let base = synthetic_claude_jsonl(base_mb * 1024 * 1024);
 
     // Current behavior: a 4 KB append changes mtime, so the WHOLE file is re-read+parsed.
@@ -191,6 +195,8 @@ fn bench_query() {
 
     eprintln!("\n=== bench_query (FTS search over session_message_archive) ===");
     eprintln!("seeded:           {total_rows} rows across {sessions} sessions in {seed_ms:.0} ms");
-    eprintln!("worst case:       {worst_ms:.3} ms/query  (term in every row, {worst_hits} matched)");
+    eprintln!(
+        "worst case:       {worst_ms:.3} ms/query  (term in every row, {worst_hits} matched)"
+    );
     eprintln!("realistic:        {real_ms:.3} ms/query  (selective term, {real_hits} matched)\n");
 }
