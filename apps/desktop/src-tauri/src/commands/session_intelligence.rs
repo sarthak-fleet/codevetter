@@ -54,6 +54,8 @@ pub struct SessionScorecard {
     pub project: Option<String>,
     pub sessions_analyzed: usize,
     pub overall_score: i64,
+    pub score_confidence: String,
+    pub score_caveat: Option<String>,
     pub adapters: Vec<SessionSourceAdapterSummary>,
     pub dimensions: Vec<SessionScoreDimension>,
     pub recommendations: Vec<SessionRecommendation>,
@@ -135,6 +137,10 @@ fn has_cost_data(session: &queries::SessionRow) -> bool {
         || session.cache_read_tokens > 0
         || session.cache_creation_tokens > 0
         || session.estimated_cost_usd > 0.0
+}
+
+fn is_codex_session(session: &queries::SessionRow) -> bool {
+    session.agent_type.to_ascii_lowercase().contains("codex")
 }
 
 fn adapter_id_for_agent_type(agent_type: &str) -> String {
@@ -290,6 +296,10 @@ pub fn build_session_scorecard(
         .iter()
         .filter(|session| has_cost_data(session))
         .count() as i64;
+    let codex_count = sessions
+        .iter()
+        .filter(|session| is_codex_session(session))
+        .count() as i64;
     let compacted_count = sessions
         .iter()
         .filter(|session| session.compaction_count > 0)
@@ -366,6 +376,21 @@ pub fn build_session_scorecard(
     let evidence_quality = clamp_score(
         ((cost_count * 55) + (agents.min(3) * 15) + (verification_count * 30)) / total_i64,
     );
+    let codex_sparse_evidence =
+        codex_count > 0 && codex_count * 2 >= total_i64 && verification_count * 3 < codex_count;
+    let score_confidence = if codex_sparse_evidence {
+        "limited".to_string()
+    } else {
+        "high".to_string()
+    };
+    let score_caveat = if codex_sparse_evidence {
+        Some(
+            "Codex transcript evidence is sparse in this sample; low verification scores may mean missing parser coverage, not poor agent performance."
+                .to_string(),
+        )
+    } else {
+        None
+    };
 
     let dimensions = vec![
         SessionScoreDimension {
@@ -431,7 +456,16 @@ pub fn build_session_scorecard(
     ];
 
     let mut recommendations = Vec::new();
-    if verification_quality < 60 {
+    if verification_quality < 60 && codex_sparse_evidence {
+        recommendations.push(SessionRecommendation {
+            id: "refresh-codex-evidence-before-judging-performance".to_string(),
+            severity: "medium".to_string(),
+            target: "adapter".to_string(),
+            title: "Treat sparse Codex evidence as low-confidence".to_string(),
+            next_action: "Re-index Codex sessions and inspect archive rows before treating this as poor agent performance.".to_string(),
+            evidence_refs: verification_evidence.clone(),
+        });
+    } else if verification_quality < 60 {
         recommendations.push(SessionRecommendation {
             id: "improve-verification-trail".to_string(),
             severity: "high".to_string(),
@@ -506,10 +540,12 @@ pub fn build_session_scorecard(
     };
 
     SessionScorecard {
-        schema_version: 2,
+        schema_version: 3,
         project,
         sessions_analyzed: total,
         overall_score,
+        score_confidence,
+        score_caveat,
         adapters,
         dimensions,
         recommendations,
@@ -625,8 +661,9 @@ mod tests {
 
         let scorecard = build_session_scorecard(Some("project".to_string()), &sessions);
 
-        assert_eq!(scorecard.schema_version, 2);
+        assert_eq!(scorecard.schema_version, 3);
         assert_eq!(scorecard.sessions_analyzed, 2);
+        assert_eq!(scorecard.score_confidence, "high");
         assert_eq!(scorecard.adapters.len(), 1);
         assert_eq!(scorecard.adapters[0].adapter_id, "codex");
         assert!(scorecard.overall_score >= 80);
@@ -640,6 +677,7 @@ mod tests {
     #[test]
     fn scorecard_recommends_verification_when_sessions_lack_proof() {
         let mut s = session("s1", "misc chat", "done");
+        s.agent_type = "claude-code".to_string();
         s.cwd = None;
         s.git_branch = None;
         s.message_count = 100;
@@ -659,6 +697,26 @@ mod tests {
             .recommendations
             .iter()
             .any(|recommendation| recommendation.id == "strengthen-repo-guidance"));
+    }
+
+    #[test]
+    fn scorecard_marks_sparse_codex_evidence_as_limited_confidence() {
+        let s = session("codex-1", "misc chat", "done");
+
+        let scorecard = build_session_scorecard(None, &[s]);
+
+        assert_eq!(scorecard.score_confidence, "limited");
+        assert!(scorecard
+            .score_caveat
+            .as_deref()
+            .is_some_and(|caveat| caveat.contains("missing parser coverage")));
+        assert!(scorecard.recommendations.iter().any(|recommendation| {
+            recommendation.id == "refresh-codex-evidence-before-judging-performance"
+        }));
+        assert!(!scorecard
+            .recommendations
+            .iter()
+            .any(|recommendation| recommendation.id == "improve-verification-trail"));
     }
 
     #[test]
