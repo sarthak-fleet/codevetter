@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod audience_validation;
 #[cfg(feature = "browser-agent")]
 pub mod agent;
 pub mod agent_memories;

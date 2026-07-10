@@ -1,6 +1,6 @@
 # Project Recommendation Context
 
-Generated: 2026-06-06T21:14:19.542Z (tooling note refreshed 2026-06-20)
+Generated: 2026-06-06T21:14:19.542Z (product context refreshed 2026-07-10)
 
 This file is a CodeVetter Repo Unpacked-inspired audit written for Starboard recommendations. It is intentionally local, evidence-oriented, and safe to commit: it records product context, feature areas, stack inventory, and recommendation guidance without secrets or environment values.
 
@@ -19,6 +19,8 @@ AI code review platform — desktop-first, works offline.
 
 CodeVetter is a local-first desktop workbench for checking agent-generated code. The active product direction is evidence-backed software quality review: code review, bug finding, synthetic user QA, replay, and debugging surfaces that help a human decide whether agent-written work is actually shippable.
 
+The Review workflow now owns the reusable evaluation capability formerly developed in ShipRank: after code review and executable QA, an operator can define a target audience/task, collect provenance-labeled agent, human, or imported judgments, diagnose agreement/order sensitivity/preference cycles, and carry that audience result into the verification proof. This remains local-first and does not depend on ShipRank's former Hono/D1/Cloudflare product stack.
+
 The Review workflow now includes an Agent Verification Environment slice: isolated worktree fix attempts, structured agent fix packets, task goal/acceptance/non-goal context, browser/QA evidence references, usage-routing advice, and a compact review/evidence/fix/worktree status timeline.
 
 CodeVetter AI software quality workbench for agent-generated code — desktop-first, local-first, and focused on finding bugs that normal AI review misses. Product Direction CodeVetter should end as a personal verification layer for AI-built software. The durable scope is: - code review - bug finding - agent-written code verification - debugging and replay - synthetic user QA for software quality - AI step-through debugging - codebase history explanation The near-term wedge is not beating Claude, Codex, or hosted PR bots at generic review. It is a self-first workflow that makes agent output trustworthy: inspect the diff, understand the repo and prior intent, exercise the changed behavior, pres
@@ -27,6 +29,7 @@ CodeVetter AI software quality workbench for agent-generated code — desktop-fi
 
 - **AI agents**: Agents, tool use, workflows, orchestration, RAG, evals, and model integration. Keywords: ai, agent, agents, llm, rag, embedding, eval, model.
 - **Testing and quality**: Unit tests, browser tests, evals, CI quality gates, and regression checks. Keywords: test, testing, quality, vitest, playwright, ci, eval, benchmark.
+- **Audience validation and evaluation diagnostics**: Target-audience tasks, agent simulation, imported human evidence, pairwise judgments, agreement, order sensitivity, cycles, and calibrated confidence. Keywords: audience, evaluator, pairwise, agreement, confidence, validation, preference.
 - **Repo intelligence**: Repository understanding, metadata enrichment, code review, and evidence reports. Keywords: review, static, analysis, diff, history, evidence, verification.
 - **UI workflows**: Dashboards, tables, forms, component systems, charts, and user workflows. Keywords: ui, ux, dashboard, table, component, react, next, tailwind.
 - **Auth and identity**: Auth, OAuth, sessions, users, permissions, and account flows. Keywords: auth, oauth, identity, session, user, permission, login, nextauth.

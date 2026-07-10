@@ -12,6 +12,7 @@ CodeVetter should end as a personal verification layer for AI-built software. Th
 - agent-written code verification
 - debugging and replay
 - synthetic user QA for software quality
+- target-audience validation after executable testing
 - AI step-through debugging
 - codebase history explanation
 
@@ -26,10 +27,11 @@ The near-term wedge is not beating Claude, Codex, or hosted PR bots at generic r
 | Agent-written code verification | Aimed at agent output; fixes/re-reviews selected findings and emits a full verification handoff proof (`review-proof` + `agent-fix-packet`: per-finding evidence, fixed/reproduced/unchecked tallies, and a copyable reviewer handoff). | Needs to close the intent loop: did the fix actually resolve the original user goal, and which agent/prompt produced the change. |
 | Debugging/replay | History indexes Claude/Codex sessions and can replay conversations. | Replay is not connected to files, diffs, failures, screenshots, tests, or review findings. |
 | Synthetic user QA | Prototype — `QaReplay` (`/qa-replay`, linked from Roadmap) runs fixture-backed synthetic-QA loops with a live agent-runner track. | Needs real browser/app automation that drives the actual product, captures screenshots/traces, and converts failures into review findings. |
+| Audience validation | Review can define a target audience and task, record agent-simulated/human/imported responses, diagnose agreement/order bias/cycles, and include the result in verification proof. | Human recruitment and hosted share links remain outside the local-first product; structured human evidence is entered or imported locally. |
 | AI step-through debugger | Commit-intent debugger (`/intent-debugger`, linked from Roadmap) now runs over **real** recent commits — pick a repo, and it infers intent, risks, verification gaps, and agent-vs-human authorship per commit. | Still per-commit static analysis; needs a full execution timeline across agent actions, file edits, commands, test failures, and UI observations. |
 | Codebase history explainer | Repo Unpacked generates repo briefs; History indexes agent sessions. | Needs commit/decision mining tied to touched files so reviews can catch intent regressions. |
 
-The product should prefer narrow, evidence-backed loops over broad "code intelligence" surfaces. A feature is on-strategy when it helps answer: "What changed, why did the agent change it, what could break, can we reproduce it, and did the fix actually work?"
+The product should prefer narrow, evidence-backed loops over broad "code intelligence" surfaces. A feature is on-strategy when it helps answer: "What changed, why did the agent change it, what could break, can we reproduce it, did the fix actually work, and did the affected audience succeed with it?"
 
 ## Deployment & External Services
 

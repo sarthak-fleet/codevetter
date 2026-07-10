@@ -15,6 +15,7 @@ import BlastRadiusPanel from '@/components/blast-radius-panel';
 import { ProjectWorkspaceEmpty } from '@/components/project-workspace/ProjectWorkspaceEmpty';
 import { ProjectWorkspaceShell } from '@/components/project-workspace/ProjectWorkspaceShell';
 import AgentStatusTimeline from '@/components/quick-review/AgentStatusTimeline';
+import AudienceValidationPanel from '@/components/quick-review/AudienceValidationPanel';
 import CreatePreviewPanel from '@/components/quick-review/CreatePreviewPanel';
 import EvidenceInsightsPanel from '@/components/quick-review/EvidenceInsightsPanel';
 import FindingsListPanel from '@/components/quick-review/FindingsListPanel';
@@ -35,6 +36,7 @@ import {
   type TaskContext,
 } from '@/lib/agent-fix-packet';
 import { trackCoreAction } from '@/lib/analytics';
+import { renderAudienceValidationProof } from '@/lib/audience-validation';
 import { useProjectWorkspace } from '@/lib/project-workspace';
 import { buildReviewIntentReport } from '@/lib/intent-debugger/report';
 import { parseDiffIntoFiles } from '@/lib/quick-review-code';
@@ -97,6 +99,7 @@ import {
 import { CODEVETTER_REVIEW_SHELL } from '@/lib/synthetic-qa/loops';
 import type { SyntheticQaRunResult } from '@/lib/synthetic-qa/types';
 import type {
+  AudienceValidationBundle,
   BlastRadiusReport,
   CliReviewFinding,
   CliReviewResult,
@@ -247,6 +250,7 @@ export default function QuickReview() {
   const [timelinePacketCopiedId, setTimelinePacketCopiedId] = useState<string | null>(null);
   const [expandedTimelineItems, setExpandedTimelineItems] = useState<Set<string>>(new Set());
   const reviewId = result?.review_id ?? '';
+  const [audienceBundle, setAudienceBundle] = useState<AudienceValidationBundle | null>(null);
   const activeProcedureSteps = useMemo(
     () => result?.evidence_procedure_steps ?? [],
     [result?.evidence_procedure_steps]
@@ -2232,7 +2236,7 @@ export default function QuickReview() {
       result.review_memory_graph,
       activeFindingForProof
     );
-    const markdown = buildReviewerProofMarkdown({
+    const reviewerProof = buildReviewerProofMarkdown({
       diffRange: result.diff_range,
       score: result.score,
       agent: result.agent,
@@ -2251,6 +2255,9 @@ export default function QuickReview() {
       intentReport,
       historyFindingSummaries,
     });
+    const markdown = audienceBundle
+      ? `${reviewerProof}\n\n${renderAudienceValidationProof(audienceBundle)}`
+      : reviewerProof;
 
     try {
       await navigator.clipboard.writeText(markdown);
@@ -2272,6 +2279,7 @@ export default function QuickReview() {
     reviewTimeline,
     historyFindingSummaries,
     historyExplanations,
+    audienceBundle,
   ]);
 
   const handleCopyFindingNote = useCallback(async () => {
@@ -2890,6 +2898,13 @@ export default function QuickReview() {
                     </div>
                   )}
                 </div>
+
+                <AudienceValidationPanel
+                  reviewId={reviewId}
+                  repoPath={repoPath}
+                  defaultArtifact={qaLastRun?.screenshot_path ?? qaLastRun?.route ?? qaBaseUrl}
+                  onBundleChange={setAudienceBundle}
+                />
 
                 {(blastReport ||
                   blastLoading ||

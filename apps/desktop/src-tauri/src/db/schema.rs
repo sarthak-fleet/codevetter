@@ -679,6 +679,49 @@ CREATE INDEX IF NOT EXISTS idx_synthetic_qa_runs_review_created
 CREATE INDEX IF NOT EXISTS idx_synthetic_qa_runs_repo_created
     ON synthetic_qa_runs(repo_path, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS audience_validation_runs (
+    id                       TEXT PRIMARY KEY,
+    review_id                TEXT NOT NULL REFERENCES local_reviews(id) ON DELETE CASCADE,
+    repo_path                TEXT,
+    audience                 TEXT NOT NULL,
+    task                     TEXT NOT NULL,
+    candidate_a              TEXT NOT NULL,
+    candidate_a_artifact     TEXT,
+    candidate_b              TEXT,
+    candidate_b_artifact     TEXT,
+    criteria_json            TEXT NOT NULL,
+    min_responses            INTEGER NOT NULL DEFAULT 3,
+    required                 INTEGER NOT NULL DEFAULT 1,
+    waived_reason            TEXT,
+    status                   TEXT NOT NULL DEFAULT 'collecting',
+    created_at               TEXT NOT NULL,
+    updated_at               TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audience_validation_runs_review_created
+    ON audience_validation_runs(review_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS audience_validation_responses (
+    id                          TEXT PRIMARY KEY,
+    run_id                      TEXT NOT NULL REFERENCES audience_validation_runs(id) ON DELETE CASCADE,
+    participant_id              TEXT NOT NULL,
+    provenance                  TEXT NOT NULL,
+    criterion                   TEXT NOT NULL,
+    candidate_a                 TEXT NOT NULL,
+    candidate_b                 TEXT,
+    preferred_candidate         TEXT,
+    reverse_preferred_candidate TEXT,
+    confidence                  REAL NOT NULL DEFAULT 0.5,
+    task_passed                 INTEGER,
+    feedback                    TEXT,
+    evidence_ref                TEXT,
+    elapsed_ms                  INTEGER,
+    created_at                  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audience_validation_responses_run_created
+    ON audience_validation_responses(run_id, created_at ASC);
+
 
 -- ================================================================
 -- Mission Control

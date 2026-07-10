@@ -806,6 +806,178 @@ export interface CliReviewResult {
   evidence_procedure_steps?: EvidenceProcedureStep[];
 }
 
+export type AudienceResponseProvenance = 'agent' | 'human' | 'imported';
+
+export interface AudienceValidationRun {
+  id: string;
+  review_id: string;
+  repo_path: string | null;
+  audience: string;
+  task: string;
+  candidate_a: string;
+  candidate_a_artifact: string | null;
+  candidate_b: string | null;
+  candidate_b_artifact: string | null;
+  criteria: string[];
+  min_responses: number;
+  required: boolean;
+  waived_reason: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AudienceValidationResponse {
+  id: string;
+  run_id: string;
+  participant_id: string;
+  provenance: AudienceResponseProvenance;
+  criterion: string;
+  candidate_a: string;
+  candidate_b: string | null;
+  preferred_candidate: string | null;
+  reverse_preferred_candidate: string | null;
+  confidence: number;
+  task_passed: boolean | null;
+  feedback: string | null;
+  evidence_ref: string | null;
+  elapsed_ms: number | null;
+  created_at: string;
+}
+
+export interface AudienceCriterionSignal {
+  criterion: string;
+  comparable_judgments: number;
+  decisive_judgments: number;
+  majority_strength: number;
+  agreement: number;
+  low_confidence_count: number;
+  order_inconsistent_count: number;
+  cycle_detected: boolean;
+  consensus_candidate: string | null;
+}
+
+export interface AudienceSignalDiagnostics {
+  response_count: number;
+  human_response_count: number;
+  agent_response_count: number;
+  imported_response_count: number;
+  mean_agreement: number;
+  mean_majority_strength: number;
+  low_confidence_count: number;
+  order_inconsistent_count: number;
+  criteria_with_cycles: string[];
+  signal_strength: 'strong' | 'moderate' | 'weak' | 'noise';
+  criteria: AudienceCriterionSignal[];
+}
+
+export interface VerificationStage {
+  status: string;
+  label: string;
+  evidence: string[];
+  caveats: string[];
+}
+
+export interface StagedVerificationSummary {
+  review: VerificationStage;
+  executable_test: VerificationStage;
+  audience: VerificationStage;
+  aggregate_status: 'verified' | 'needs_review' | 'blocked' | 'incomplete' | string;
+  confidence: 'high' | 'medium' | 'low' | string;
+  human_validation_fulfilled: boolean;
+  proof_markdown: string;
+}
+
+export interface AudienceValidationBundle {
+  run: AudienceValidationRun | null;
+  responses: AudienceValidationResponse[];
+  diagnostics: AudienceSignalDiagnostics;
+  verification: StagedVerificationSummary;
+}
+
+export interface CreateAudienceValidationInput {
+  reviewId: string;
+  repoPath?: string | null;
+  audience: string;
+  task: string;
+  candidateA: string;
+  candidateAArtifact?: string | null;
+  candidateB?: string | null;
+  candidateBArtifact?: string | null;
+  criteria: string[];
+  minResponses: number;
+  required: boolean;
+}
+
+export interface AddAudienceResponseInput {
+  runId: string;
+  participantId?: string | null;
+  provenance: AudienceResponseProvenance;
+  criterion: string;
+  candidateA: string;
+  candidateB?: string | null;
+  preferredCandidate?: string | null;
+  reversePreferredCandidate?: string | null;
+  confidence: number;
+  taskPassed?: boolean | null;
+  feedback?: string | null;
+  evidenceRef?: string | null;
+  elapsedMs?: number | null;
+}
+
+export async function createAudienceValidationRun(
+  input: CreateAudienceValidationInput
+): Promise<AudienceValidationBundle> {
+  return safeInvoke('create_audience_validation_run', {
+    input: {
+      review_id: input.reviewId,
+      repo_path: input.repoPath ?? null,
+      audience: input.audience,
+      task: input.task,
+      candidate_a: input.candidateA,
+      candidate_a_artifact: input.candidateAArtifact ?? null,
+      candidate_b: input.candidateB ?? null,
+      candidate_b_artifact: input.candidateBArtifact ?? null,
+      criteria: input.criteria,
+      min_responses: input.minResponses,
+      required: input.required,
+    },
+  });
+}
+
+export async function addAudienceValidationResponse(
+  input: AddAudienceResponseInput
+): Promise<AudienceValidationBundle> {
+  return safeInvoke('add_audience_validation_response', {
+    input: {
+      run_id: input.runId,
+      participant_id: input.participantId ?? null,
+      provenance: input.provenance,
+      criterion: input.criterion,
+      candidate_a: input.candidateA,
+      candidate_b: input.candidateB ?? null,
+      preferred_candidate: input.preferredCandidate ?? null,
+      reverse_preferred_candidate: input.reversePreferredCandidate ?? null,
+      confidence: input.confidence,
+      task_passed: input.taskPassed ?? null,
+      feedback: input.feedback ?? null,
+      evidence_ref: input.evidenceRef ?? null,
+      elapsed_ms: input.elapsedMs ?? null,
+    },
+  });
+}
+
+export async function waiveAudienceValidation(
+  reviewId: string,
+  reason: string
+): Promise<AudienceValidationBundle> {
+  return safeInvoke('waive_audience_validation', { reviewId, reason });
+}
+
+export async function getAudienceValidation(reviewId: string): Promise<AudienceValidationBundle> {
+  return safeInvoke('get_audience_validation', { reviewId });
+}
+
 export async function recordReviewProcedureEvent(input: {
   reviewId: string;
   stepId: string;
