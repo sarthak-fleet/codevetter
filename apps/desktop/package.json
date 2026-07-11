@@ -14,7 +14,6 @@
     "test:coverage": "c8 node --import tsx --test \"src/**/*.test.ts\"",
     "test:e2e": "npx playwright test",
     "test:e2e:ui": "npx playwright test --ui",
-    "test:e2e:tauri": "node --import tsx --test tests/e2e/app.tauri-spec.ts",
     "test:review-proof": "node --import tsx --test src/lib/review-proof.test.ts",
     "test:agent-fix-packet": "node --import tsx --test src/lib/agent-fix-packet.test.ts",
     "test:synthetic-qa": "node --import tsx --test src/lib/synthetic-qa/apply-evidence.test.ts src/lib/synthetic-qa/fixture-runner.test.ts",

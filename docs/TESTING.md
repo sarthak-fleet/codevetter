@@ -8,26 +8,15 @@ CodeVetter uses two distinct test stacks depending on the layer being tested.
 ### Playwright — desktop e2e (`apps/desktop`)
 
 - **Package**: `@playwright/test` ^1.58.2
-- **Config**: `apps/desktop/playwright.config.ts` (primary), `apps/desktop/playwright.e2e.config.ts` (Tauri WebDriver variant)
+- **Config**: `apps/desktop/playwright.config.ts`
 - **Browser**: Chromium only (single project in CI)
 - **Base URL**: `http://localhost:1420` — the Vite dev server
-- A second config (`playwright.e2e.config.ts`) exists for the native Tauri app via `tauri-driver` (WebDriver protocol, macOS-only). It matches files ending in `*.pw.spec.ts`.
 
 **Required setup for Playwright tests**
 
 ```bash
 # Install Playwright browsers (first time only)
 cd apps/desktop && npx playwright install chromium
-```
-
-**Required setup for Tauri native e2e tests** (optional, macOS only)
-
-```bash
-# Build the Rust binary once
-cargo install tauri-driver
-
-# Build the app bundle
-cd apps/desktop && npm run tauri:build
 ```
 
 ### Node built-in test runner — package unit tests
@@ -58,18 +47,6 @@ cd apps/desktop && npx playwright test tests/e2e/smoke.spec.ts
 
 # Single test by title pattern
 cd apps/desktop && npx playwright test -g "App loads without crashing"
-```
-
-### Desktop app — Tauri native e2e (requires built app, macOS only)
-
-```bash
-cd apps/desktop && npm run test:e2e:tauri
-```
-
-Enable verbose tauri-driver output:
-
-```bash
-cd apps/desktop && DEBUG_TAURI_DRIVER=1 npm run test:e2e:tauri
 ```
 
 ### Package unit tests (`packages/ai-gateway-client`)
@@ -109,7 +86,6 @@ cd packages/db && npm test
 - `showNavBar(page)` — moves mouse to top of viewport to reveal the auto-hiding nav bar.
 
 **`apps/desktop/tests/e2e/setup.ts`** — Tauri WebDriver lifecycle:
-- `startTauriDriver(port?)` / `stopTauriDriver()` — spawn/kill the `tauri-driver` process.
 - `getAppBinaryPath()` — resolves the built `.app` bundle path for the current arch.
 - `getTauriCapabilities()` — returns W3C capabilities object for a WebDriver session.
 
