@@ -1890,43 +1890,6 @@ pub struct IndexStats {
     pub total_cost_usd: f64,
 }
 
-pub fn get_index_stats(conn: &Connection) -> Result<IndexStats, rusqlite::Error> {
-    let project_count: i64 =
-        conn.query_row("SELECT COUNT(*) FROM cc_projects", [], |r| r.get(0))?;
-    let session_count: i64 =
-        conn.query_row("SELECT COUNT(*) FROM cc_sessions", [], |r| r.get(0))?;
-    // cc_messages is dropped post-bucketing; use SUM(msg_count) from
-    // cc_session_days as the canonical message-count source.
-    let message_count: i64 = conn.query_row(
-        "SELECT COALESCE(SUM(msg_count), 0) FROM cc_session_days",
-        [],
-        |r| r.get(0),
-    )?;
-    let total_input_tokens: i64 = conn.query_row(
-        "SELECT COALESCE(SUM(total_input_tokens), 0) FROM cc_sessions",
-        [],
-        |r| r.get(0),
-    )?;
-    let total_output_tokens: i64 = conn.query_row(
-        "SELECT COALESCE(SUM(total_output_tokens), 0) FROM cc_sessions",
-        [],
-        |r| r.get(0),
-    )?;
-    let total_cost_usd: f64 = conn.query_row(
-        "SELECT COALESCE(SUM(estimated_cost_usd), 0.0) FROM cc_sessions",
-        [],
-        |r| r.get(0),
-    )?;
-    Ok(IndexStats {
-        project_count,
-        session_count,
-        message_count,
-        total_input_tokens,
-        total_output_tokens,
-        total_cost_usd,
-    })
-}
-
 // ─────────────────────────────────────────────────────────────────
 // Token Usage Stats (period totals + time series)
 // ─────────────────────────────────────────────────────────────────
@@ -2676,50 +2639,6 @@ pub fn insert_agent_talk(
         ],
     )?;
     Ok(id)
-}
-
-pub fn get_agent_talk(
-    conn: &Connection,
-    id: &str,
-) -> Result<Option<AgentTalkRow>, rusqlite::Error> {
-    conn.query_row(
-        "SELECT id, agent_process_id, review_id, agent_type, project_path, role,
-                input_prompt, input_context,
-                files_read, files_modified, actions_summary,
-                output_raw, output_structured, exit_code,
-                unfinished_work, blockers,
-                key_decisions, codebase_state, recommended_next_steps,
-                duration_ms, session_id, created_at
-         FROM agent_talks WHERE id = ?1",
-        params![id],
-        |row| {
-            Ok(AgentTalkRow {
-                id: row.get(0)?,
-                agent_process_id: row.get(1)?,
-                review_id: row.get(2)?,
-                agent_type: row.get(3)?,
-                project_path: row.get(4)?,
-                role: row.get(5)?,
-                input_prompt: row.get(6)?,
-                input_context: row.get(7)?,
-                files_read: row.get(8)?,
-                files_modified: row.get(9)?,
-                actions_summary: row.get(10)?,
-                output_raw: row.get(11)?,
-                output_structured: row.get(12)?,
-                exit_code: row.get(13)?,
-                unfinished_work: row.get(14)?,
-                blockers: row.get(15)?,
-                key_decisions: row.get(16)?,
-                codebase_state: row.get(17)?,
-                recommended_next_steps: row.get(18)?,
-                duration_ms: row.get(19)?,
-                session_id: row.get(20)?,
-                created_at: row.get(21)?,
-            })
-        },
-    )
-    .optional()
 }
 
 pub fn get_latest_talk_for_project(

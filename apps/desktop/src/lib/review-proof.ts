@@ -8,7 +8,7 @@ import type {
   ReviewMemoryGraph,
 } from '@/lib/tauri-ipc';
 
-export interface EvidenceCounts {
+interface EvidenceCounts {
   fixed: number;
   reproduced: number;
   notReproduced: number;
@@ -49,9 +49,9 @@ export interface ProcedureExecutionEvent {
   createdAt?: string;
 }
 
-export type VerificationTimelineStatus = 'done' | 'active' | 'blocked' | 'idle';
+type VerificationTimelineStatus = 'done' | 'active' | 'blocked' | 'idle';
 
-export type VerificationTimelineJumpKind = 'finding' | 'file' | 'artifact' | 'command_source';
+type VerificationTimelineJumpKind = 'finding' | 'file' | 'artifact' | 'command_source';
 
 export interface VerificationTimelineJumpTarget {
   kind: VerificationTimelineJumpKind;
@@ -72,7 +72,7 @@ export interface VerificationTimelineItem {
   jump?: VerificationTimelineJumpTarget | null;
 }
 
-export interface VerificationTimelineAnchor {
+interface VerificationTimelineAnchor {
   id: string;
   label: string;
   source: string;
@@ -156,7 +156,7 @@ export interface QaComparisonRun {
   consoleErrors: number;
 }
 
-export type QaPostFixComparisonStatus =
+type QaPostFixComparisonStatus =
   | 'needs_rerun'
   | 'fixed'
   | 'still_broken'
@@ -1223,7 +1223,7 @@ export function queryCodebaseHistoryExplanationForFile(
   return explanation ?? null;
 }
 
-export const TIMELINE_ANCHOR_PREVIEW_COUNT = 2;
+const TIMELINE_ANCHOR_PREVIEW_COUNT = 2;
 
 export function shouldCollapseTimelineAnchors(anchorCount: number): boolean {
   return anchorCount > TIMELINE_ANCHOR_PREVIEW_COUNT + 1;

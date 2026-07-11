@@ -1,4 +1,4 @@
-export type CodexAgentStatus = 'white' | 'green' | 'yellow' | 'red';
+type CodexAgentStatus = 'white' | 'green' | 'yellow' | 'red';
 
 export interface CodexCliAgentPayload {
   v?: number;

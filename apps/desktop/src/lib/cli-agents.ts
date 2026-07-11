@@ -13,7 +13,7 @@ export const DEFAULT_CLI_SYNTHESIS_AGENT: CliSynthesisAgent = 'claude';
 
 export const UNPACK_MODEL_PREF_KEY = 'unpack_synthesis_model';
 
-export const CLI_AGENT_MODEL_HINTS: Record<string, { placeholder: string; examples: string }> = {
+const CLI_AGENT_MODEL_HINTS: Record<string, { placeholder: string; examples: string }> = {
   claude: { placeholder: 'sonnet', examples: 'sonnet · opus · haiku' },
   gemini: { placeholder: 'gemini-2.5-pro', examples: 'gemini-2.5-pro · flash' },
   codex: { placeholder: 'o3', examples: 'o3 · gpt-5-codex' },
@@ -284,7 +284,7 @@ export function mergeCommandCodeModels(
   });
 }
 
-export function cliAgentLabel(agent: string): string {
+function cliAgentLabel(agent: string): string {
   return CLI_SYNTHESIS_AGENTS.find((row) => row.value === agent)?.label ?? agent;
 }
 

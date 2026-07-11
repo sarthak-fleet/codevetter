@@ -7,12 +7,9 @@
 //!   • `get_tool_breakdown` — re-aggregate `cc_sessions` per tool with
 //!     model split, cache creation, p50/p95 cost, daily cost series.
 
-use crate::DbState;
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::process::Command as StdCommand;
-use tauri::State;
 
 // ─── Tool taxonomy ──────────────────────────────────────────────────────────
 
@@ -261,44 +258,6 @@ pub struct PricingRow {
     pub cache_write_per_mtok: f64,
 }
 
-pub const PRICING_TABLE: &[PricingRow] = &[
-    PricingRow {
-        model: "opus",
-        input_per_mtok: 15.0,
-        output_per_mtok: 75.0,
-        cache_read_per_mtok: 1.5,
-        cache_write_per_mtok: 18.75,
-    },
-    PricingRow {
-        model: "sonnet",
-        input_per_mtok: 3.0,
-        output_per_mtok: 15.0,
-        cache_read_per_mtok: 0.3,
-        cache_write_per_mtok: 3.75,
-    },
-    PricingRow {
-        model: "haiku",
-        input_per_mtok: 0.25,
-        output_per_mtok: 1.25,
-        cache_read_per_mtok: 0.025,
-        cache_write_per_mtok: 0.3,
-    },
-    PricingRow {
-        model: "gpt-4o",
-        input_per_mtok: 2.5,
-        output_per_mtok: 10.0,
-        cache_read_per_mtok: 1.25,
-        cache_write_per_mtok: 2.5,
-    },
-    PricingRow {
-        model: "gpt-4.1",
-        input_per_mtok: 2.0,
-        output_per_mtok: 8.0,
-        cache_read_per_mtok: 0.5,
-        cache_write_per_mtok: 2.0,
-    },
-];
-
 // ─── git log parser ─────────────────────────────────────────────────────────
 
 const UNIT_SEP: char = '\u{1f}';
@@ -437,11 +396,6 @@ fn classify_commit(c: &ParsedCommit) -> (&'static str, bool) {
 
 // ─── Public commands ────────────────────────────────────────────────────────
 
-#[tauri::command]
-pub async fn attribute_repo_commits(repo_path: String) -> Result<RepoAttributionReport, String> {
-    attribute_repo_path(&repo_path)
-}
-
 /// Synchronous in-process variant of `attribute_repo_commits`. Other commands
 /// (`fleet::get_fleet_rollup`) call this directly to iterate over many repos
 /// without going through the Tauri IPC layer.
@@ -455,61 +409,6 @@ pub(crate) fn attribute_repo_path(repo_path: &str) -> Result<RepoAttributionRepo
     Ok(summarize(trimmed, &commits))
 }
 
-/// Find the timestamp of the first AI-attributed commit in the repo, plus
-/// the commits-per-day rate before and after. Returns None if no AI commit
-/// is found or the history is too short to make a meaningful before/after
-/// comparison (< 7 days on either side).
-pub(crate) fn compute_ai_acceleration(repo_path: &str) -> Option<AiAcceleration> {
-    let raw = run_git_log(repo_path).ok()?;
-    let commits = parse_git_log(&raw);
-    let mut classified: Vec<(i64, bool)> = commits
-        .iter()
-        .map(|c| (c.timestamp, classify_commit(c).1))
-        .collect();
-    classified.sort_by_key(|(ts, _)| *ts);
-
-    let first_ai_ts = classified
-        .iter()
-        .find(|(_, is_ai)| *is_ai)
-        .map(|(ts, _)| *ts)?;
-    let earliest = classified.first()?.0;
-    let latest = classified.last()?.0;
-
-    let before_days = ((first_ai_ts - earliest) as f64 / 86_400.0).max(0.0);
-    let after_days = ((latest - first_ai_ts) as f64 / 86_400.0).max(0.0);
-    if before_days < 7.0 || after_days < 7.0 {
-        return None;
-    }
-
-    // Per-day commit rates, counted as "commits whose timestamp is strictly
-    // before / on-or-after the first AI commit". Includes AI commits in the
-    // after window — they're the cause of the acceleration we're measuring.
-    let before_count = classified
-        .iter()
-        .filter(|(ts, _)| *ts < first_ai_ts)
-        .count() as f64;
-    let after_count = classified
-        .iter()
-        .filter(|(ts, _)| *ts >= first_ai_ts)
-        .count() as f64;
-    let before_rate = before_count / before_days;
-    let after_rate = after_count / after_days;
-    if before_rate <= 0.0 {
-        return None;
-    }
-    let delta_pct = ((after_rate - before_rate) / before_rate) * 100.0;
-
-    let (date_str, _) = unix_to_day_and_weekday(first_ai_ts);
-    Some(AiAcceleration {
-        first_ai_commit_date: date_str,
-        before_commits_per_day: (before_rate * 100.0).round() / 100.0,
-        after_commits_per_day: (after_rate * 100.0).round() / 100.0,
-        velocity_delta_pct: delta_pct.round() as i64,
-        before_day_count: before_days.round() as u64,
-        after_day_count: after_days.round() as u64,
-    })
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AiAcceleration {
     pub first_ai_commit_date: String,
@@ -520,25 +419,6 @@ pub struct AiAcceleration {
     pub velocity_delta_pct: i64,
     pub before_day_count: u64,
     pub after_day_count: u64,
-}
-
-#[tauri::command]
-pub async fn get_ai_acceleration(repo_path: String) -> Result<Option<AiAcceleration>, String> {
-    Ok(compute_ai_acceleration(&repo_path))
-}
-
-#[tauri::command]
-pub async fn get_tool_breakdown(
-    db: State<'_, DbState>,
-    since_days: Option<u32>,
-) -> Result<Vec<ToolBreakdownRow>, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    query_tool_breakdown(&conn, since_days).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_pricing_table() -> Result<Vec<PricingRow>, String> {
-    Ok(PRICING_TABLE.to_vec())
 }
 
 // ─── Internals ──────────────────────────────────────────────────────────────
@@ -1419,177 +1299,6 @@ pub(crate) fn top_directory(path: &str) -> &str {
 
 // ─── Tool breakdown query ───────────────────────────────────────────────────
 
-fn query_tool_breakdown(
-    conn: &rusqlite::Connection,
-    since_days: Option<u32>,
-) -> Result<Vec<ToolBreakdownRow>, rusqlite::Error> {
-    let cutoff = since_days.map(|d| {
-        use chrono::{Duration, Local};
-        let cut = Local::now().date_naive() - Duration::days(d as i64);
-        crate::timeutil::local_day_start_utc(cut)
-    });
-
-    // 1. Per-(tool, session) cost rows — used for tool totals, percentiles
-    //    and the daily cost sparkline.
-    let mut session_stmt = conn.prepare(
-        "SELECT
-            agent_type,
-            COALESCE(model_used, ''),
-            COALESCE(estimated_cost_usd, 0.0),
-            COALESCE(total_input_tokens, 0),
-            COALESCE(cache_read_tokens, 0),
-            COALESCE(cache_creation_tokens, 0),
-            COALESCE(total_output_tokens, 0),
-            first_message,
-            last_message,
-            COALESCE(SUBSTR(last_message, 1, 10), '')
-         FROM cc_sessions
-         WHERE (?1 IS NULL OR last_message >= ?1)",
-    )?;
-
-    struct SessionStats {
-        tool: String,
-        model: String,
-        cost: f64,
-        input: i64,
-        cache_read: i64,
-        cache_creation: i64,
-        output: i64,
-        seconds: Option<f64>,
-        day: String,
-    }
-
-    let session_rows: Vec<SessionStats> = session_stmt
-        .query_map(params![cutoff.clone()], |r| {
-            let first: Option<String> = r.get(7)?;
-            let last: Option<String> = r.get(8)?;
-            let seconds = match (first, last) {
-                (Some(a), Some(b)) => parse_session_seconds(&a, &b),
-                _ => None,
-            };
-            Ok(SessionStats {
-                tool: r.get(0)?,
-                model: r.get(1)?,
-                cost: r.get(2)?,
-                input: r.get(3)?,
-                cache_read: r.get(4)?,
-                cache_creation: r.get(5)?,
-                output: r.get(6)?,
-                seconds,
-                day: r.get(9)?,
-            })
-        })?
-        .collect::<Result<_, _>>()?;
-
-    // 2. Aggregate per-tool.
-    let mut by_tool: HashMap<String, Vec<SessionStats>> = HashMap::new();
-    for s in session_rows {
-        by_tool.entry(s.tool.clone()).or_default().push(s);
-    }
-
-    let mut out: Vec<ToolBreakdownRow> = Vec::new();
-    for (tool, rows) in by_tool {
-        let sessions = rows.len() as i64;
-
-        let mut input = 0i64;
-        let mut cache_read = 0i64;
-        let mut cache_creation = 0i64;
-        let mut output = 0i64;
-        let mut cost = 0.0f64;
-        let mut sec_acc = 0.0f64;
-        let mut sec_count = 0u64;
-        let mut costs: Vec<f64> = Vec::with_capacity(rows.len());
-
-        let mut model_acc: HashMap<String, (i64, f64)> = HashMap::new(); // model → (sessions, cost)
-        let mut day_acc: HashMap<String, f64> = HashMap::new();
-
-        for s in &rows {
-            // Base input = input - cache_read - cache_creation to avoid
-            // double-counting (Claude Code's JSONL reports total_input that
-            // includes cache reads and writes).
-            let base_input = (s.input - s.cache_read - s.cache_creation).max(0);
-            input += base_input;
-            cache_read += s.cache_read;
-            cache_creation += s.cache_creation;
-            output += s.output;
-            cost += s.cost;
-            costs.push(s.cost);
-            if let Some(sec) = s.seconds {
-                sec_acc += sec;
-                sec_count += 1;
-            }
-            let model_label = canonicalize_model(&s.model);
-            let m = model_acc.entry(model_label).or_insert((0, 0.0));
-            m.0 += 1;
-            m.1 += s.cost;
-            if !s.day.is_empty() {
-                *day_acc.entry(s.day.clone()).or_insert(0.0) += s.cost;
-            }
-        }
-
-        let avg_seconds = if sec_count > 0 {
-            Some(sec_acc / sec_count as f64)
-        } else {
-            None
-        };
-
-        let (p50, p95) = percentiles(&mut costs);
-
-        let mut models: Vec<ModelCostRow> = model_acc
-            .into_iter()
-            .map(|(model, (sessions, cost))| ModelCostRow {
-                model,
-                sessions,
-                estimated_cost_usd: round2(cost),
-            })
-            .collect();
-        models.sort_by(|a, b| {
-            b.estimated_cost_usd
-                .partial_cmp(&a.estimated_cost_usd)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        // Daily cost sparkline over the same window the user asked for
-        // (capped at 30 buckets for display).
-        let bucket_count = since_days.map(|d| d.min(30)).unwrap_or(30) as usize;
-        let daily_cost = build_daily_cost(&day_acc, bucket_count);
-
-        out.push(ToolBreakdownRow {
-            tool,
-            sessions,
-            real_input_tokens: input,
-            cache_read_tokens: cache_read,
-            cache_creation_tokens: cache_creation,
-            output_tokens: output,
-            estimated_cost_usd: round2(cost),
-            cost_p50_usd: round2(p50),
-            cost_p95_usd: round2(p95),
-            avg_session_seconds: avg_seconds,
-            models,
-            daily_cost,
-        });
-    }
-
-    out.sort_by(|a, b| {
-        b.estimated_cost_usd
-            .partial_cmp(&a.estimated_cost_usd)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    Ok(out)
-}
-
-fn parse_session_seconds(first: &str, last: &str) -> Option<f64> {
-    use chrono::DateTime;
-    let a = DateTime::parse_from_rfc3339(first).ok()?;
-    let b = DateTime::parse_from_rfc3339(last).ok()?;
-    let secs = (b - a).num_seconds() as f64;
-    if secs < 0.0 {
-        None
-    } else {
-        Some(secs)
-    }
-}
-
 fn canonicalize_model(raw: &str) -> String {
     let r = raw.to_ascii_lowercase();
     if r.is_empty() {
@@ -1626,27 +1335,6 @@ fn percentiles(values: &mut [f64]) -> (f64, f64) {
         values[idx.min(values.len() - 1)]
     };
     (pick(0.5), pick(0.95))
-}
-
-fn build_daily_cost(day_acc: &HashMap<String, f64>, bucket_count: usize) -> Vec<DailyCost> {
-    use chrono::{Duration, Local};
-    let today = Local::now().date_naive();
-    let mut out: Vec<DailyCost> = Vec::with_capacity(bucket_count);
-    for i in 0..bucket_count {
-        let d = (today - Duration::days((bucket_count - 1 - i) as i64))
-            .format("%Y-%m-%d")
-            .to_string();
-        let cost = day_acc.get(&d).copied().unwrap_or(0.0);
-        out.push(DailyCost {
-            date: d,
-            cost_usd: round2(cost),
-        });
-    }
-    out
-}
-
-fn round2(x: f64) -> f64 {
-    (x * 100.0).round() / 100.0
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────

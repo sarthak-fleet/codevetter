@@ -75,92 +75,6 @@ pub fn trim_inventory_for_client(mut inv: RepoInventory) -> RepoInventory {
     inv
 }
 
-#[tauri::command]
-pub async fn scan_repo_inventory(repo_path: String) -> Result<Value, String> {
-    // The repo walk + per-file reads are synchronous and CPU/IO-bound; run them
-    // off the async runtime thread so the UI stays responsive during a scan.
-    let inv = tokio::task::spawn_blocking(move || build_inventory(&repo_path))
-        .await
-        .map_err(|e| format!("inventory scan task join error: {e}"))??;
-    Ok(serde_json::to_value(&trim_inventory_for_client(inv)).map_err(|e| e.to_string())?)
-}
-
-#[tauri::command]
-pub async fn generate_unpack_report(
-    app: AppHandle,
-    db: State<'_, DbState>,
-    repo_path: String,
-    agent: Option<String>,
-    model: Option<String>,
-) -> Result<Value, String> {
-    let agent = agent.unwrap_or_else(|| "claude".to_string());
-    let model_trimmed = model
-        .as_deref()
-        .map(str::trim)
-        .filter(|m| !m.is_empty())
-        .map(str::to_string);
-    let started = std::time::Instant::now();
-    let report_id = uuid::Uuid::new_v4().to_string();
-    emit_unpack_progress(
-        &app,
-        &report_id,
-        &repo_path,
-        "scanning",
-        Some("Walking repository files"),
-    );
-
-    // Run the synchronous repo scan off the async runtime thread; the DB writes
-    // below stay on this thread since the connection guard isn't Send.
-    let repo_path_for_scan = repo_path.clone();
-    let inventory = tokio::task::spawn_blocking(move || build_inventory(&repo_path_for_scan))
-        .await
-        .map_err(|e| format!("inventory scan task join error: {e}"))??;
-    let inventory_json = serde_json::to_string(&inventory).map_err(|e| e.to_string())?;
-    let now = chrono::Utc::now().to_rfc3339();
-
-    {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        crate::db::with_busy_retry(
-            || {
-                conn.execute(
-                    "INSERT INTO repo_unpacked_reports
-                     (id, repo_path, repo_name, commit_sha, status, agent_used,
-                      inventory_json, files_scanned, files_skipped, bytes_scanned,
-                      started_at, created_at)
-                     VALUES (?1, ?2, ?3, ?4, 'running', ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
-                    rusqlite::params![
-                        report_id,
-                        inventory.repo_path,
-                        inventory.repo_name,
-                        inventory.commit_sha,
-                        agent,
-                        inventory_json,
-                        inventory.files_scanned as i64,
-                        inventory.files_skipped as i64,
-                        inventory.bytes_scanned as i64,
-                        now,
-                    ],
-                )
-            },
-            15,
-        )
-        .map_err(|e| e.to_string())?;
-    }
-
-    run_unpack_synthesis(
-        app,
-        db,
-        report_id,
-        repo_path,
-        inventory,
-        agent,
-        model_trimmed,
-        started,
-        false,
-    )
-    .await
-}
-
 /// Run agent synthesis on an existing inventory snapshot (no re-scan).
 #[tauri::command]
 pub async fn synthesize_unpack_report(
@@ -600,11 +514,6 @@ pub enum InventoryBuildProfile {
 pub struct InventoryBuildResult {
     pub inventory: RepoInventory,
     pub profile: super::unpack_scan_profile::UnpackScanProfile,
-}
-
-pub fn build_inventory(repo_path: &str) -> Result<RepoInventory, String> {
-    build_inventory_with_progress(repo_path, None, InventoryBuildProfile::Full)
-        .map(|result| result.inventory)
 }
 
 pub fn build_inventory_with_progress(
@@ -1178,15 +1087,6 @@ pub(crate) fn inventory_needs_enrichment(inventory: &RepoInventory) -> bool {
         || inventory.history_brief.summary == default_history_summary
 }
 
-pub fn enrich_stored_unpack_inventory(
-    app: &tauri::AppHandle,
-    db: &std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
-    report_id: &str,
-    progress: Option<super::unpack_scan::ScanProgressCallback>,
-) -> Result<RepoInventory, String> {
-    enrich_stored_unpack_inventory_inner(app, db, report_id, progress, false)
-}
-
 pub fn try_enrich_stored_unpack_inventory(
     app: &tauri::AppHandle,
     db: &std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
@@ -1327,55 +1227,6 @@ fn lock_unpack_db<'a>(
     } else {
         db.lock().map_err(|e| e.to_string())
     }
-}
-
-#[tauri::command]
-pub async fn enrich_unpack_inventory(
-    app: tauri::AppHandle,
-    db: State<'_, crate::DbState>,
-    report_id: String,
-    scan_id: Option<String>,
-) -> Result<serde_json::Value, String> {
-    let scan_id = scan_id.unwrap_or_else(|| report_id.clone());
-    let db_arc = db.0.clone();
-    let app_for_progress = app.clone();
-    let scan_for_progress = scan_id.clone();
-    let repo_for_progress = {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.query_row(
-            "SELECT repo_path FROM repo_unpacked_reports WHERE id = ?1",
-            rusqlite::params![report_id],
-            |r| r.get::<_, String>(0),
-        )
-        .map_err(|e| format!("Report not found: {e}"))?
-    };
-    let progress_cb: super::unpack_scan::ScanProgressCallback =
-        std::sync::Arc::new(move |p: super::unpack_scan::ScanProgress| {
-            let detail = match p.phase {
-                "analyze" => p.detail,
-                _ => p.detail,
-            };
-            super::unpack_scan::emit_unpack_scan_progress(
-                &app_for_progress,
-                &scan_for_progress,
-                &repo_for_progress,
-                &detail,
-                p.files_seen,
-            );
-        });
-
-    let app_bg = app.clone();
-    let report_id_for_task = report_id.clone();
-    let inventory = tokio::task::spawn_blocking(move || {
-        enrich_stored_unpack_inventory(&app_bg, &db_arc, &report_id_for_task, Some(progress_cb))
-    })
-    .await
-    .map_err(|e| format!("enrich task join error: {e}"))??;
-
-    Ok(serde_json::json!({
-        "report_id": report_id,
-        "inventory": trim_inventory_for_client(inventory),
-    }))
 }
 
 fn load_report_inventory(

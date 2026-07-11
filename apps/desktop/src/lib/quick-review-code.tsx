@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export interface DiffHunk {
+interface DiffHunk {
   /** Raw hunk text, kept for revert. */
   text: string;
   /** Pre-split lines so rendering never re-splits on every parent re-render. */

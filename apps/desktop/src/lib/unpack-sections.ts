@@ -31,7 +31,7 @@ export type UnpackSectionMeta = {
   requiresComparison?: boolean;
 };
 
-export const UNPACK_SECTIONS: UnpackSectionMeta[] = [
+const UNPACK_SECTIONS: UnpackSectionMeta[] = [
   {
     id: 'overview',
     label: 'Overview',

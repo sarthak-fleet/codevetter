@@ -17,7 +17,7 @@ export interface BrowserEvidenceRef {
   qaArtifacts: string;
 }
 
-export interface AgentFixPacketFinding extends CliReviewFinding, Record<string, unknown> {
+interface AgentFixPacketFinding extends CliReviewFinding, Record<string, unknown> {
   taskGoal?: string;
   acceptanceCriteria?: string[];
   nonGoals?: string[];
@@ -36,7 +36,7 @@ export interface AgentFixPacketFinding extends CliReviewFinding, Record<string, 
   }>;
 }
 
-export interface AgentFixPacketTimelineAnchor {
+interface AgentFixPacketTimelineAnchor {
   label: string;
   source: string;
   status?: 'passed' | 'failed' | 'stale' | 'unknown';

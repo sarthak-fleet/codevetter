@@ -2185,30 +2185,6 @@ export default function QuickReview() {
     }
   }, [repoPath, fixResult]);
 
-  const _handleCommitFixes = useCallback(async () => {
-    if (!repoPath || !fixResult) return;
-    try {
-      const { safeInvoke } = await import('@/lib/tauri-ipc');
-      // Stage changed files and commit
-      const files = fixResult.changed_files.map((f) => f.path);
-      for (const file of files) {
-        await safeInvoke('run_git_command', { repoPath, args: ['add', file] }).catch(() => {});
-      }
-      const msg = `fix: resolve ${fixResult.findings_fixed} code review finding${fixResult.findings_fixed !== 1 ? 's' : ''}`;
-      await safeInvoke('run_git_command', { repoPath, args: ['commit', '-m', msg] }).catch(
-        () => {}
-      );
-      setFixResult(null);
-      setFixCompletedAt(null);
-      setError(null);
-    } catch (_e) {
-      // Fallback: just tell the user to commit manually
-      setError(
-        `Auto-commit not available. Run: cd ${repoPath} && git add -A && git commit -m "fix: resolve review findings"`
-      );
-    }
-  }, [repoPath, fixResult]);
-
   const handleOpenInIDE = useCallback(async () => {
     if (!repoPath || !isTauriAvailable()) return;
     try {
@@ -3130,65 +3106,3 @@ export default function QuickReview() {
 }
 
 // ─── FindingItem ──────────────────────────────────────────────────────────────
-
-function _FindingItem({
-  finding,
-  selected,
-  onToggle,
-}: {
-  finding: CliReviewFinding;
-  selected: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div
-      className={cn(
-        'rounded-lg border bg-[#0a0a0a] p-4 transition-colors',
-        selected ? 'border-amber-500/30' : 'border-[#1a1a1a]'
-      )}
-    >
-      {/* Header: checkbox + severity badge + title */}
-      <div className="flex items-start gap-2">
-        <button onClick={onToggle} className="mt-0.5 shrink-0 text-slate-500 hover:text-amber-400">
-          {selected ? <CheckSquare2 size={16} className="text-amber-400" /> : <Square size={16} />}
-        </button>
-        <Badge
-          variant="outline"
-          className={cn(
-            'shrink-0 text-[10px] font-semibold uppercase',
-            severityColor(finding.severity)
-          )}
-        >
-          {finding.severity}
-        </Badge>
-        <h3 className="flex-1 text-sm font-medium text-slate-200">{finding.title}</h3>
-      </div>
-
-      {/* Summary */}
-      <p className="mt-2 text-xs leading-relaxed text-slate-400">{finding.summary}</p>
-
-      {/* File + line */}
-      {finding.filePath && (
-        <div className="mt-2 flex items-center gap-1 font-mono text-[11px] text-slate-500">
-          <span className="truncate">{finding.filePath}</span>
-          {finding.line != null && <span>:{finding.line}</span>}
-        </div>
-      )}
-
-      {/* Suggestion */}
-      {finding.suggestion && (
-        <div className="mt-3 rounded-md bg-amber-500/5 border border-amber-500/10 px-3 py-2 text-xs text-amber-300/80">
-          <span className="font-semibold text-amber-400">Suggestion: </span>
-          {finding.suggestion}
-        </div>
-      )}
-
-      {/* Confidence */}
-      {finding.confidence != null && (
-        <div className="mt-2 text-[10px] text-slate-600">
-          Confidence: {Math.round(finding.confidence * 100)}%
-        </div>
-      )}
-    </div>
-  );
-}

@@ -2,8 +2,8 @@ import type { CliReviewFinding } from '@/lib/tauri-ipc';
 
 import type { SyntheticQaRunResult } from './types';
 
-export type EvidenceLevel = 'static' | 'test' | 'browser' | 'runtime';
-export type VerificationStatus = 'not_checked' | 'reproduced' | 'fixed' | 'not_reproduced';
+type EvidenceLevel = 'static' | 'test' | 'browser' | 'runtime';
+type VerificationStatus = 'not_checked' | 'reproduced' | 'fixed' | 'not_reproduced';
 
 export interface FindingEvidence {
   level: EvidenceLevel;

@@ -21,7 +21,7 @@ import {
   setPreference,
 } from '@/lib/tauri-ipc';
 
-export const ACTIVE_REPO_PATH_KEY = 'active_repo_path';
+const ACTIVE_REPO_PATH_KEY = 'active_repo_path';
 
 const LEGACY_REPO_PATH_KEYS = ['quick_review_last_folder', 'intel_last_repo'] as const;
 

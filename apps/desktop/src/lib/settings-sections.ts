@@ -1,5 +1,5 @@
 /** Settings sidebar sections — shared by Settings page and legacy route redirects. */
-export const SETTINGS_SECTIONS = [
+const SETTINGS_SECTIONS = [
   'general',
   'appearance',
   'integrations',

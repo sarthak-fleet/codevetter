@@ -239,12 +239,6 @@ function formatSigned(n: number, precision = 0): string {
   return `${n > 0 ? '+' : '-'}${abs}`;
 }
 
-function _repoNameFromPath(path: string): string {
-  const trimmed = path.replace(/\/$/, '');
-  const last = trimmed.split('/').pop();
-  return last || path;
-}
-
 function parseInventoryJson(json: string | null): UnpackRepoInventory | null {
   if (!json) return null;
   try {

@@ -1085,99 +1085,6 @@ pub async fn get_local_diff(
     }))
 }
 
-/// Save review results from the frontend (review-core running in webview).
-/// The frontend calls review-core + ai-gateway-client, then sends findings here for persistence.
-#[tauri::command]
-pub async fn save_review(
-    db: State<'_, DbState>,
-    repo_path: Option<String>,
-    source_label: String,
-    review_type: String,
-    repo_full_name: Option<String>,
-    pr_number: Option<i64>,
-    score: f64,
-    findings: Vec<ReviewFindingInput>,
-    review_action: Option<String>,
-    summary_markdown: Option<String>,
-    standards_pack: Option<String>,
-) -> Result<Value, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-
-    // Create review record
-    let input = LocalReviewInput {
-        review_type: Some(review_type),
-        source_label: Some(source_label.clone()),
-        repo_path: repo_path.clone(),
-        repo_full_name,
-        pr_number,
-        agent_used: Some("review-core".to_string()),
-        status: Some("completed".to_string()),
-        standards_pack,
-    };
-
-    let review_id = queries::create_local_review(&conn, &input).map_err(|e| e.to_string())?;
-
-    // Insert findings
-    for f in &findings {
-        queries::insert_review_finding(
-            &conn,
-            &crate::db::queries::LocalReviewFindingInput {
-                review_id: review_id.clone(),
-                severity: f.severity.clone(),
-                title: f.title.clone(),
-                summary: f.summary.clone(),
-                suggestion: f.suggestion.clone(),
-                file_path: f.file_path.clone(),
-                line: f.line,
-                confidence: f.confidence,
-                fingerprint: f.fingerprint.clone(),
-                discovery_method: None,
-            },
-        )
-        .map_err(|e| e.to_string())?;
-    }
-
-    // Update review with score and completion
-    queries::update_local_review(
-        &conn,
-        &review_id,
-        &crate::db::queries::LocalReviewUpdate {
-            status: Some("completed".to_string()),
-            score_composite: Some(score),
-            findings_count: Some(findings.len() as i64),
-            review_action,
-            summary_markdown,
-            error_message: None,
-            completed_at: Some(chrono::Utc::now().to_rfc3339()),
-        },
-    )
-    .map_err(|e| e.to_string())?;
-
-    // Log activity
-    queries::log_activity(
-        &conn,
-        &ActivityInput {
-            agent_id: None,
-            event_type: Some("review_completed".to_string()),
-            summary: Some(format!(
-                "Review completed for {}: score={:.0}, {} findings",
-                source_label,
-                score,
-                findings.len()
-            )),
-            metadata: Some(json!({"review_id": review_id}).to_string()),
-        },
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(json!({
-        "review_id": review_id,
-        "status": "completed",
-        "score": score,
-        "findings_count": findings.len(),
-    }))
-}
-
 /// Get a single review with all its findings.
 #[tauri::command]
 pub async fn get_review(db: State<'_, DbState>, id: String) -> Result<Value, String> {
@@ -2389,22 +2296,6 @@ fn parse_command_code_models_output(raw: &str) -> Vec<CommandCodeModelRow> {
     models
 }
 
-/// List models exposed by the Command Code CLI (`cmd --list-models`).
-#[tauri::command]
-pub async fn list_command_code_models() -> Vec<CommandCodeModelRow> {
-    tokio::task::spawn_blocking(|| {
-        let cli_path = resolve_agent_cli_path("command-code");
-        let output = match StdCommand::new(&cli_path).args(["--list-models"]).output() {
-            Ok(output) if output.status.success() => output,
-            _ => return Vec::new(),
-        };
-        let raw = String::from_utf8_lossy(&output.stdout);
-        parse_command_code_models_output(&raw)
-    })
-    .await
-    .unwrap_or_default()
-}
-
 /// Public re-export for `unpack.rs` (and any future module) — same logic, no
 /// duplication.
 pub fn extract_json_from_output_pub(output: &str) -> Option<String> {
@@ -2685,7 +2576,10 @@ mod tests {
             ),
         ]);
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].get("severity").and_then(|v| v.as_str()), Some("critical"));
+        assert_eq!(
+            out[0].get("severity").and_then(|v| v.as_str()),
+            Some("critical")
+        );
     }
 
     #[test]

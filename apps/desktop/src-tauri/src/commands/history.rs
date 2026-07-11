@@ -714,18 +714,6 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
     Ok((indexed_sessions, indexed_messages, skipped_sessions))
 }
 
-/// Return aggregate stats about the indexed data.
-#[tauri::command]
-pub async fn get_index_stats(db: State<'_, DbState>) -> Result<Value, String> {
-    let conn = conn_lock(&db)?;
-    let stats = queries::get_index_stats(&conn).map_err(|e| e.to_string())?;
-    let last_indexed_at =
-        queries::get_preference(&conn, "last_indexed_at").map_err(|e| e.to_string())?;
-    let mut result = json!(stats);
-    result["last_indexed_at"] = json!(last_indexed_at);
-    Ok(result)
-}
-
 /// Token usage stats: today / week / month / year totals + 30-day daily series
 /// + 12-week weekly series. Windows use the user's local timezone.
 #[tauri::command]

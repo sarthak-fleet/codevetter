@@ -367,12 +367,6 @@ pub async fn run_branch_sandbox_inner(
     })
 }
 
-#[tauri::command]
-pub async fn detect_test_command(repo_path: String) -> Result<Option<String>, String> {
-    let path = PathBuf::from(repo_path);
-    Ok(discover_test_command(&path).await)
-}
-
 // ─── Helpers: worktree ──────────────────────────────────────────────────────
 
 fn create_sandbox_worktree(repo_path: &str, branch: &str) -> Result<(PathBuf, String), String> {

@@ -230,47 +230,6 @@ pub async fn set_saas_maker_config(
 }
 
 #[tauri::command]
-pub async fn list_saas_maker_tasks(
-    db: State<'_, DbState>,
-    project_slug: Option<String>,
-) -> Result<Vec<SaasMakerTask>, String> {
-    let (token, _) = resolve_token(&db);
-    let token = match token {
-        Some(t) => t,
-        None => {
-            return Err(format!(
-                "SaaS Maker not configured. Set {TOKEN_ENV} or configure via Settings."
-            ))
-        }
-    };
-    let base = resolve_base_url(&db);
-    let slug = project_slug
-        .or_else(|| read_pref(&db, PREF_PROJECT_SLUG))
-        .filter(|s| !s.trim().is_empty());
-
-    let mut url = format!("{base}/v1/tasks");
-    if let Some(s) = &slug {
-        url.push_str(&format!("?project_slug={}", urlencode(s)));
-    }
-
-    let resp = client()?
-        .get(&url)
-        .bearer_auth(&token)
-        .send()
-        .await
-        .map_err(|e| format!("SaaS Maker GET {url} failed: {e}"))?;
-    let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(format!(
-            "SaaS Maker GET {url} returned {status}: {}",
-            body.chars().take(400).collect::<String>()
-        ));
-    }
-    parse_task_list(&body)
-}
-
-#[tauri::command]
 pub async fn list_saas_maker_projects(
     db: State<'_, DbState>,
 ) -> Result<Vec<SaasMakerProject>, String> {
@@ -294,117 +253,6 @@ pub async fn list_saas_maker_projects(
         ));
     }
     parse_project_list(&body)
-}
-
-#[tauri::command]
-pub async fn update_saas_maker_task(
-    db: State<'_, DbState>,
-    task_id: String,
-    patch: UpdateTaskPatch,
-) -> Result<SaasMakerTask, String> {
-    let (token, _) = resolve_token(&db);
-    let token = token
-        .ok_or_else(|| format!("SaaS Maker not configured. Set {TOKEN_ENV} or use Settings."))?;
-    let base = resolve_base_url(&db);
-    let url = format!("{base}/v1/tasks/{}", urlencode(&task_id));
-    let payload = serde_json::to_value(&patch).map_err(|e| format!("serialize patch: {e}"))?;
-    let resp = client()?
-        .patch(&url)
-        .bearer_auth(&token)
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| format!("SaaS Maker PATCH {url} failed: {e}"))?;
-    let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(format!(
-            "SaaS Maker PATCH {url} returned {status}: {}",
-            body.chars().take(400).collect::<String>()
-        ));
-    }
-    let task = parse_single_task(&body)?;
-    // Keep the cached payload current so re-pushes see the new status.
-    let _ = refresh_sync_payload(&db, &task);
-    Ok(task)
-}
-
-#[tauri::command]
-pub async fn push_finding_to_saas_maker(
-    db: State<'_, DbState>,
-    input: PushFindingInput,
-) -> Result<PushFindingResult, String> {
-    // 1. Hydrate the finding from the local DB.
-    let (review, finding) = {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let (review, findings) = queries::get_local_review_with_findings(&conn, &input.review_id)
-            .map_err(|e| e.to_string())?;
-        let finding = findings
-            .into_iter()
-            .find(|f| f.id == input.finding_id)
-            .ok_or_else(|| format!("finding {} not found on review", input.finding_id))?;
-        (review, finding)
-    };
-
-    // 2. Already synced?
-    if let Some(prior) = lookup_existing_sync(&db, &input.finding_id)? {
-        return Ok(PushFindingResult {
-            task: Some(prior),
-            skipped: true,
-            skipped_reason: Some("already pushed".into()),
-            already_synced: true,
-        });
-    }
-
-    let (token, _) = resolve_token(&db);
-    let token = match token {
-        Some(t) => t,
-        None => {
-            return Ok(PushFindingResult {
-                task: None,
-                skipped: true,
-                skipped_reason: Some(format!(
-                    "SaaS Maker not configured. Set {TOKEN_ENV} or use Settings."
-                )),
-                already_synced: false,
-            })
-        }
-    };
-    let base = resolve_base_url(&db);
-    let slug = input
-        .project_slug
-        .or_else(|| read_pref(&db, PREF_PROJECT_SLUG))
-        .or(review.repo_full_name.clone())
-        .or(review.repo_path.clone());
-
-    let payload = build_task_payload(&review, &finding, slug.as_deref());
-    let url = format!("{base}/v1/tasks");
-    let resp = client()?
-        .post(&url)
-        .bearer_auth(&token)
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| format!("SaaS Maker POST {url} failed: {e}"))?;
-    let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(format!(
-            "SaaS Maker POST {url} returned {status}: {}",
-            body.chars().take(400).collect::<String>()
-        ));
-    }
-    let task = parse_single_task(&body)?;
-
-    // 3. Persist the link so re-push is a no-op.
-    record_sync(&db, &input.finding_id, &task)?;
-
-    Ok(PushFindingResult {
-        task: Some(task),
-        skipped: false,
-        skipped_reason: None,
-        already_synced: false,
-    })
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -452,47 +300,6 @@ fn read_pref(db: &State<'_, DbState>, key: &str) -> Option<String> {
         |r| r.get::<_, String>(0),
     )
     .ok()
-}
-
-fn lookup_existing_sync(
-    db: &State<'_, DbState>,
-    finding_id: &str,
-) -> Result<Option<SaasMakerTask>, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let row: Option<(String, String)> = conn
-        .query_row(
-            "SELECT saas_maker_task_id, last_payload FROM saas_maker_sync
-             WHERE local_source_kind = 'finding' AND local_source_id = ?1",
-            params![finding_id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
-        )
-        .ok();
-    match row {
-        Some((_id, payload)) => {
-            let task = serde_json::from_str::<SaasMakerTask>(&payload)
-                .map_err(|e| format!("parse stored sync payload: {e}"))?;
-            Ok(Some(task))
-        }
-        None => Ok(None),
-    }
-}
-
-fn record_sync(
-    db: &State<'_, DbState>,
-    finding_id: &str,
-    task: &SaasMakerTask,
-) -> Result<(), String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let now = chrono::Utc::now().to_rfc3339();
-    let payload = serde_json::to_string(task).map_err(|e| format!("serialize task: {e}"))?;
-    conn.execute(
-        "INSERT OR REPLACE INTO saas_maker_sync
-            (saas_maker_task_id, local_source_kind, local_source_id, last_payload, synced_at)
-         VALUES (?1, 'finding', ?2, ?3, ?4)",
-        params![task.id, finding_id, payload, now],
-    )
-    .map_err(|e| format!("insert sync row: {e}"))?;
-    Ok(())
 }
 
 fn build_task_payload(
@@ -606,26 +413,6 @@ fn parse_project_list(body: &str) -> Result<Vec<SaasMakerProject>, String> {
         }
     }
     Ok(out)
-}
-
-/// Refresh the cached payload for a task whose status we just PATCHed, so the
-/// next dedup lookup sees the new state and the UI can decide whether to
-/// re-push or mark complete locally.
-fn refresh_sync_payload(db: &State<'_, DbState>, task: &SaasMakerTask) -> Result<(), String> {
-    let Ok(conn) = db.0.lock() else {
-        return Ok(());
-    };
-    let now = chrono::Utc::now().to_rfc3339();
-    let Ok(payload) = serde_json::to_string(task) else {
-        return Ok(());
-    };
-    let _ = conn.execute(
-        "UPDATE saas_maker_sync
-            SET last_payload = ?1, synced_at = ?2
-            WHERE saas_maker_task_id = ?3",
-        params![payload, now, task.id],
-    );
-    Ok(())
 }
 
 fn urlencode(s: &str) -> String {
@@ -857,22 +644,6 @@ pub async fn detect_project_for_repo(
             source: "none".to_string(),
         }),
     }
-}
-
-#[tauri::command]
-pub async fn set_repo_project_mapping(
-    db: State<'_, DbState>,
-    repo_path: String,
-    project_slug: String,
-) -> Result<(), String> {
-    let now = chrono::Utc::now().to_rfc3339();
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let _ = conn.execute(
-        "INSERT OR REPLACE INTO repo_project_mapping (repo_path, project_slug, set_at)
-         VALUES (?1, ?2, ?3)",
-        params![repo_path.trim(), project_slug.trim(), now],
-    );
-    Ok(())
 }
 
 /// Normalize an arbitrary name to an alphanumeric, lowercase key for fuzzy

@@ -197,19 +197,6 @@ export function graphFromImpactRaw(raw: Record<string, unknown>): UnpackRepoGrap
   };
 }
 
-export function summarizeDeepGraphView(model: DeepGraphViewModel): string {
-  if (model.mode === 'query') {
-    return model.hits.length
-      ? `${model.hits.length} match${model.hits.length === 1 ? '' : 'es'}`
-      : 'No matches';
-  }
-  if (!model.graph) return model.summary;
-  const n = model.graph.nodes.length;
-  const e = model.graph.edges.length;
-  if (model.mode === 'impact') return `${n} symbols · ${e} impact edges`;
-  return `${n} symbols · ${e} relationships`;
-}
-
 export async function buildDeepGraphViewModel(
   mode: DeepGraphLookupMode,
   raw: Record<string, unknown>

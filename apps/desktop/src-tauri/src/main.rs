@@ -338,7 +338,6 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             // Review
             commands::review::get_local_diff,
-            commands::review::save_review,
             commands::review::get_review,
             commands::review::delete_review,
             commands::review::set_finding_disposition,
@@ -364,11 +363,6 @@ fn main() {
             commands::blast_radius::analyze_blast_radius,
             // Sessions (used by Home for index stats)
             commands::sessions::list_sessions,
-            commands::sessions::list_session_message_archive,
-            commands::sessions::search_session_message_archive,
-            commands::sessions::merge_projects,
-            commands::session_intelligence::get_ai_session_scorecard,
-            commands::session_intelligence::list_ai_session_adapter_runs,
             commands::agent_memories::list_agent_memory_sources,
             commands::agent_memories::read_agent_memory_source,
             commands::agent_terminal::start_codex_agent_terminal,
@@ -383,36 +377,25 @@ fn main() {
             commands::agent_memories::get_memory_file_git_diff,
             // History / indexer
             commands::history::trigger_index,
-            commands::history::get_index_stats,
             commands::history::get_token_usage_stats,
             commands::history::get_agent_usage_breakdown,
             commands::history::get_agent_usage_by_day,
             commands::history::get_usage_by_model,
             // Repo activity intelligence (shown inside Repo -> Activity)
-            commands::intel::attribute_repo_commits,
-            commands::intel::get_tool_breakdown,
-            commands::intel::get_pricing_table,
             // T-Rex sandbox (/review → Test branch)
             commands::sandbox::run_branch_sandbox,
-            commands::sandbox::detect_test_command,
             // SaaS Maker fleet wireup
             commands::saas_maker::get_saas_maker_status,
             commands::saas_maker::set_saas_maker_config,
-            commands::saas_maker::list_saas_maker_tasks,
             commands::saas_maker::list_saas_maker_projects,
-            commands::saas_maker::update_saas_maker_task,
-            commands::saas_maker::push_finding_to_saas_maker,
             // v1.1.76: sign-in + identity + repo detect
             commands::saas_maker::start_saas_maker_signin,
             commands::saas_maker::poll_saas_maker_signin,
             commands::saas_maker::sign_out_of_saas_maker,
             commands::saas_maker::get_current_user,
             commands::saas_maker::detect_project_for_repo,
-            commands::saas_maker::set_repo_project_mapping,
             // v1.1.78: AI acceleration
-            commands::intel::get_ai_acceleration,
             // v1.1.79: DORA metrics
-            commands::dora::get_dora_metrics,
             // v1.1.81: real billing + agent observability + notifications
             commands::observability::get_billing_config,
             commands::observability::set_billing_config,
@@ -429,23 +412,14 @@ fn main() {
             commands::trex_watcher::force_poll_trex_watcher,
             // Git
             commands::git::list_git_branches,
-            commands::git::get_git_remote_info,
             commands::git::list_pull_requests,
             commands::git::check_github_auth,
             commands::git::sync_github_token,
             commands::git::get_repo_history_context,
             commands::git::read_raw_session_context,
             // GitHub PR & CI
-            commands::github_ops::create_pull_request,
-            commands::github_ops::list_pull_requests_for_repo,
-            commands::github_ops::get_pull_request,
-            commands::github_ops::merge_pull_request,
-            commands::github_ops::list_ci_checks,
-            commands::github_ops::rerun_failed_checks,
             // Provider Accounts (Usage tab)
             commands::accounts::list_provider_accounts,
-            commands::accounts::create_provider_account,
-            commands::accounts::update_provider_account,
             commands::accounts::delete_provider_account,
             commands::accounts::check_account_usage,
             commands::accounts::check_live_usage,
@@ -455,29 +429,21 @@ fn main() {
             commands::preferences::get_preference,
             commands::preferences::set_preference,
             // File operations (used by Review)
-            commands::files::list_directory_tree,
             commands::files::read_file_preview,
             commands::files::read_file_around_line,
             commands::files::open_in_app,
             // Setup
             commands::setup::check_prerequisites,
             // Agent Talks
-            commands::talks::get_talk,
-            commands::talks::list_project_talks,
-            commands::talks::get_latest_talk,
             // Repo Unpacked
-            commands::unpack::scan_repo_inventory,
-            commands::unpack::generate_unpack_report,
             commands::unpack::synthesize_unpack_report,
             commands::unpack::ask_unpack_report,
             commands::unpack::cancel_unpack_generation,
-            commands::review::list_command_code_models,
             commands::repo_workspace::list_repo_projects,
             commands::repo_workspace::register_repo_project,
             commands::repo_workspace::remove_repo_project,
             commands::repo_workspace::get_repo_project_git_status,
             commands::repo_workspace::save_unpack_scan_snapshot,
-            commands::unpack::enrich_unpack_inventory,
             commands::repo_workspace::save_intel_snapshot,
             commands::repo_workspace::list_repo_intel_reports,
             commands::repo_workspace::get_repo_intel_report,

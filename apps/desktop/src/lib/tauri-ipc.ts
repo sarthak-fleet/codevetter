@@ -14,7 +14,7 @@ import { buildActiveStandardsContext, getActiveStandardsPackId } from '@/lib/rev
  * Safely invoke a Tauri command. Returns `undefined` when running outside
  * of the Tauri webview (e.g. SSR, `next dev`, or Storybook).
  */
-export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   try {
     return await invoke<T>(cmd, args);
   } catch (err) {
@@ -129,7 +129,7 @@ export interface CodexAgentTerminalSnapshot {
   transcript_path?: string | null;
 }
 
-export interface AgentStructuredEvent {
+interface AgentStructuredEvent {
   seq: number;
   at_ms: number;
   data: string;
@@ -233,40 +233,14 @@ export async function installCodexWarpPlugin(): Promise<CodexWarpPluginStatus> {
   return safeInvoke('install_codex_warp_plugin');
 }
 
-/** Matches the Rust `MessageRow` struct exactly. */
-export interface MessageRow {
-  id: string;
-  session_id: string;
-  parent_uuid: string | null;
-  type: string | null;
-  role: string | null;
-  content_text: string | null;
-  model: string | null;
-  input_tokens: number | null;
-  output_tokens: number | null;
-  timestamp: string | null;
-  line_number: number | null;
-  is_sidechain: number;
-}
-
-/** Matches the Rust `SearchResult` struct exactly. */
-export interface SearchResult {
-  message_id: string;
-  session_id: string;
-  content_text: string;
-  role: string | null;
-  timestamp: string | null;
-  rank: number;
-}
-
-export interface SessionEvidenceRef {
+interface SessionEvidenceRef {
   kind: string;
   session_id: string;
   label: string;
   detail?: string | null;
 }
 
-export interface SessionScoreDimension {
+interface SessionScoreDimension {
   id: string;
   label: string;
   score: number;
@@ -276,7 +250,7 @@ export interface SessionScoreDimension {
   next_action: string;
 }
 
-export interface SessionRecommendation {
+interface SessionRecommendation {
   id: string;
   severity: 'high' | 'medium' | 'low' | string;
   target: 'developer' | 'repo_readiness' | string;
@@ -285,7 +259,7 @@ export interface SessionRecommendation {
   evidence_refs: SessionEvidenceRef[];
 }
 
-export interface SessionSourceAdapterSummary {
+interface SessionSourceAdapterSummary {
   adapter_id: string;
   agent_type: string;
   source_roots: string[];
@@ -314,28 +288,6 @@ export interface SessionAdapterRun {
   parse_warnings: string[];
   supports_incremental: boolean;
   created_at: string;
-}
-
-export interface SessionMessageArchiveRow {
-  id: string;
-  session_id: string;
-  adapter_id: string;
-  agent_type: string;
-  source_ref: string;
-  source_line?: number | null;
-  message_index: number;
-  role?: string | null;
-  kind: string;
-  timestamp?: string | null;
-  content_text?: string | null;
-  tool_name?: string | null;
-  tool_call_id?: string | null;
-  raw_type?: string | null;
-  created_at: string;
-}
-
-export interface SessionMessageArchiveSearchRow extends SessionMessageArchiveRow {
-  rank: number;
 }
 
 export interface SessionScorecard {
@@ -391,17 +343,6 @@ export interface LocalReviewFindingRow {
 
 /** Owner's usefulness verdict on a review finding. */
 export type FindingDisposition = 'accepted' | 'dismissed';
-
-/** Matches the Rust `IndexStats` struct exactly (+ last_indexed_at from preferences). */
-export interface IndexStats {
-  project_count: number;
-  session_count: number;
-  message_count: number;
-  total_input_tokens: number;
-  total_output_tokens: number;
-  total_cost_usd: number;
-  last_indexed_at: string | null;
-}
 
 export interface TriggerIndexResult {
   indexed_sessions: number;
@@ -496,25 +437,8 @@ interface SessionsResponse {
   sessions: SessionRow[];
 }
 
-interface SessionDetailResponse {
-  session: SessionRow;
-  messages: MessageRow[];
-}
-
-interface SessionMessageArchiveResponse {
-  messages: SessionMessageArchiveRow[];
-}
-
-interface SessionMessageArchiveSearchResponse {
-  results: SessionMessageArchiveSearchRow[];
-}
-
 interface ReviewsResponse {
   reviews: LocalReviewRow[];
-}
-
-interface SearchResponse {
-  results: SearchResult[];
 }
 
 export interface LinearUser {
@@ -537,40 +461,6 @@ export async function getLocalDiff(
     repoPath,
     diffRange: diffRange ?? null,
   });
-}
-
-export interface SaveReviewInput {
-  repoPath?: string;
-  sourceLabel: string;
-  reviewType: string;
-  repoFullName?: string;
-  prNumber?: number;
-  score: number;
-  findings: Array<{
-    severity: string;
-    title: string;
-    summary: string;
-    suggestion?: string;
-    filePath?: string;
-    line?: number;
-    confidence?: number;
-    fingerprint?: string;
-  }>;
-  reviewAction?: string;
-  summaryMarkdown?: string;
-  /** Standards pack ID (Rubrics) captured when the review RAN. Callers should
-   * capture it at run start; the fallback below reads current config at save
-   * time, which can misattribute if the user switches packs mid-review. */
-  standardsPack?: string | null;
-}
-
-export async function saveReview(
-  input: SaveReviewInput
-): Promise<{ review_id: string; status: string; score: number; findings_count: number }> {
-  return safeInvoke('save_review', {
-    ...input,
-    standardsPack: input.standardsPack ?? getActiveStandardsPackId(),
-  } as unknown as Record<string, unknown>);
 }
 
 export async function getReview(
@@ -688,7 +578,7 @@ export interface ReviewProcedureEvent {
   created_at: string;
 }
 
-export interface ReviewMemoryGraphNode {
+interface ReviewMemoryGraphNode {
   id: string;
   kind: string;
   label: string;
@@ -696,7 +586,7 @@ export interface ReviewMemoryGraphNode {
   detail?: string | null;
 }
 
-export interface ReviewMemoryGraphEdge {
+interface ReviewMemoryGraphEdge {
   from: string;
   to: string;
   kind: string;
@@ -769,7 +659,7 @@ export interface ReviewProcedureEvent {
   created_at: string;
 }
 
-export interface ReviewMemoryGraphNode {
+interface ReviewMemoryGraphNode {
   id: string;
   kind: string;
   label: string;
@@ -777,7 +667,7 @@ export interface ReviewMemoryGraphNode {
   detail?: string | null;
 }
 
-export interface ReviewMemoryGraphEdge {
+interface ReviewMemoryGraphEdge {
   from: string;
   to: string;
   kind: string;
@@ -830,7 +720,7 @@ export interface CliReviewResult {
 
 export type AudienceResponseProvenance = 'agent' | 'human' | 'imported';
 
-export interface AudienceValidationRun {
+interface AudienceValidationRun {
   id: string;
   review_id: string;
   repo_path: string | null;
@@ -849,7 +739,7 @@ export interface AudienceValidationRun {
   updated_at: string;
 }
 
-export interface AudienceValidationResponse {
+interface AudienceValidationResponse {
   id: string;
   run_id: string;
   participant_id: string;
@@ -867,7 +757,7 @@ export interface AudienceValidationResponse {
   created_at: string;
 }
 
-export interface AudienceCriterionSignal {
+interface AudienceCriterionSignal {
   criterion: string;
   comparable_judgments: number;
   decisive_judgments: number;
@@ -879,7 +769,7 @@ export interface AudienceCriterionSignal {
   consensus_candidate: string | null;
 }
 
-export interface AudienceSignalDiagnostics {
+interface AudienceSignalDiagnostics {
   response_count: number;
   human_response_count: number;
   agent_response_count: number;
@@ -893,14 +783,14 @@ export interface AudienceSignalDiagnostics {
   criteria: AudienceCriterionSignal[];
 }
 
-export interface VerificationStage {
+interface VerificationStage {
   status: string;
   label: string;
   evidence: string[];
   caveats: string[];
 }
 
-export interface StagedVerificationSummary {
+interface StagedVerificationSummary {
   review: VerificationStage;
   executable_test: VerificationStage;
   audience: VerificationStage;
@@ -1205,7 +1095,7 @@ export interface RawSessionContextResult {
   items: RawSessionContextItem[];
 }
 
-export interface FixChangedFile {
+interface FixChangedFile {
   status: string;
   path: string;
 }
@@ -1292,9 +1182,9 @@ export async function revertDiffHunk(
 
 // ─── Blast Radius (graph-aware PR analysis) ──────────────────────────────────
 
-export type BlastRisk = 'safe' | 'medium' | 'high';
+type BlastRisk = 'safe' | 'medium' | 'high';
 
-export interface BlastCallerSite {
+interface BlastCallerSite {
   file: string;
   line: number;
   snippet: string;
@@ -1330,7 +1220,7 @@ export async function analyzeBlastRadius(
 
 // ─── Unpack deep graph (call-graph indexing) ─────────────────────────────────
 
-export interface UnpackDeepGraphStats {
+interface UnpackDeepGraphStats {
   files?: number | null;
   nodes?: number | null;
   edges?: number | null;
@@ -1485,35 +1375,6 @@ export async function listSessions(
   return resp.sessions;
 }
 
-export async function listSessionMessageArchive(
-  sessionId: string,
-  limit?: number
-): Promise<SessionMessageArchiveRow[]> {
-  const resp = await safeInvoke<SessionMessageArchiveResponse>('list_session_message_archive', {
-    sessionId,
-    limit: limit ?? 200,
-  });
-  return resp.messages;
-}
-
-export async function searchSessionMessageArchive(
-  query: string,
-  adapterId?: string,
-  kind?: string,
-  limit?: number
-): Promise<SessionMessageArchiveSearchRow[]> {
-  const resp = await safeInvoke<SessionMessageArchiveSearchResponse>(
-    'search_session_message_archive',
-    {
-      query,
-      adapterId: adapterId ?? null,
-      kind: kind ?? null,
-      limit: limit ?? 50,
-    }
-  );
-  return resp.results;
-}
-
 export async function listenToSessionArchiveUpdates(
   handler: (event: SessionArchiveUpdatedEvent) => void
 ): Promise<UnlistenFn> {
@@ -1522,87 +1383,9 @@ export async function listenToSessionArchiveUpdates(
   });
 }
 
-export async function getSession(
-  id: string
-): Promise<{ session: SessionRow; messages: MessageRow[] }> {
-  return safeInvoke<SessionDetailResponse>('get_session', { id });
-}
-
-export async function searchMessages(query: string): Promise<SearchResult[]> {
-  const resp = await safeInvoke<SearchResponse>('search_messages', { query });
-  return resp.results;
-}
-
-export async function getAiSessionScorecard(input?: {
-  project?: string | null;
-  limit?: number | null;
-}): Promise<SessionScorecard> {
-  return safeInvoke('get_ai_session_scorecard', {
-    project: input?.project ?? null,
-    limit: input?.limit ?? 50,
-  });
-}
-
-export async function listAiSessionAdapterRuns(input?: {
-  project?: string | null;
-  limit?: number | null;
-}): Promise<SessionAdapterRun[]> {
-  const resp = await safeInvoke<{ runs: SessionAdapterRun[] }>('list_ai_session_adapter_runs', {
-    project: input?.project ?? null,
-    limit: input?.limit ?? 20,
-  });
-  return resp.runs;
-}
-
 // ─── Session Subagent Commands ───────────────────────────────────────────────
 
-export interface SubagentSummary {
-  agentId: string;
-  slug: string | null;
-  startedAt: string | null;
-  endedAt: string | null;
-  lineCount: number;
-  taskDescription: string | null;
-}
-
-export async function listSessionSubagents(
-  sessionId: string,
-  projectPath: string
-): Promise<SubagentSummary[]> {
-  const resp = await safeInvoke<{ subagents: SubagentSummary[] }>('list_session_subagents', {
-    sessionId: sessionId,
-    projectPath: projectPath,
-  });
-  return resp.subagents;
-}
-
-export async function deleteSession(sessionId: string): Promise<{ deleted: boolean }> {
-  return safeInvoke('delete_session', { sessionId: sessionId });
-}
-
 // ─── Session Merge Commands ──────────────────────────────────────────────────
-
-export async function mergeSessions(
-  sessionIds: string[],
-  targetProjectId: string,
-  mergedName?: string
-): Promise<{ merged_session_id: string }> {
-  return safeInvoke('merge_sessions', {
-    sessionIds: sessionIds,
-    targetProjectId: targetProjectId,
-    mergedName: mergedName ?? null,
-  });
-}
-
-export async function mergeProjects(
-  sourceProjectIds: string[],
-  targetProjectId: string
-): Promise<{ moved_sessions: number }> {
-  return safeInvoke('merge_projects', {
-    sourceProjectIds: sourceProjectIds,
-    targetProjectId: targetProjectId,
-  });
-}
 
 // ─── Indexing Commands ───────────────────────────────────────────────────────
 
@@ -1640,14 +1423,14 @@ export async function getUsageByModel(
 
 // ─── Repo Activity Intelligence ─────────────────────────────────────────────
 
-export interface ToolCount {
+interface ToolCount {
   tool: string;
   commits: number;
   additions: number;
   deletions: number;
 }
 
-export interface DailyAttribution {
+interface DailyAttribution {
   date: string;
   ai_commits: number;
   human_commits: number;
@@ -1671,7 +1454,7 @@ export interface WindowReport {
   commit_size_max: number;
 }
 
-export interface DirectoryChurn {
+interface DirectoryChurn {
   path: string;
   commits: number;
   additions: number;
@@ -1680,7 +1463,7 @@ export interface DirectoryChurn {
   human_commits: number;
 }
 
-export interface WeeklyVelocityBucket {
+interface WeeklyVelocityBucket {
   week_start: string;
   total_commits: number;
   ai_commits: number;
@@ -1689,7 +1472,7 @@ export interface WeeklyVelocityBucket {
   deletions: number;
 }
 
-export interface IntelCommitEvidence {
+interface IntelCommitEvidence {
   sha: string;
   date: string;
   subject: string;
@@ -1700,7 +1483,7 @@ export interface IntelCommitEvidence {
   files: string[];
 }
 
-export interface IntelBlindSpotCommit {
+interface IntelBlindSpotCommit {
   sha: string;
   date: string;
   subject: string;
@@ -1710,7 +1493,7 @@ export interface IntelBlindSpotCommit {
   files: string[];
 }
 
-export interface IntelAttributionBlindSpot {
+interface IntelAttributionBlindSpot {
   kind: string;
   label: string;
   severity: 'high' | 'medium' | 'low' | string;
@@ -1723,7 +1506,7 @@ export interface IntelAttributionBlindSpot {
   sample_files: string[];
 }
 
-export interface AuthorRow {
+interface AuthorRow {
   name: string;
   email: string;
   commits: number;
@@ -1736,7 +1519,7 @@ export interface AuthorRow {
   tool_mix: ToolCount[];
 }
 
-export interface FileChurn {
+interface FileChurn {
   path: string;
   commits: number;
   additions: number;
@@ -1758,54 +1541,6 @@ export interface RepoAttributionReport {
   blind_spots?: IntelAttributionBlindSpot[];
 }
 
-export interface ModelCostRow {
-  model: string;
-  sessions: number;
-  estimated_cost_usd: number;
-}
-
-export interface DailyCost {
-  date: string;
-  cost_usd: number;
-}
-
-export interface ToolBreakdownRow {
-  tool: string;
-  sessions: number;
-  real_input_tokens: number;
-  cache_read_tokens: number;
-  cache_creation_tokens: number;
-  output_tokens: number;
-  estimated_cost_usd: number;
-  cost_p50_usd: number;
-  cost_p95_usd: number;
-  avg_session_seconds: number | null;
-  models: ModelCostRow[];
-  daily_cost: DailyCost[];
-}
-
-export interface PricingRow {
-  model: string;
-  input_per_mtok: number;
-  output_per_mtok: number;
-  cache_read_per_mtok: number;
-  cache_write_per_mtok: number;
-}
-
-export async function attributeRepoCommits(repoPath: string): Promise<RepoAttributionReport> {
-  return safeInvoke<RepoAttributionReport>('attribute_repo_commits', {
-    repoPath,
-  });
-}
-
-export async function getToolBreakdown(sinceDays: number | null): Promise<ToolBreakdownRow[]> {
-  return safeInvoke<ToolBreakdownRow[]>('get_tool_breakdown', { sinceDays });
-}
-
-export async function getPricingTable(): Promise<PricingRow[]> {
-  return safeInvoke<PricingRow[]>('get_pricing_table');
-}
-
 export async function sendTrayNotification(title: string, body: string): Promise<void> {
   let permissionGranted = await isPermissionGranted();
   if (!permissionGranted) {
@@ -1818,10 +1553,6 @@ export async function sendTrayNotification(title: string, body: string): Promise
   }
 
   sendNotification({ title, body });
-}
-
-export async function getIndexStats(): Promise<IndexStats> {
-  return safeInvoke<IndexStats>('get_index_stats');
 }
 
 // ─── Provider Account Commands ──────────────────────────────────────────────
@@ -1890,44 +1621,6 @@ export async function listProviderAccounts(): Promise<ProviderAccount[]> {
   return resp.accounts;
 }
 
-export async function createProviderAccount(opts: {
-  name: string;
-  provider: string;
-  apiKey?: string;
-  monthlyLimit?: number;
-  plan?: string;
-  weeklyLimit?: number;
-}): Promise<{ id: string; account: ProviderAccount }> {
-  return safeInvoke('create_provider_account', {
-    name: opts.name,
-    provider: opts.provider,
-    apiKey: opts.apiKey ?? null,
-    monthlyLimit: opts.monthlyLimit ?? null,
-    plan: opts.plan ?? null,
-    weeklyLimit: opts.weeklyLimit ?? null,
-  });
-}
-
-export async function updateProviderAccount(opts: {
-  id: string;
-  name: string;
-  provider: string;
-  apiKey?: string;
-  monthlyLimit?: number;
-  plan?: string;
-  weeklyLimit?: number;
-}): Promise<{ id: string }> {
-  return safeInvoke('update_provider_account', {
-    id: opts.id,
-    name: opts.name,
-    provider: opts.provider,
-    apiKey: opts.apiKey ?? null,
-    monthlyLimit: opts.monthlyLimit ?? null,
-    plan: opts.plan ?? null,
-    weeklyLimit: opts.weeklyLimit ?? null,
-  });
-}
-
 export async function deleteProviderAccount(id: string): Promise<void> {
   await safeInvoke('delete_provider_account', { id });
 }
@@ -1936,7 +1629,7 @@ export async function checkAccountUsage(accountId: string): Promise<AccountUsage
   return safeInvoke('check_account_usage', { accountId: accountId });
 }
 
-export interface RateLimitWindow {
+interface RateLimitWindow {
   utilization: number | null; // 0.0–1.0
   utilization_pct: number | null; // 0–100
   reset_at: number | null; // unix epoch seconds
@@ -2148,16 +1841,6 @@ export async function listGitBranches(repoPath: string): Promise<GitBranchesResu
   return safeInvoke('list_git_branches', { repoPath: repoPath });
 }
 
-export interface GitRemoteInfo {
-  url: string;
-  owner: string;
-  repo: string;
-}
-
-export async function getGitRemoteInfo(repoPath: string): Promise<GitRemoteInfo> {
-  return safeInvoke('get_git_remote_info', { repoPath: repoPath });
-}
-
 export interface PullRequest {
   number: number;
   title: string;
@@ -2228,38 +1911,12 @@ export async function pickDirectory(title?: string): Promise<string | null> {
 
 // ─── Event Listeners ────────────────────────────────────────────────────────
 
-export function onIndexComplete(
-  callback: (result: TriggerIndexResult) => void
-): Promise<UnlistenFn> {
-  return listen<TriggerIndexResult>('index-complete', (event) => {
-    callback(event.payload);
-  });
-}
-
 // ─── File Tree Commands ──────────────────────────────────────────────────
-
-export interface FileEntry {
-  path: string;
-  name: string;
-  is_dir: boolean;
-  depth: number;
-  size_bytes: number | null;
-}
 
 export interface FilePreview {
   content: string;
   total_lines: number;
   language: string;
-}
-
-export async function listDirectoryTree(
-  repoPath: string,
-  maxDepth?: number
-): Promise<{ entries: FileEntry[] }> {
-  return safeInvoke('list_directory_tree', {
-    repoPath: repoPath,
-    maxDepth: maxDepth ?? null,
-  });
 }
 
 export async function readFilePreview(filePath: string, maxLines?: number): Promise<FilePreview> {
@@ -2346,82 +2003,6 @@ export async function getMemoryFileGitDiff(path: string): Promise<MemoryFileDiff
 
 // ─── GitHub PR & CI Operations ──────────────────────────────────────────────
 
-export interface PullRequestInfo {
-  number: number;
-  title: string;
-  body: string;
-  state: string;
-  url: string;
-  headRefName: string;
-  baseRefName: string;
-  mergeable: string;
-  reviewDecision: string;
-  author: { login: string } | null;
-  createdAt: string;
-  statusCheckRollup?: CICheck[];
-}
-
-export interface CICheck {
-  name: string;
-  state: string;
-  conclusion: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  detailsUrl: string;
-}
-
-export async function createPullRequest(
-  repoPath: string,
-  title: string,
-  body: string,
-  baseBranch: string,
-  headBranch: string
-): Promise<{ url: string; number: number; html_url: string }> {
-  return safeInvoke('create_pull_request', {
-    repoPath: repoPath,
-    title,
-    body,
-    baseBranch: baseBranch,
-    headBranch: headBranch,
-  });
-}
-
-export async function listPullRequestsForRepo(
-  repoPath: string,
-  state?: string
-): Promise<{ prs: PullRequestInfo[] }> {
-  return safeInvoke('list_pull_requests_for_repo', {
-    repoPath: repoPath,
-    state: state ?? null,
-  });
-}
-
-export async function getPullRequest(repoPath: string, prNumber: number): Promise<PullRequestInfo> {
-  return safeInvoke('get_pull_request', { repoPath: repoPath, prNumber: prNumber });
-}
-
-export async function mergePullRequest(
-  repoPath: string,
-  prNumber: number,
-  method: string
-): Promise<{ success: boolean }> {
-  return safeInvoke('merge_pull_request', { repoPath: repoPath, prNumber: prNumber, method });
-}
-
-export async function listCiChecks(
-  repoPath: string,
-  prNumber: number
-): Promise<{ checks: CICheck[] }> {
-  return safeInvoke('list_ci_checks', { repoPath: repoPath, prNumber: prNumber });
-}
-
-export async function rerunFailedChecks(
-  repoPath: string,
-  prNumber: number
-): Promise<{ success: boolean; rerun_count: number }> {
-  return safeInvoke('rerun_failed_checks', { repoPath: repoPath, prNumber: prNumber });
-}
-
 // ─── Linear Integration (Settings only) ─────────────────────────────────────
 
 export async function startLinearOAuth(): Promise<{ success: boolean; error?: string }> {
@@ -2441,46 +2022,6 @@ export async function checkLinearConnection(): Promise<{
 
 // ── Agent Talks ──────────────────────────────────────────────────
 
-export interface AgentTalk {
-  id: string;
-  agent_process_id: string | null;
-  review_id: string | null;
-  agent_type: string;
-  project_path: string;
-  role: string | null;
-  input_prompt: string;
-  input_context: string | null;
-  files_read: string | null;
-  files_modified: string | null;
-  actions_summary: string | null;
-  output_raw: string | null;
-  output_structured: string | null;
-  exit_code: number | null;
-  unfinished_work: string | null;
-  blockers: string | null;
-  key_decisions: string | null;
-  codebase_state: string | null;
-  recommended_next_steps: string | null;
-  duration_ms: number | null;
-  session_id: string | null;
-  created_at: string;
-}
-
-export async function getTalk(id: string): Promise<AgentTalk | null> {
-  return safeInvoke('get_talk', { id });
-}
-
-export async function listProjectTalks(projectPath: string, limit?: number): Promise<AgentTalk[]> {
-  return safeInvoke('list_project_talks', {
-    projectPath,
-    limit: limit ?? null,
-  });
-}
-
-export async function getLatestTalk(projectPath: string): Promise<AgentTalk | null> {
-  return safeInvoke('get_latest_talk', { projectPath });
-}
-
 // ─── Repo Unpacked ──────────────────────────────────────────────────────────
 
 export interface UnpackLanguageCount {
@@ -2489,7 +2030,7 @@ export interface UnpackLanguageCount {
   bytes: number;
 }
 
-export interface UnpackManifestSummary {
+interface UnpackManifestSummary {
   path: string;
   kind: string;
   name: string | null;
@@ -2498,13 +2039,13 @@ export interface UnpackManifestSummary {
   scripts: string[];
 }
 
-export interface UnpackEntrypointHint {
+interface UnpackEntrypointHint {
   path: string;
   kind: string;
   reason: string;
 }
 
-export interface UnpackDocFile {
+interface UnpackDocFile {
   path: string;
   bytes: number;
   preview: string;
@@ -2516,7 +2057,7 @@ export interface UnpackDirSummary {
   bytes: number;
 }
 
-export interface UnpackQaReadinessSignal {
+interface UnpackQaReadinessSignal {
   id: string;
   label: string;
   status: 'ready' | 'partial' | 'missing' | string;
@@ -2524,7 +2065,7 @@ export interface UnpackQaReadinessSignal {
   sources: string[];
 }
 
-export interface UnpackQaSuggestedFlow {
+interface UnpackQaSuggestedFlow {
   id: string;
   route: string;
   goal: string;
@@ -2548,7 +2089,7 @@ export interface UnpackRepoGraphNode {
   sources: string[];
 }
 
-export interface UnpackRepoGraphEdge {
+interface UnpackRepoGraphEdge {
   from: string;
   to: string;
   kind: string;
@@ -2563,7 +2104,7 @@ export interface UnpackRepoGraph {
   truncated: boolean;
 }
 
-export interface UnpackScanProfileStep {
+interface UnpackScanProfileStep {
   id: string;
   label: string;
   ms: number;
@@ -2577,7 +2118,7 @@ export interface UnpackScanProfile {
   steps: UnpackScanProfileStep[];
 }
 
-export interface UnpackCoverageSummary {
+interface UnpackCoverageSummary {
   schema_version: number;
   strategy: string;
   sampled_files: number;
@@ -2588,24 +2129,24 @@ export interface UnpackCoverageSummary {
   notes: string[];
 }
 
-export interface UnpackRepoHistoryCommit {
+interface UnpackRepoHistoryCommit {
   sha: string;
   date?: string | null;
   subject: string;
 }
 
-export interface UnpackRepoHistoryDecision {
+interface UnpackRepoHistoryDecision {
   marker: string;
   text: string;
   source: string;
 }
 
-export interface UnpackRepoHistoryTestHint {
+interface UnpackRepoHistoryTestHint {
   path: string;
   reason: string;
 }
 
-export interface UnpackRepoTemporalCoupling {
+interface UnpackRepoTemporalCoupling {
   files: string[];
   commit_count: number;
   last_commit?: string | null;
@@ -2623,7 +2164,7 @@ export interface UnpackRepoHistoryBrief {
   truncated: boolean;
 }
 
-export interface UnpackRepoHealthFinding {
+interface UnpackRepoHealthFinding {
   id: string;
   label: string;
   dimension: string;
@@ -2632,7 +2173,7 @@ export interface UnpackRepoHealthFinding {
   sources: string[];
 }
 
-export interface UnpackRepoHealthFile {
+interface UnpackRepoHealthFile {
   path: string;
   score: number;
   bucket: string;
@@ -2655,7 +2196,7 @@ export interface UnpackRepoHealth {
   truncated: boolean;
 }
 
-export interface UnpackWorkspaceUnitSummary {
+interface UnpackWorkspaceUnitSummary {
   path: string;
   name: string;
   kind: string;
@@ -2708,7 +2249,7 @@ export interface UnpackDirTreeNode {
   children: UnpackDirTreeNode[];
 }
 
-export interface UnpackReportClaim {
+interface UnpackReportClaim {
   claim: string;
   sources: string[];
   kind?: string | null;
@@ -2758,13 +2299,13 @@ export interface UnpackReportRecord extends UnpackReportSummary {
   bytes_scanned: number;
 }
 
-export interface UnpackSnapshotChangedFile {
+interface UnpackSnapshotChangedFile {
   path: string;
   additions: number;
   deletions: number;
 }
 
-export interface UnpackSnapshotCommitEvidence {
+interface UnpackSnapshotCommitEvidence {
   sha: string;
   date: string;
   author: string;
@@ -2782,7 +2323,7 @@ export interface UnpackSnapshotCommitRange {
   truncated: boolean;
 }
 
-export interface UnpackOutcomeReviewEvidence {
+interface UnpackOutcomeReviewEvidence {
   id: string;
   review_type?: string | null;
   status: string;
@@ -2792,7 +2333,7 @@ export interface UnpackOutcomeReviewEvidence {
   created_at: string;
 }
 
-export interface UnpackOutcomeQaEvidence {
+interface UnpackOutcomeQaEvidence {
   id: string;
   review_id?: string | null;
   loop_id: string;
@@ -2806,7 +2347,7 @@ export interface UnpackOutcomeQaEvidence {
   created_at: string;
 }
 
-export interface UnpackOutcomeProcedureEvidence {
+interface UnpackOutcomeProcedureEvidence {
   id: string;
   review_id: string;
   step_id: string;
@@ -2817,14 +2358,14 @@ export interface UnpackOutcomeProcedureEvidence {
   created_at: string;
 }
 
-export interface UnpackOutcomeFindingEvidence {
+interface UnpackOutcomeFindingEvidence {
   file_path?: string | null;
   title?: string | null;
   severity?: string | null;
   created_at: string;
 }
 
-export interface UnpackOutcomeTrustAction {
+interface UnpackOutcomeTrustAction {
   priority: string;
   label: string;
   detail: string;
@@ -2834,7 +2375,7 @@ export interface UnpackOutcomeTrustAction {
   command?: string | null;
 }
 
-export interface UnpackOutcomeTrendWindow {
+interface UnpackOutcomeTrendWindow {
   label: string;
   proof_count: number;
   failure_count: number;
@@ -2844,7 +2385,7 @@ export interface UnpackOutcomeTrendWindow {
   newest_at?: string | null;
 }
 
-export interface UnpackOutcomeTrend {
+interface UnpackOutcomeTrend {
   direction: string;
   confidence: string;
   total_signals: number;
@@ -3005,34 +2546,8 @@ export async function deleteRepoIntelReport(id: string): Promise<{ deleted: bool
   return safeInvoke('delete_repo_intel_report', { id });
 }
 
-export async function scanRepoInventory(repoPath: string): Promise<UnpackRepoInventory> {
-  return safeInvoke('scan_repo_inventory', { repoPath });
-}
-
-export type CommandCodeModelRow = {
-  id: string;
-  description: string;
-  group: string;
-};
-
-export async function listCommandCodeModels(): Promise<CommandCodeModelRow[]> {
-  return safeInvoke<CommandCodeModelRow[]>('list_command_code_models');
-}
-
 export async function cancelUnpackGeneration(reportId: string): Promise<boolean> {
   return safeInvoke<boolean>('cancel_unpack_generation', { reportId });
-}
-
-export async function generateUnpackReport(
-  repoPath: string,
-  agent?: string,
-  model?: string
-): Promise<GenerateUnpackResult> {
-  return safeInvoke('generate_unpack_report', {
-    repoPath,
-    agent: agent ?? null,
-    model: model?.trim() ? model.trim() : null,
-  });
 }
 
 /** Default AI op: full system brief (summary) on an existing unpack snapshot. */
@@ -3121,7 +2636,7 @@ export async function exportRepoUnpackReport(
 
 // ─── Synthetic user QA ─────────────────────────────────────────────────────
 
-export interface SyntheticQaTrace {
+interface SyntheticQaTrace {
   final_url: string;
   page_title: string;
   console_errors: string[];
@@ -3236,8 +2751,6 @@ export async function runSyntheticQa(
 // Drives the user's installed Chrome via chromiumoxide; routes brain calls
 // through ../local-ai (claude/codex). Streams per-step events on `agent:step`.
 
-export type AgentActionType = 'click' | 'type' | 'key' | 'scroll' | 'goto' | 'done' | 'give_up';
-
 export type AgentAction =
   | { type: 'click'; selector: string; reasoning: string }
   | { type: 'type'; selector: string; text: string; reasoning: string }
@@ -3266,43 +2779,9 @@ export interface AgentStep {
   error: string | null;
 }
 
-export interface AgentRunInput {
-  url: string;
-  goal: string;
-  persona?: string | null;
-  provider: 'claude' | 'codex' | 'gemini';
-  model?: string | null;
-  max_steps?: number | null;
-  /** When set, the agent spawns the project's dev command (npm run dev /
-   *  npm start) and waits for `url` to respond before driving the browser. */
-  project_dir?: string | null;
-}
-
-export interface AgentRunResult {
-  run_id: string;
-  goal: string;
-  completed: boolean;
-  gave_up: boolean;
-  step_count: number;
-  final_url: string;
-  final_title: string;
-  duration_ms: number;
-  steps: AgentStep[];
-  error: string | null;
-}
-
-export async function agentRunTask(input: AgentRunInput): Promise<AgentRunResult> {
-  return safeInvoke<AgentRunResult>('agent_run_task', { input });
-}
-
-/** Subscribe to streaming agent steps for the current run. */
-export async function listenToAgentSteps(handler: (step: AgentStep) => void): Promise<UnlistenFn> {
-  return listen<AgentStep>('agent:step', (evt) => handler(evt.payload));
-}
-
 // ─── T-Rex sandbox (/review → Test branch) ──────────────────────────────────
 
-export interface SandboxOptions {
+interface SandboxOptions {
   run_dev_server?: boolean;
   drive_browser?: boolean;
   run_tests?: boolean;
@@ -3321,7 +2800,7 @@ export interface SandboxRunInput {
   options?: SandboxOptions;
 }
 
-export interface TestRunResult {
+interface TestRunResult {
   command: string;
   exit_code: number | null;
   stdout_tail: string;
@@ -3331,7 +2810,7 @@ export interface TestRunResult {
   skipped_reason: string | null;
 }
 
-export interface ExecutionFinding {
+interface ExecutionFinding {
   severity: string;
   title: string;
   summary: string;
@@ -3368,10 +2847,6 @@ export async function runBranchSandbox(input: SandboxRunInput): Promise<SandboxR
   return safeInvoke<SandboxRunResult>('run_branch_sandbox', { input });
 }
 
-export async function detectTestCommand(repoPath: string): Promise<string | null> {
-  return safeInvoke<string | null>('detect_test_command', { repoPath });
-}
-
 /** Subscribe to streaming sandbox progress events. */
 export async function listenToSandboxSteps(
   handler: (step: SandboxStep) => void
@@ -3380,19 +2855,6 @@ export async function listenToSandboxSteps(
 }
 
 // ─── SaaS Maker wireup ──────────────────────────────────────────────────────
-
-export interface SaasMakerTask {
-  id: string;
-  title: string;
-  description?: string | null;
-  status?: string | null;
-  priority?: string | null;
-  project_slug?: string | null;
-  task_type?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  pr_url?: string | null;
-}
 
 export interface SaasMakerStatus {
   configured: boolean;
@@ -3407,35 +2869,12 @@ export interface SaasMakerSetConfig {
   project_slug?: string | null;
 }
 
-export interface PushFindingResult {
-  task: SaasMakerTask | null;
-  skipped: boolean;
-  skipped_reason: string | null;
-  already_synced: boolean;
-}
-
 export async function getSaasMakerStatus(): Promise<SaasMakerStatus> {
   return safeInvoke<SaasMakerStatus>('get_saas_maker_status');
 }
 
 export async function setSaasMakerConfig(config: SaasMakerSetConfig): Promise<SaasMakerStatus> {
   return safeInvoke<SaasMakerStatus>('set_saas_maker_config', { config });
-}
-
-export async function listSaasMakerTasks(projectSlug?: string | null): Promise<SaasMakerTask[]> {
-  return safeInvoke<SaasMakerTask[]>('list_saas_maker_tasks', {
-    projectSlug: projectSlug ?? null,
-  });
-}
-
-export async function pushFindingToSaasMaker(args: {
-  review_id: string;
-  finding_id: string;
-  project_slug?: string | null;
-}): Promise<PushFindingResult> {
-  return safeInvoke<PushFindingResult>('push_finding_to_saas_maker', {
-    input: args,
-  });
 }
 
 export interface SaasMakerProject {
@@ -3445,25 +2884,8 @@ export interface SaasMakerProject {
   source?: string | null;
 }
 
-export interface UpdateTaskPatch {
-  status?: 'todo' | 'in_progress' | 'done' | null;
-  priority?: 'low' | 'medium' | 'high' | null;
-  title?: string | null;
-  description?: string | null;
-}
-
 export async function listSaasMakerProjects(): Promise<SaasMakerProject[]> {
   return safeInvoke<SaasMakerProject[]>('list_saas_maker_projects');
-}
-
-export async function updateSaasMakerTask(
-  taskId: string,
-  patch: UpdateTaskPatch
-): Promise<SaasMakerTask> {
-  return safeInvoke<SaasMakerTask>('update_saas_maker_task', {
-    taskId,
-    patch,
-  });
 }
 
 // ─── v1.1.76: sign-in + identity + repo detect ───────────────────────────────
@@ -3512,31 +2934,11 @@ export async function detectProjectForRepo(repoPath: string): Promise<RepoDetect
   return safeInvoke<RepoDetectResult>('detect_project_for_repo', { repoPath });
 }
 
-export async function setRepoProjectMapping(repoPath: string, projectSlug: string): Promise<void> {
-  return safeInvoke<void>('set_repo_project_mapping', {
-    repoPath,
-    projectSlug,
-  });
-}
-
 // ─── v1.1.78: AI acceleration ───────────────────────────────────────────────
-
-export interface AiAcceleration {
-  first_ai_commit_date: string;
-  before_commits_per_day: number;
-  after_commits_per_day: number;
-  velocity_delta_pct: number;
-  before_day_count: number;
-  after_day_count: number;
-}
-
-export async function getAiAcceleration(repoPath: string): Promise<AiAcceleration | null> {
-  return safeInvoke<AiAcceleration | null>('get_ai_acceleration', { repoPath });
-}
 
 // ─── v1.1.79: DORA metrics ──────────────────────────────────────────────────
 
-export interface ReleaseInfo {
+interface ReleaseInfo {
   tag: string;
   created_at: string;
   commit_sha: string;
@@ -3545,7 +2947,7 @@ export interface ReleaseInfo {
   median_lead_hours: number | null;
 }
 
-export interface WeeklyDeploy {
+interface WeeklyDeploy {
   week_start: string;
   deploys: number;
 }
@@ -3560,13 +2962,6 @@ export interface DoraMetrics {
   change_failure_rate_pct: number;
   recent_releases: ReleaseInfo[];
   weekly_deploy_counts: WeeklyDeploy[];
-}
-
-export async function getDoraMetrics(repoPath: string, windowDays?: number): Promise<DoraMetrics> {
-  return safeInvoke<DoraMetrics>('get_dora_metrics', {
-    repoPath,
-    windowDays: windowDays ?? null,
-  });
 }
 
 // ─── v1.1.81: billing + agent obs + webhook notifications ───────────────────

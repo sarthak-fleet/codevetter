@@ -35,7 +35,7 @@ export function qaRequestFromHistory(
   };
 }
 
-export function stablePreferenceSuffix(value: string): string {
+function stablePreferenceSuffix(value: string): string {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i += 1) {
     hash ^= value.charCodeAt(i);
@@ -55,7 +55,7 @@ export function repoLabelFromPath(repoPath: string): string {
   return trimmed.split('/').pop() || 'repo';
 }
 
-export function firstNonEmpty(values: Array<string | null | undefined>): string | undefined {
+function firstNonEmpty(values: Array<string | null | undefined>): string | undefined {
   return values.find((value) => value != null && value.trim().length > 0)?.trim();
 }
 
@@ -93,7 +93,7 @@ export function storedSyntheticQaRunToHistory(run: StoredSyntheticQaRun): QaRunH
   };
 }
 
-export function browserEvidenceArtifact(evidence: BrowserEvidenceRef): string | undefined {
+function browserEvidenceArtifact(evidence: BrowserEvidenceRef): string | undefined {
   return firstNonEmpty([
     evidence.screenshotPath,
     evidence.qaArtifacts.split('\n')[0],
@@ -101,7 +101,7 @@ export function browserEvidenceArtifact(evidence: BrowserEvidenceRef): string | 
   ]);
 }
 
-export function findingEvidenceArtifact(evidence: FindingEvidence): string | undefined {
+function findingEvidenceArtifact(evidence: FindingEvidence): string | undefined {
   return firstNonEmpty([evidence.artifact, evidence.notes.split('\n')[0]]);
 }
 

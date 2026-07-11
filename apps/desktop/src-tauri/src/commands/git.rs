@@ -54,35 +54,6 @@ pub async fn list_git_branches(repo_path: String) -> Result<Value, String> {
     }))
 }
 
-/// Get the GitHub remote info (owner/repo) from a local repo directory.
-/// Parses the `origin` remote URL to extract owner and repo name.
-#[tauri::command]
-pub async fn get_git_remote_info(repo_path: String) -> Result<Value, String> {
-    let output = StdCommand::new("git")
-        .args(["remote", "get-url", "origin"])
-        .current_dir(&repo_path)
-        .output()
-        .map_err(|e| format!("Failed to run git remote: {e}"))?;
-
-    if !output.status.success() {
-        return Err("No origin remote found".to_string());
-    }
-
-    let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-    // Parse owner/repo from common Git URL formats:
-    // https://github.com/owner/repo.git
-    // git@github.com:owner/repo.git
-    // ssh://git@github.com/owner/repo.git
-    let (owner, repo) = parse_github_remote(&url).ok_or("Could not parse GitHub remote URL")?;
-
-    Ok(json!({
-        "url": url,
-        "owner": owner,
-        "repo": repo,
-    }))
-}
-
 /// List open pull requests for the repo at the given path.
 /// Uses `gh` CLI which respects the user's existing GitHub authentication.
 #[tauri::command]
@@ -292,40 +263,6 @@ fn validate_github_token(token: &str) -> Option<(String, String)> {
         .to_string();
 
     Some((username, "repo,read:org".to_string()))
-}
-
-fn parse_github_remote(url: &str) -> Option<(String, String)> {
-    // HTTPS: https://github.com/owner/repo.git
-    if let Some(rest) = url
-        .strip_prefix("https://github.com/")
-        .or_else(|| url.strip_prefix("http://github.com/"))
-    {
-        let rest = rest.trim_end_matches(".git").trim_end_matches('/');
-        let parts: Vec<&str> = rest.splitn(2, '/').collect();
-        if parts.len() == 2 {
-            return Some((parts[0].to_string(), parts[1].to_string()));
-        }
-    }
-
-    // SSH: git@github.com:owner/repo.git
-    if let Some(rest) = url.strip_prefix("git@github.com:") {
-        let rest = rest.trim_end_matches(".git").trim_end_matches('/');
-        let parts: Vec<&str> = rest.splitn(2, '/').collect();
-        if parts.len() == 2 {
-            return Some((parts[0].to_string(), parts[1].to_string()));
-        }
-    }
-
-    // SSH URL: ssh://git@github.com/owner/repo.git
-    if let Some(rest) = url.strip_prefix("ssh://git@github.com/") {
-        let rest = rest.trim_end_matches(".git").trim_end_matches('/');
-        let parts: Vec<&str> = rest.splitn(2, '/').collect();
-        if parts.len() == 2 {
-            return Some((parts[0].to_string(), parts[1].to_string()));
-        }
-    }
-
-    None
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

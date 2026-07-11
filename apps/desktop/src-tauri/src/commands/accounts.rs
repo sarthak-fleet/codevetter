@@ -19,68 +19,6 @@ pub async fn list_provider_accounts(db: State<'_, DbState>) -> Result<Value, Str
 }
 
 #[tauri::command]
-pub async fn create_provider_account(
-    db: State<'_, DbState>,
-    name: String,
-    provider: String,
-    api_key: Option<String>,
-    monthly_limit: Option<f64>,
-    plan: Option<String>,
-    weekly_limit: Option<f64>,
-) -> Result<Value, String> {
-    let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-
-    let account = ProviderAccountRow {
-        id: id.clone(),
-        name,
-        provider,
-        api_key,
-        monthly_limit,
-        plan,
-        weekly_limit,
-        created_at: now.clone(),
-        updated_at: now,
-    };
-
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    queries::create_provider_account(&conn, &account).map_err(|e| e.to_string())?;
-
-    Ok(json!({ "id": id, "account": account }))
-}
-
-#[tauri::command]
-pub async fn update_provider_account(
-    db: State<'_, DbState>,
-    id: String,
-    name: String,
-    provider: String,
-    api_key: Option<String>,
-    monthly_limit: Option<f64>,
-    plan: Option<String>,
-    weekly_limit: Option<f64>,
-) -> Result<Value, String> {
-    let now = chrono::Utc::now().to_rfc3339();
-
-    let account = ProviderAccountRow {
-        id: id.clone(),
-        name,
-        provider,
-        api_key,
-        monthly_limit,
-        plan,
-        weekly_limit,
-        created_at: String::new(),
-        updated_at: now,
-    };
-
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    queries::update_provider_account(&conn, &account).map_err(|e| e.to_string())?;
-
-    Ok(json!({ "id": id }))
-}
-
-#[tauri::command]
 pub async fn delete_provider_account(db: State<'_, DbState>, id: String) -> Result<Value, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     queries::delete_provider_account(&conn, &id).map_err(|e| e.to_string())?;

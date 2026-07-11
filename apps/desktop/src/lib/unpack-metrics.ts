@@ -16,7 +16,7 @@ export interface UnpackMetricScores {
   usefulness: number;
 }
 
-export function speedScore(totalMs: number): number {
+function speedScore(totalMs: number): number {
   if (totalMs <= 250) return 10;
   if (totalMs <= 1500) return 9;
   if (totalMs <= 2500) return 8;
@@ -24,7 +24,7 @@ export function speedScore(totalMs: number): number {
   return 4;
 }
 
-export function correctnessScore({
+function correctnessScore({
   capped,
   coveragePct,
   hasWholeRepoMetadata,
@@ -44,7 +44,7 @@ export function correctnessScore({
   return 9;
 }
 
-export function usefulnessScore({
+function usefulnessScore({
   coveragePct,
   capped,
   hasWholeRepoMetadata,

@@ -1,5 +1,5 @@
 /** Result shape returned by run-synthetic-qa.mjs and the Tauri command. */
-export interface SyntheticQaTrace {
+interface SyntheticQaTrace {
   final_url: string;
   page_title: string;
   console_errors: string[];
@@ -48,7 +48,7 @@ export interface SyntheticQaLoopDef {
 }
 
 /** A single deterministic user step in a fixture replay. */
-export interface SyntheticQaStep {
+interface SyntheticQaStep {
   action: 'visit' | 'click' | 'fill' | 'wait';
   description: string;
   target?: string;
