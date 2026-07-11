@@ -11,7 +11,7 @@ AI desktop code review tool for agent-generated code — runs offline as a Tauri
 - Framework: Tauri 2 (Rust backend) + React 19 + Vite (desktop frontend)
 - Language: TypeScript (frontend), Rust (backend)
 - Styling: Tailwind CSS v3 + shadcn/ui (Radix + CVA), warm amber accent (#d4a039)
-- DB: SQLite via `@tauri-apps/plugin-sql` (local only, no server)
+- DB: SQLite via `rusqlite` in the Rust backend (local only, no server)
 - Auth: None (local desktop app; LLM API keys stored in user settings)
 - Testing: Playwright (e2e)
 - Deploy: GitHub Releases (Tauri build + `@tauri-apps/plugin-updater` auto-updater)

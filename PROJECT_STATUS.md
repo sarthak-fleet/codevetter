@@ -21,7 +21,7 @@ External:
 
 Internal (fleet):
 - SaaS Maker — system of record for durable tasks/feedback; the desktop Fleet tab (`/fleet`) links local repos to SaaS Maker fleet projects; `fnd` CLI for API workflows.
-- Local SQLite via `@tauri-apps/plugin-sql` — desktop only, no server.
+- Local SQLite via `rusqlite` in the Tauri backend — desktop only, no server.
 
 ## Timeline
 
