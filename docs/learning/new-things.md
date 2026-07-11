@@ -104,3 +104,15 @@ Desktop Tauri 2 / Rust app that reviews agent-generated code diffs using pluggab
 - Why here: the landing FAQ exists for AI search answers as much as humans — and its claims must match reality (an FAQ said keys live in the OS keychain; they live in local app settings).
 - Gotcha (from code): copy on marketing surfaces IS a review target — the review engine caught the keychain contradiction as a finding. (`apps/landing-page-astro/src/components/FAQ.astro`)
 - Source: https://isitagentready.com
+
+## PTY-backed agent terminals (portable-pty + xterm.js)
+- What: a pseudo-terminal gives a child process a real TTY (colors, resize, interactive prompts); xterm.js renders the byte stream in the webview.
+- Why here: the Agents panel runs real Codex work streams in-app — Warp-style panes with lifecycle state — instead of mocked cards.
+- Gotcha (from code): agent status is driven by Codex-Warp structured events when present, with conservative terminal-output detection only as fallback; resize must be forwarded to the PTY or full-screen TUIs corrupt. (`commands/agent_terminal.rs`; spec `openspec/specs/agent-panel/`)
+- Source: https://xtermjs.org/
+
+## GitHub PR polling watchers (T-Rex)
+- What: per-repo background tasks that poll GitHub PRs and run the review pipeline on new heads, with per-watcher error recovery and retry.
+- Why here: review-on-arrival for agent-authored PRs without any CI integration or webhook infrastructure — polling is the only option for a local desktop app.
+- Gotcha (from code): watchers resume from DB rows on app start (`resume_enabled_watchers`); pre-flight validates `gh` auth + token before enabling; base branch is inferred per-PR rather than assumed `main`. (`commands/trex_watcher.rs`)
+- Source: https://docs.github.com/en/rest/pulls
