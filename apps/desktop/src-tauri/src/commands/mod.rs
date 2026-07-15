@@ -16,6 +16,7 @@ pub mod history;
 pub mod history_evidence;
 pub mod history_graph;
 pub mod history_query;
+pub mod history_read;
 pub mod history_summary_graph;
 pub mod intel;
 pub mod observability;
