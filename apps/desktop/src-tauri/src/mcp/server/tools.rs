@@ -347,7 +347,7 @@ fn decode_offset_cursor(
         .map(Option::unwrap_or_default)
 }
 
-fn lineage_page_bounds(
+pub(super) fn lineage_page_bounds(
     lineage_len: usize,
     occurrence_len: usize,
     offset: usize,

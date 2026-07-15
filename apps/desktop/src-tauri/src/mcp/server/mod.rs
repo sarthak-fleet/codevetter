@@ -492,3 +492,6 @@ impl ServerHandler for CodeVetterMcpServer {
         self.read_scoped_resource(request.uri).await
     }
 }
+
+#[cfg(test)]
+mod tests;
