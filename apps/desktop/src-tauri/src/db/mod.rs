@@ -1,5 +1,6 @@
 pub mod queries;
 pub mod schema;
+pub(crate) mod structural_graph_schema;
 
 use rusqlite::Connection;
 use std::path::PathBuf;

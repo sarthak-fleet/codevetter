@@ -5,4 +5,5 @@ pub mod language;
 pub mod legacy;
 pub(crate) mod metrics;
 pub mod resolve;
+pub mod storage;
 pub mod types;

@@ -4,6 +4,7 @@ use rusqlite::Connection;
 /// (`IF NOT EXISTS`) so this function is safe to call on every startup.
 pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(MIGRATION_SQL)?;
+    super::structural_graph_schema::run_migration(conn)?;
 
     // Incremental migrations — safe to re-run (ignore "duplicate column" errors).
     let _ = conn.execute("ALTER TABLE agent_tasks ADD COLUMN project_path TEXT", []);
