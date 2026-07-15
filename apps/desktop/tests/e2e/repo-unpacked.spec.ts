@@ -512,6 +512,25 @@ async function installRepoUnpackedMock(page: import('@playwright/test').Page) {
           };
         }
         if (cmd === 'get_unpack_outcome_evidence') return outcomeEvidence;
+        if (cmd === 'get_structural_graph_status') {
+          return {
+            repo_path: inventory.repo_path,
+            indexed: false,
+            building: false,
+            stale: false,
+            current_head: inventory.commit_sha,
+            indexed_head: null,
+            snapshot_id: null,
+            schema_version: null,
+            engine_id: null,
+            engine_version: null,
+            created_at: null,
+            indexed_files: 0,
+            node_count: 0,
+            edge_count: 0,
+          };
+        }
+        if (cmd.startsWith('plugin:event|')) return 1;
         throw new Error(`unhandled mocked command: ${cmd}`);
       },
       transformCallback: () => 1,
@@ -550,11 +569,11 @@ test.describe('Repo Unpacked page', () => {
 
     await page
       .getByRole('navigation', { name: 'Unpack sections' })
-      .getByRole('button', { name: 'Memory' })
+      .getByRole('button', { name: 'Handoff' })
       .click();
-    await expect(page.getByRole('heading', { name: 'Repo memory' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Handoff' })).toBeVisible();
     await expect(page.getByText('Start here', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Export memory' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export' })).toBeVisible();
 
     await page
       .getByRole('navigation', { name: 'Unpack sections' })
@@ -593,5 +612,26 @@ test.describe('Repo Unpacked page', () => {
     await expect(page.getByRole('dialog')).toContainText('Resolve failed proof gate');
     await page.getByRole('button', { name: /Copy packet/i }).click();
     await expect(page.getByRole('button', { name: 'Copied' })).toBeVisible();
+  });
+
+  test('graph section exposes the local structural workbench', async ({ page }) => {
+    await installRepoUnpackedMock(page);
+    await navigateTo(page, '/unpack');
+    await waitForNoSpinners(page);
+
+    await page
+      .locator('aside')
+      .getByRole('button', { name: /^world-class-repo/i })
+      .click();
+    await page
+      .getByRole('navigation', { name: 'Unpack sections' })
+      .getByRole('button', { name: 'Graph' })
+      .click();
+
+    await expect(
+      page.getByRole('heading', { name: 'Structural intelligence graph' })
+    ).toBeVisible();
+    await expect(page.getByText('Build the canonical local index')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Build index' })).toBeVisible();
   });
 });
