@@ -92,7 +92,11 @@ pub fn sanitize_error_message(message: &str, repo_path: &str) -> String {
     {
         return "Requested content is unavailable under CodeVetter redaction policy".to_string();
     }
-    message.replace(repo_path, "[repository]")
+    if repo_path.is_empty() {
+        message.to_string()
+    } else {
+        message.replace(repo_path, "[repository]")
+    }
 }
 
 #[cfg(test)]

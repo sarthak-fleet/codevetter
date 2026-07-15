@@ -3,6 +3,7 @@ name = "codevetter-desktop"
 version = "0.1.0"
 edition = "2021"
 description = "CodeVetter Desktop — code review + agent management"
+default-run = "codevetter-desktop"
 
 [dependencies]
 tauri = { version = "2", features = ["devtools", "tray-icon", "image-png"] }
