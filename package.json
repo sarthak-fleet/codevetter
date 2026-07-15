@@ -12,6 +12,7 @@
     "bench:new-case": "node scripts/create-benchmark-case.mjs",
     "test:benchmark": "node --test scripts/run-catch-rate-benchmark.test.mjs",
     "test:coverage": "pnpm --filter @code-reviewer/desktop test:coverage",
+    "verify": "pnpm --filter @code-reviewer/desktop verify",
     "prepare": "husky || true",
     "lint": "biome check .",
     "format": "biome format --write .",
