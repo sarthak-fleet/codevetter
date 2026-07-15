@@ -1,11 +1,14 @@
+use super::contracts::extract_contracts;
 use super::language::SupportedLanguage;
+use super::metrics::extract_scope_metrics;
 use super::types::{
     stable_graph_id, GraphOrigin, GraphSourceAnchor, GraphTrust, LanguageCoverage,
     StructuralGraphCoverage, StructuralGraphDiagnostic, StructuralGraphEdge,
     StructuralGraphFileRecord, StructuralGraphMetricFact, StructuralGraphNode,
 };
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
+use tree_sitter::{Node, Parser};
 
 #[derive(Debug)]
 struct FileContribution {
@@ -46,5 +49,11 @@ impl FileDisposition {
 }
 
 mod assembly;
+mod metadata;
+mod syntax;
+
+use assembly::parse_error_contribution;
+use metadata::{attach_metadata_to_syntax_owners, extract_metadata_signals};
+use syntax::make_edge;
 
 pub(crate) use assembly::is_sensitive_path;
