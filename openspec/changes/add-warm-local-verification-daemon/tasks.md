@@ -31,7 +31,7 @@
 - [x] 4.2 Implement the deterministic `scenario({ page, observe })` runtime with step/action records and scenario-specific assertions.
 - [x] 4.3 Implement bounded one-to-four-context scheduling, per-action/scenario/batch timeouts, cancellation propagation, deterministic result ordering, and guaranteed context teardown.
 - [x] 4.4 Watch relevant target/config/scenario sources and invalidate any result whose source, config, manifest, or change-set identity drifts during execution.
-- [ ] 4.5 Instrument all model/provider/browser-agent boundaries and add a qualification test proving normal benchmark execution performs zero model calls.
+- [x] 4.5 Instrument all model/provider/browser-agent boundaries and add a qualification test proving normal benchmark execution performs zero model calls.
 - [x] 4.6 Add deterministic runtime tests for pass, assertion regression, timeout, cancellation, stale source, invalid manifest, and teardown failure outcomes.
 - [x] 4.7 Run the second cleanup gate: remove duplicated state/scheduling/observer helpers, simplify public contracts, report file/LOC growth, and rerun focused browser tests plus full typechecking.
 
@@ -41,7 +41,7 @@
 - [x] 5.2 Implement failed-request, HTTP failure, unexpected first-party call, normalized mutation ledger, expected mutation count, and duplicate-mutation policies.
 - [x] 5.3 Implement starting/intermediate/final route records, unexpected-transition policies, interaction timing, and slow-interaction budgets.
 - [x] 5.4 Decide and document the accessibility scope; if full rules-engine auditing is accepted, add pinned dev-only `@axe-core/playwright`, otherwise ship and label the bounded smoke contract.
-- [ ] 5.5 Implement deterministic screenshot checkpoint hashing, exact versioned baseline compatibility, bounded failure artifacts, and no-confidence handling for missing/stale baselines.
+- [x] 5.5 Implement deterministic screenshot checkpoint hashing, exact versioned baseline compatibility, bounded failure artifacts, and no-confidence handling for missing/stale baselines.
 - [ ] 5.6 Add observer negative fixtures for uncaught exceptions, hidden network errors, 5xx responses, unexpected calls, double submit, auth redirect, slow interaction, accessibility failure, and visual change.
 
 ## 6. Changed-Capability Selection

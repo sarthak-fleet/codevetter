@@ -3,6 +3,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { BrowserContext, Page } from '@playwright/test';
 import type { VerifyConfig } from './config';
+import type { ExternalIntelligenceGuard } from './intelligence-boundary';
 import type { AutomaticObserver } from './observer';
 import type { DeterministicScenario, ScenarioFlagValue } from './scenario';
 
@@ -133,7 +134,8 @@ export async function installDeterministicContextState(
   context: BrowserContext,
   request: VerificationStateRequest,
   config: VerifyConfig,
-  observer: AutomaticObserver
+  observer: AutomaticObserver,
+  intelligenceGuard?: ExternalIntelligenceGuard
 ): Promise<void> {
   await context.addInitScript({ content: deterministicPreludeSource(request) });
 
@@ -148,6 +150,13 @@ export async function installDeterministicContextState(
     }
     if (['about:', 'blob:', 'data:'].includes(url.protocol)) {
       await route.continue();
+      return;
+    }
+    try {
+      intelligenceGuard?.inspectRequest(rawUrl, 'browser_request', request.scenarioId);
+    } catch {
+      observer.noteBlockedThirdParty(rawUrl);
+      await route.abort('blockedbyclient');
       return;
     }
     if (

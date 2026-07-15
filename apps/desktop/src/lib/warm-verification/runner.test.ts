@@ -6,6 +6,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { chromium, type Browser } from '@playwright/test';
 import type { VerifyConfig } from './config';
+import { ExternalIntelligenceBoundaryError } from './intelligence-boundary';
 import { publishScenarioManifest, type DeterministicScenario } from './scenario';
 import { ScenarioRunner } from './runner';
 
@@ -261,6 +262,45 @@ describe('ScenarioRunner', () => {
 
     assert.equal(result.outcome, 'regression');
     assert.equal(result.scenarios[0]?.limitations[0]?.affects_confidence, false);
+    assert.equal(browser.contexts().length, 0);
+  });
+
+  it('fails the batch closed before a scenario can call a model provider', async () => {
+    let providerReached = false;
+    const modelDriven = scenario('scenario-model-driven', async () => {
+      await fetch('https://api.openai.com/v1/chat/completions');
+      providerReached = true;
+    });
+    const runner = await ScenarioRunner.create(browser, repoRoot, config());
+
+    await assert.rejects(
+      runner.run(manifest([modelDriven]), {
+        runId: 'model-boundary-run',
+        scenarioIds: [modelDriven.id],
+      }),
+      ExternalIntelligenceBoundaryError
+    );
+
+    assert.equal(providerReached, false);
+    assert.equal(browser.contexts().length, 0);
+  });
+
+  it('fails the batch closed when application code attempts a browser-agent request', async () => {
+    const agentDriven = scenario('scenario-browser-agent', async ({ page }) => {
+      await page.evaluate(async () => {
+        await fetch('https://api.browserbase.com/browser-agent/run').catch(() => undefined);
+      });
+    });
+    const runner = await ScenarioRunner.create(browser, repoRoot, config());
+
+    await assert.rejects(
+      runner.run(manifest([agentDriven]), {
+        runId: 'browser-agent-boundary-run',
+        scenarioIds: [agentDriven.id],
+      }),
+      ExternalIntelligenceBoundaryError
+    );
+
     assert.equal(browser.contexts().length, 0);
   });
 

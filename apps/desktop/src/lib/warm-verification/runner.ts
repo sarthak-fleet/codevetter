@@ -1,12 +1,17 @@
 import type { Browser, BrowserContext } from '@playwright/test';
 import type {
   ScenarioOutcomeSummary,
+  VerifyArtifact,
   VerifyLimitation,
   VerifyObservation,
   VerifyOutcome,
   VerifyTiming,
 } from './contracts';
 import type { VerifyConfig } from './config';
+import {
+  ExternalIntelligenceGuard,
+  type IntelligenceBoundarySnapshot,
+} from './intelligence-boundary';
 import { AutomaticObserver, type AutomaticObserverResult } from './observer';
 import { elapsed, raceAbort, safeErrorMessage, throwIfAborted } from './runtime-utils';
 import type { PublishedScenario, ScenarioManifest } from './scenario';
@@ -17,9 +22,11 @@ import {
   stateRequestForScenario,
   waitForStateBridge,
 } from './state';
+import { VisualArtifactBudget, VisualCheckpointVerifier } from './visual';
 
 export interface ScenarioExecutionResult extends ScenarioOutcomeSummary {
   observations: VerifyObservation[];
+  artifacts: VerifyArtifact[];
   limitations: VerifyLimitation[];
   timings: VerifyTiming[];
   routes: string[];
@@ -29,8 +36,10 @@ export interface ScenarioBatchResult {
   outcome: VerifyOutcome;
   scenarios: ScenarioExecutionResult[];
   observations: VerifyObservation[];
+  artifacts: VerifyArtifact[];
   limitations: VerifyLimitation[];
   timings: VerifyTiming[];
+  intelligenceCalls: IntelligenceBoundarySnapshot;
 }
 
 export interface ScenarioBatchRequest {
@@ -42,27 +51,37 @@ export interface ScenarioBatchRequest {
 export interface ScenarioRunnerDependencies {
   now?: () => Date;
   monotonicNow?: () => number;
+  intelligenceGuardFactory?: (scenarioIds: readonly string[]) => ExternalIntelligenceGuard;
 }
 
 export class ScenarioRunner {
   readonly #browser: Pick<Browser, 'newContext'>;
+  readonly #repoRoot: string;
   readonly #config: VerifyConfig;
   readonly #authStateCache: AuthStateCache;
   readonly #now: () => Date;
   readonly #monotonicNow: () => number;
+  readonly #intelligenceGuardFactory: NonNullable<
+    ScenarioRunnerDependencies['intelligenceGuardFactory']
+  >;
   #activeContextCount = 0;
 
   private constructor(
     browser: Pick<Browser, 'newContext'>,
+    repoRoot: string,
     config: VerifyConfig,
     authStateCache: AuthStateCache,
     dependencies: ScenarioRunnerDependencies
   ) {
     this.#browser = browser;
+    this.#repoRoot = repoRoot;
     this.#config = config;
     this.#authStateCache = authStateCache;
     this.#now = dependencies.now ?? (() => new Date());
     this.#monotonicNow = dependencies.monotonicNow ?? (() => performance.now());
+    this.#intelligenceGuardFactory =
+      dependencies.intelligenceGuardFactory ??
+      ((scenarioIds) => new ExternalIntelligenceGuard(scenarioIds));
   }
 
   static async create(
@@ -71,7 +90,13 @@ export class ScenarioRunner {
     config: VerifyConfig,
     dependencies: ScenarioRunnerDependencies = {}
   ): Promise<ScenarioRunner> {
-    return new ScenarioRunner(browser, config, await AuthStateCache.create(repoRoot), dependencies);
+    return new ScenarioRunner(
+      browser,
+      repoRoot,
+      config,
+      await AuthStateCache.create(repoRoot),
+      dependencies
+    );
   }
 
   get activeContextCount(): number {
@@ -89,17 +114,33 @@ export class ScenarioRunner {
       if (!scenario) throw new Error(`Selected scenario is unavailable: ${id}`);
       return scenario;
     });
+    const intelligenceGuard = this.#intelligenceGuardFactory(
+      selected.map((scenario) => scenario.id)
+    );
     const batchTimeout = AbortSignal.timeout(
       Math.min(manifest.batchTimeoutMs, this.#config.budgets.batchMs)
     );
     const batchSignal = request.signal
       ? AbortSignal.any([request.signal, batchTimeout])
       : batchTimeout;
-    const results = await runBounded(
-      selected,
-      Math.min(manifest.parallelism, this.#config.budgets.parallelism),
-      (scenario) => this.#runScenario(request.runId, scenario, batchSignal)
+    const artifactBudget = new VisualArtifactBudget(this.#config.retention.maxBytes);
+    const results = await intelligenceGuard.runBatch(() =>
+      runBounded(
+        selected,
+        Math.min(manifest.parallelism, this.#config.budgets.parallelism),
+        (scenario) =>
+          intelligenceGuard.runScenario(scenario.id, () =>
+            this.#runScenario(
+              request.runId,
+              scenario,
+              batchSignal,
+              intelligenceGuard,
+              artifactBudget
+            )
+          )
+      )
     );
+    const intelligenceCalls = intelligenceGuard.assertZero();
 
     const scenarios = results.sort((left, right) =>
       left.scenario_id.localeCompare(right.scenario_id)
@@ -113,15 +154,19 @@ export class ScenarioRunner {
       outcome,
       scenarios,
       observations: scenarios.flatMap((scenario) => scenario.observations),
+      artifacts: scenarios.flatMap((scenario) => scenario.artifacts),
       limitations: scenarios.flatMap((scenario) => scenario.limitations),
       timings: [...scenarios.flatMap((scenario) => scenario.timings), totalTiming],
+      intelligenceCalls,
     };
   }
 
   async #runScenario(
     runId: string,
     scenario: PublishedScenario,
-    batchSignal: AbortSignal
+    batchSignal: AbortSignal,
+    intelligenceGuard: ExternalIntelligenceGuard,
+    artifactBudget: VisualArtifactBudget
   ): Promise<ScenarioExecutionResult> {
     const started = this.#monotonicNow();
     const timings: VerifyTiming[] = [];
@@ -170,11 +215,27 @@ export class ScenarioRunner {
         firstPartyOrigins: this.#config.network.firstPartyOrigins,
         allowedFirstPartyRequests: this.#config.network.allowedFirstPartyRequests,
         slowInteractionMs: this.#config.budgets.slowInteractionMs,
+        visualCheckpointVerifier: new VisualCheckpointVerifier({
+          repoRoot: this.#repoRoot,
+          retentionDirectory: this.#config.retention.directory,
+          retentionMaxAgeDays: this.#config.retention.maxAgeDays,
+          runId,
+          scenarioId: scenario.id,
+          scenarioSourceHash: scenario.sourceHash,
+          artifactBudget,
+          now: this.#now,
+        }),
         now: this.#now,
       });
       const stateRequest = stateRequestForScenario(runId, scenario);
       stageStarted = this.#monotonicNow();
-      await installDeterministicContextState(context, stateRequest, this.#config, observer);
+      await installDeterministicContextState(
+        context,
+        stateRequest,
+        this.#config,
+        observer,
+        intelligenceGuard
+      );
       const page = await context.newPage();
       page.setDefaultTimeout(Math.min(scenario.timeouts.actionMs, this.#config.budgets.actionMs));
       observer.attach(page);
@@ -262,6 +323,7 @@ export class ScenarioRunner {
       outcome,
       duration_ms: elapsed(this.#monotonicNow, started),
       observations: observerResult?.observations ?? [],
+      artifacts: observerResult?.artifacts ?? [],
       limitations,
       timings,
       routes: observerResult?.routes ?? [],

@@ -1,16 +1,18 @@
 import { createHash } from 'node:crypto';
 import AxeBuilder from '@axe-core/playwright';
 import type { ConsoleMessage, Page, Request, Response } from '@playwright/test';
-import type { VerifyObservation, VerifyObservationDisposition } from './contracts';
+import type { VerifyArtifact, VerifyObservation, VerifyObservationDisposition } from './contracts';
 import { isSensitiveEvidenceKey, redactEvidenceText } from './redaction';
 import type { ScenarioObserve } from './scenario';
 import { matchesPathGlob } from './selection';
+import type { VisualCheckpointVerifier } from './visual';
 
 export interface AutomaticObserverOptions {
   scenarioId: string;
   firstPartyOrigins: readonly string[];
   allowedFirstPartyRequests: readonly string[];
   slowInteractionMs: number;
+  visualCheckpointVerifier?: Pick<VisualCheckpointVerifier, 'verify'>;
   now?: () => Date;
 }
 
@@ -23,6 +25,7 @@ export interface MutationLedgerEntry {
 
 export interface AutomaticObserverResult {
   observations: VerifyObservation[];
+  artifacts: VerifyArtifact[];
   routes: string[];
   hasRegression: boolean;
   hasNoConfidence: boolean;
@@ -40,6 +43,7 @@ const MAX_ACCESSIBILITY_VIOLATIONS = 100;
 export class AutomaticObserver implements ScenarioObserve {
   readonly #options: AutomaticObserverOptions;
   readonly #observations: VerifyObservation[] = [];
+  readonly #artifacts: VerifyArtifact[] = [];
   readonly #mutations = new Map<string, MutationLedgerEntry>();
   readonly #routes: string[] = [];
   readonly #mutationExpectations: MutationExpectation[] = [];
@@ -177,14 +181,28 @@ export class AutomaticObserver implements ScenarioObserve {
   }
 
   async checkpoint(name: string): Promise<void> {
+    const verifier = this.#options.visualCheckpointVerifier;
+    if (!verifier) {
+      this.#record(
+        'screenshot',
+        'no_confidence',
+        'visual.verifier-unavailable',
+        `Screenshot checkpoint ${name} could not be verified`,
+        { checkpoint: name },
+        name
+      );
+      await this.auditAccessibility(name);
+      return;
+    }
+    const result = await verifier.verify(name, this.#requirePage());
+    if (result.artifact) this.#artifacts.push(result.artifact);
     this.#record(
       'screenshot',
-      'informational',
-      'visual.checkpoint-declared',
-      `Checkpoint ${name}`,
-      {
-        checkpoint: name,
-      }
+      result.disposition,
+      result.policyId,
+      result.message,
+      result.evidence,
+      name
     );
     await this.auditAccessibility(name);
   }
@@ -269,6 +287,7 @@ export class AutomaticObserver implements ScenarioObserve {
     this.detach();
     return {
       observations: [...this.#observations],
+      artifacts: [...this.#artifacts],
       routes: [...this.#routes],
       hasRegression: this.#observations.some((entry) => entry.disposition === 'regression'),
       hasNoConfidence: this.#observations.some((entry) => entry.disposition === 'no_confidence'),
@@ -378,7 +397,8 @@ export class AutomaticObserver implements ScenarioObserve {
     disposition: VerifyObservationDisposition,
     policyId: string,
     message: string,
-    evidence?: Record<string, string | number | boolean | null>
+    evidence?: Record<string, string | number | boolean | null>,
+    checkpoint?: string
   ): void {
     this.#observations.push({
       id: `observation-${this.#nextObservation++}`,
@@ -387,6 +407,7 @@ export class AutomaticObserver implements ScenarioObserve {
       disposition,
       policy_id: policyId,
       message: redactEvidenceText(message),
+      ...(checkpoint ? { checkpoint } : {}),
       occurred_at: (this.#options.now?.() ?? new Date()).toISOString(),
       ...(evidence
         ? {
