@@ -58,7 +58,7 @@
 
 - [x] 7.1 Add `verify daemon start|status|stop` and `verify changed [--json]` with stable passed, regression, and no-confidence exit codes and bounded stdout/stderr.
 - [x] 7.2 Persist additive versioned warm-run summaries, selection, timings, observations, limitations, and artifact metadata without rewriting existing `synthetic_qa_runs` rows.
-- [ ] 7.3 Adapt warm results into `SyntheticQaRunResult`, Review evidence/findings, timeline proof, and same-flow comparisons while preserving richer provenance.
+- [x] 7.3 Adapt warm results into `SyntheticQaRunResult`, Review evidence/findings, timeline proof, and same-flow comparisons while preserving richer provenance.
 - [ ] 7.4 Update staged verification so only exact, current, complete warm runs satisfy executable evidence; stale, skipped, cancelled, or operational runs remain unverified.
 - [ ] 7.5 Add T-Rex daemon/server/browser health, selection explanation, run/cancel, timing, failure, artifact, retention, cleanup, and no-confidence states; keep Review and staged verification as read-only evidence consumers rather than duplicate control surfaces.
 - [ ] 7.6 Add migration/rollback, legacy-row, CLI contract, persistence, Review proof, staged outcome, and mocked-browser UI tests.

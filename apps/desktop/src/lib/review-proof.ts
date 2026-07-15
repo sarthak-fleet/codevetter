@@ -158,6 +158,8 @@ export interface QaComparisonRun {
   notes: string;
   artifacts?: string[];
   consoleErrors: number;
+  /** Exact execution-flow identity for richer runners such as warm verifyd. */
+  flowKey?: string;
 }
 
 type QaPostFixComparisonStatus =
@@ -821,6 +823,7 @@ function qaRunTimestamp(run: QaComparisonRun): number {
 }
 
 function qaFlowKey(run: QaComparisonRun): string {
+  if (run.flowKey?.trim()) return run.flowKey.trim();
   return [
     run.runnerType.trim(),
     run.baseUrl.trim(),

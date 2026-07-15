@@ -15,7 +15,12 @@ export interface FindingEvidence {
 
 /** Map a synthetic QA run into the existing verification-evidence fields. */
 export function syntheticQaToFindingEvidence(run: SyntheticQaRunResult): FindingEvidence {
-  const status: VerificationStatus = run.pass ? 'not_reproduced' : 'reproduced';
+  const status: VerificationStatus =
+    run.verification_outcome === 'no_confidence'
+      ? 'not_checked'
+      : run.pass
+        ? 'not_reproduced'
+        : 'reproduced';
   const artifacts = [
     ...(run.artifacts ?? []),
     ...(run.screenshot_path ? [run.screenshot_path] : []),
@@ -26,7 +31,7 @@ export function syntheticQaToFindingEvidence(run: SyntheticQaRunResult): Finding
     `Synthetic QA · ${run.loop_id}`,
     `Goal: ${run.goal}`,
     `Route: ${run.route}`,
-    `Result: ${run.pass ? 'PASS' : 'FAIL'} (${run.duration_ms}ms)`,
+    `Result: ${run.verification_outcome === 'no_confidence' ? 'NO CONFIDENCE' : run.pass ? 'PASS' : 'FAIL'} (${run.duration_ms}ms)`,
     '',
     run.notes,
   ];
@@ -51,12 +56,14 @@ export function syntheticQaToFindingEvidence(run: SyntheticQaRunResult): Finding
 
 /** Optional finding when the loop fails and nothing was selected to attach to. */
 export function syntheticQaFailureFinding(run: SyntheticQaRunResult): CliReviewFinding {
+  const inconclusive = run.verification_outcome === 'no_confidence';
   return {
     severity: 'warning',
-    title: `Synthetic QA failed: ${run.goal}`,
+    title: `Synthetic QA ${inconclusive ? 'inconclusive' : 'failed'}: ${run.goal}`,
     summary: run.notes,
-    suggestion:
-      'Inspect the screenshot/trace in verification evidence, fix the UI regression, then re-run the loop.',
+    suggestion: inconclusive
+      ? 'Restore the missing verification prerequisite, then rerun the exact flow before drawing a product conclusion.'
+      : 'Inspect the screenshot/trace in verification evidence, fix the UI regression, then re-run the loop.',
     filePath: 'apps/desktop/src/pages/QuickReview.tsx',
     confidence: 0.9,
   };
