@@ -10,6 +10,10 @@ jobs:
         with:
           node-version: '22'
           cache: 'pnpm'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
       - name: Lint
@@ -21,3 +25,18 @@ jobs:
       - name: Unit Tests
         working-directory: apps/desktop
         run: pnpm run test:unit
+      - name: Prepare MCP sidecar
+        working-directory: apps/desktop
+        run: pnpm run prepare:mcp-sidecar
+      - name: MCP protocol and safety tests
+        working-directory: apps/desktop
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib mcp
+          cargo test --manifest-path src-tauri/Cargo.toml --bin codevetter-mcp
+          cargo test --manifest-path src-tauri/Cargo.toml --test mcp_stdio
+      - name: Install focused browser
+        working-directory: apps/desktop
+        run: pnpm exec playwright install --with-deps chromium
+      - name: MCP and history browser tests
+        working-directory: apps/desktop
+        run: pnpm exec playwright test tests/e2e/mcp-settings.spec.ts tests/e2e/repo-unpacked.spec.ts
