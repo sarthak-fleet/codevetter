@@ -453,7 +453,7 @@ fn main() {
             commands::unpack::get_unpack_outcome_evidence,
             commands::unpack::delete_repo_unpack_report,
             commands::unpack::export_repo_unpack_report,
-            commands::graph_trust::import_graphify_preview,
+            commands::graph_trust::import_external_graph_preview,
             commands::graph_trust::trace_repo_graph_path,
             commands::history_summary_graph::query_repo_history_graph,
             // Canonical structural repository graph

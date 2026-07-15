@@ -129,7 +129,7 @@ fn parse_location(value: &Value) -> Option<RepoGraphSourceLocation> {
     })
 }
 
-fn graphify_trust(confidence: Option<&str>) -> String {
+fn imported_trust(confidence: Option<&str>) -> String {
     match confidence
         .unwrap_or("")
         .trim()
@@ -143,7 +143,7 @@ fn graphify_trust(confidence: Option<&str>) -> String {
     .to_string()
 }
 
-pub fn normalize_graphify_json(bytes: &[u8]) -> Result<RepoGraph, String> {
+pub fn normalize_external_graph_json(bytes: &[u8]) -> Result<RepoGraph, String> {
     if bytes.len() as u64 > MAX_GRAPH_IMPORT_BYTES {
         return Err(format!(
             "Graph JSON is too large ({} bytes; limit is {} bytes).",
@@ -257,7 +257,7 @@ pub fn normalize_graphify_json(bytes: &[u8]) -> Result<RepoGraph, String> {
         sources.sort();
         sources.dedup();
         let evidence = first_string(raw, &["evidence", "description"])
-            .unwrap_or_else(|| format!("Imported Graphify relationship `{kind}`"));
+            .unwrap_or_else(|| format!("Imported relationship `{kind}`"));
         edges.push(RepoGraphEdge {
             from,
             to,
@@ -267,8 +267,8 @@ pub fn normalize_graphify_json(bytes: &[u8]) -> Result<RepoGraph, String> {
                 .into_iter()
                 .map(|value| bounded_text(&value, 1_024))
                 .collect(),
-            trust: graphify_trust(confidence_label.as_deref()),
-            origin: "graphify".to_string(),
+            trust: imported_trust(confidence_label.as_deref()),
+            origin: "imported".to_string(),
             confidence_label: confidence_label.map(|value| bounded_text(&value, 128)),
         });
     }
@@ -282,7 +282,7 @@ pub fn normalize_graphify_json(bytes: &[u8]) -> Result<RepoGraph, String> {
 }
 
 #[tauri::command]
-pub async fn import_graphify_preview(file_path: String) -> Result<RepoGraph, String> {
+pub async fn import_external_graph_preview(file_path: String) -> Result<RepoGraph, String> {
     let metadata = fs::metadata(&file_path)
         .map_err(|error| format!("Cannot inspect selected graph file: {error}"))?;
     if !metadata.is_file() {
@@ -297,7 +297,7 @@ pub async fn import_graphify_preview(file_path: String) -> Result<RepoGraph, Str
     }
     let bytes = fs::read(&file_path)
         .map_err(|error| format!("Cannot read selected graph file: {error}"))?;
-    normalize_graphify_json(&bytes)
+    normalize_external_graph_json(&bytes)
 }
 
 fn tokens(value: &str) -> HashSet<String> {
@@ -638,9 +638,9 @@ mod tests {
     }
 
     #[test]
-    fn imports_current_graphify_links_and_preserves_metadata() {
+    fn imports_node_link_json_and_preserves_metadata() {
         let input = br#"{"nodes":[{"id":"a","label":"A","type":"module","source_file":"src/a.ts","line":4,"community":2},{"id":"b","name":"B"}],"links":[{"source":"a","target":"b","relation":"calls","confidence":"high","source_file":"src/a.ts","line":8}]}"#;
-        let parsed = normalize_graphify_json(input).expect("valid graphify graph");
+        let parsed = normalize_external_graph_json(input).expect("valid external graph");
         assert_eq!(parsed.schema_version, 2);
         assert_eq!(parsed.nodes[0].community.as_deref(), Some("2"));
         assert_eq!(
@@ -669,23 +669,23 @@ mod tests {
     #[test]
     fn imports_loose_edges_and_maps_unknown_confidence_to_ambiguous() {
         let input = br#"{"nodes":[{"id":"a"},{"id":"b"}],"edges":[{"from":"a","to":"b","kind":"owns","confidence":"mystery"}]}"#;
-        let parsed = normalize_graphify_json(input).expect("loose edges accepted");
+        let parsed = normalize_external_graph_json(input).expect("loose edges accepted");
         assert_eq!(parsed.edges[0].kind, "owns");
         assert_eq!(parsed.edges[0].trust, "ambiguous");
-        assert_eq!(parsed.edges[0].origin, "graphify");
+        assert_eq!(parsed.edges[0].origin, "imported");
     }
 
     #[test]
     fn rejects_malformed_dangling_and_caps() {
-        assert!(normalize_graphify_json(b"{")
+        assert!(normalize_external_graph_json(b"{")
             .unwrap_err()
             .contains("malformed"));
         let dangling = br#"{"nodes":[{"id":"a"}],"links":[{"source":"a","target":"missing"}]}"#;
-        assert!(normalize_graphify_json(dangling)
+        assert!(normalize_external_graph_json(dangling)
             .unwrap_err()
             .contains("missing endpoint"));
         assert!(
-            normalize_graphify_json(&vec![b' '; MAX_GRAPH_IMPORT_BYTES as usize + 1])
+            normalize_external_graph_json(&vec![b' '; MAX_GRAPH_IMPORT_BYTES as usize + 1])
                 .unwrap_err()
                 .contains("too large")
         );
@@ -693,7 +693,7 @@ mod tests {
             .map(|i| serde_json::json!({"id":i.to_string()}))
             .collect::<Vec<_>>();
         let too_many = serde_json::to_vec(&serde_json::json!({"nodes":nodes,"links":[]})).unwrap();
-        assert!(normalize_graphify_json(&too_many)
+        assert!(normalize_external_graph_json(&too_many)
             .unwrap_err()
             .contains("too many nodes"));
         let edges = (0..=MAX_GRAPH_IMPORT_EDGES)
@@ -701,7 +701,7 @@ mod tests {
             .collect::<Vec<_>>();
         let too_many =
             serde_json::to_vec(&serde_json::json!({"nodes":[{"id":"a"}],"links":edges})).unwrap();
-        assert!(normalize_graphify_json(&too_many)
+        assert!(normalize_external_graph_json(&too_many)
             .unwrap_err()
             .contains("too many relationships"));
     }
@@ -775,7 +775,7 @@ mod tests {
     #[test]
     fn tauri_command_boundary_imports_fixture_then_traces_native_path() {
         let fixture_path = std::env::temp_dir().join(format!(
-            "codevetter-graphify-runtime-{}.json",
+            "codevetter-external-graph-runtime-{}.json",
             uuid::Uuid::new_v4()
         ));
         std::fs::write(
@@ -783,7 +783,7 @@ mod tests {
             br#"{"nodes":[{"id":"file","label":"src/page.tsx","type":"file","source_file":"src/page.tsx"},{"id":"route","label":"/billing","type":"route"}],"links":[{"source":"file","target":"route","relation":"routes_to","confidence":"high","source_file":"src/page.tsx","line":1}]}"#,
         )
         .expect("write local graph fixture");
-        let imported = tauri::async_runtime::block_on(import_graphify_preview(
+        let imported = tauri::async_runtime::block_on(import_external_graph_preview(
             fixture_path.to_string_lossy().to_string(),
         ))
         .expect("Tauri import command accepts fixture");

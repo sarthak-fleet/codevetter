@@ -3102,7 +3102,7 @@ export async function pickGraphJsonFile(): Promise<string | null> {
     const selected = await open({
       directory: false,
       multiple: false,
-      title: 'Select Graphify graph.json',
+      title: 'Select external graph JSON',
       filters: [{ name: 'Graph JSON', extensions: ['json'] }],
     });
     if (Array.isArray(selected)) return selected[0] ?? null;
@@ -3305,7 +3305,7 @@ export interface UnpackRepoGraphEdge {
   evidence: string;
   sources: string[];
   trust: 'extracted' | 'inferred' | 'ambiguous' | 'legacy' | string;
-  origin: 'codevetter' | 'graphify' | 'imported' | string;
+  origin: 'codevetter' | 'imported' | string;
   confidence_label?: string | null;
 }
 
@@ -3927,9 +3927,9 @@ export async function exportRepoUnpackReport(
   return safeInvoke('export_repo_unpack_report', { id, format });
 }
 
-/** Parse a selected Graphify artifact into a transient preview. This never persists the graph. */
-export async function importGraphifyPreview(filePath: string): Promise<UnpackRepoGraph> {
-  return safeInvoke('import_graphify_preview', { filePath });
+/** Parse a selected node-link artifact into a transient preview. This never persists the graph. */
+export async function importExternalGraphPreview(filePath: string): Promise<UnpackRepoGraph> {
+  return safeInvoke('import_external_graph_preview', { filePath });
 }
 
 export async function traceRepoGraphPath(input: {

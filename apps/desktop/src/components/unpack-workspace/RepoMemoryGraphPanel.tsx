@@ -11,7 +11,7 @@ import { SourceLink } from '@/components/unpack-workspace/SourceLink';
 import { graphImportError, selectActiveGraph } from '@/lib/graph-trust';
 import {
   type GraphPathResult,
-  importGraphifyPreview,
+  importExternalGraphPreview,
   pickGraphJsonFile,
   traceRepoGraphPath,
   type UnpackRepoGraph,
@@ -276,7 +276,7 @@ export function RepoMemoryGraphPanel({
     setIsImporting(true);
     setImportError(null);
     try {
-      const preview = await importGraphifyPreview(file);
+      const preview = await importExternalGraphPreview(file);
       setImportedPreview(preview);
       setImportedFile(file);
       setPathResult(null);
@@ -364,7 +364,7 @@ export function RepoMemoryGraphPanel({
             onClick={handleImport}
             disabled={isImporting}
           >
-            <Upload size={13} /> {isImporting ? 'Importing…' : 'Import Graphify JSON'}
+            <Upload size={13} /> {isImporting ? 'Importing…' : 'Import graph JSON'}
           </Button>
           {active.imported ? (
             <Button
