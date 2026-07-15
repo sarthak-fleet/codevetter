@@ -555,7 +555,7 @@ fn window_for<'a>(
     }
 
     let mut tool_counts: Vec<ToolCount> = by_tool.into_values().collect();
-    tool_counts.sort_by(|a, b| b.commits.cmp(&a.commits));
+    tool_counts.sort_by_key(|tool| std::cmp::Reverse(tool.commits));
     let (p50, p95, max_sz) = size_percentiles(&mut sizes);
 
     WindowReport {
@@ -680,9 +680,7 @@ fn author_rollup<'a>(classified: &[ClassifiedRef<'a>]) -> Vec<AuthorRow> {
             entry.last_commit = c.day.clone();
         }
 
-        let mix = tool_mix_by_email
-            .entry(email_key.clone())
-            .or_insert_with(HashMap::new);
+        let mix = tool_mix_by_email.entry(email_key.clone()).or_default();
         let tc = mix.entry(c.tool).or_insert_with(|| ToolCount {
             tool: c.tool.to_string(),
             commits: 0,
@@ -695,7 +693,7 @@ fn author_rollup<'a>(classified: &[ClassifiedRef<'a>]) -> Vec<AuthorRow> {
 
         days_by_email
             .entry(email_key)
-            .or_insert_with(std::collections::HashSet::new)
+            .or_default()
             .insert(c.day.clone());
     }
 
@@ -707,7 +705,7 @@ fn author_rollup<'a>(classified: &[ClassifiedRef<'a>]) -> Vec<AuthorRow> {
                 .unwrap_or_default()
                 .into_values()
                 .collect();
-            mix.sort_by(|a, b| b.commits.cmp(&a.commits));
+            mix.sort_by_key(|tool| std::cmp::Reverse(tool.commits));
             row.tool_mix = mix;
             row.active_days = days_by_email
                 .remove(&key)
@@ -716,7 +714,7 @@ fn author_rollup<'a>(classified: &[ClassifiedRef<'a>]) -> Vec<AuthorRow> {
             row
         })
         .collect();
-    rows.sort_by(|a, b| b.commits.cmp(&a.commits));
+    rows.sort_by_key(|row| std::cmp::Reverse(row.commits));
     rows.truncate(20);
     rows
 }

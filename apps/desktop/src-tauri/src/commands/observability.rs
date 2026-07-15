@@ -665,7 +665,7 @@ fn duration_seconds(start_rfc3339: &str, end_rfc3339: &str) -> Option<f64> {
     }
 }
 
-pub(crate) fn percentile(values: &mut Vec<f64>, q: f64) -> Option<f64> {
+pub(crate) fn percentile(values: &mut [f64], q: f64) -> Option<f64> {
     if values.is_empty() {
         return None;
     }

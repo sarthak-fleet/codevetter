@@ -3194,7 +3194,7 @@ mod tests {
         .expect("review");
 
         let finding = |title: &str| {
-            let id = insert_review_finding(
+            insert_review_finding(
                 &conn,
                 &LocalReviewFindingInput {
                     review_id: review_id.clone(),
@@ -3209,8 +3209,7 @@ mod tests {
                     discovery_method: None,
                 },
             )
-            .expect("finding");
-            id
+            .expect("finding")
         };
 
         let f_accept = finding("accept me");

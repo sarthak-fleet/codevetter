@@ -150,7 +150,7 @@ pub async fn check_github_auth(db: State<'_, DbState>) -> Result<Value, String> 
                     // "Logged in to github.com account username (keyring)"
                     l.split("account")
                         .nth(1)
-                        .map(|s| s.trim().split_whitespace().next().unwrap_or("").to_string())
+                        .map(|s| s.split_whitespace().next().unwrap_or("").to_string())
                 })
                 .unwrap_or_default();
 
@@ -753,7 +753,7 @@ pub fn build_compact_history_section_for_prompt(
         // Fallback: top recurring in repo if none matched current files
         if rec_lines.is_empty() {
             let mut by_count: Vec<_> = counts.into_iter().collect();
-            by_count.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+            by_count.sort_by_key(|(_, (count, _))| std::cmp::Reverse(*count));
             for (f, (cnt, exs)) in by_count.into_iter().take(2) {
                 if cnt > 1 {
                     let ex = exs.first().map(|s| s.as_str()).unwrap_or("");
@@ -987,7 +987,7 @@ fn normalize_structured_status(
     }
 }
 
-fn structured_command_arrays<'a>(root: &'a Value) -> Vec<&'a Vec<Value>> {
+fn structured_command_arrays(root: &Value) -> Vec<&Vec<Value>> {
     let mut arrays = Vec::new();
     for key in [
         "command_signals",
@@ -2098,7 +2098,7 @@ pub async fn get_repo_history_context(
     }
     if recurring.is_empty() {
         let mut by_c: Vec<_> = counts.into_iter().collect();
-        by_c.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+        by_c.sort_by_key(|(_, (count, _))| std::cmp::Reverse(*count));
         for (f, (cnt, exs)) in by_c.into_iter().take(3) {
             if cnt >= 2 {
                 recurring.push(json!({ "file": f, "count": cnt, "examples": exs }));

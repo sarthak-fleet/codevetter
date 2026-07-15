@@ -453,7 +453,7 @@ pub(super) fn stage_order(stage: &HistoryCausalStage) -> u8 {
 }
 
 pub(super) fn resolve_selector(
-    root: &PathBuf,
+    root: &Path,
     selector: HistoryCausalSelector,
 ) -> Result<HistoryCausalSelector, String> {
     match selector {

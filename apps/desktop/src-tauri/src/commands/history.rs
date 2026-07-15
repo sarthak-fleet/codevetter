@@ -491,14 +491,14 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
             // Re-use existing project ID if the dir_path already exists, otherwise
             // create a new one.  This avoids generating a fresh UUID on every
             // re-index which would orphan sessions.
-            let project_id = queries::get_project_id_by_dir(&conn, &dir_path_str)
+            let project_id = queries::get_project_id_by_dir(conn, &dir_path_str)
                 .map_err(|e| e.to_string())?
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
             let now = chrono::Utc::now().to_rfc3339();
 
             queries::upsert_project(
-                &conn,
+                conn,
                 &queries::ProjectInput {
                     id: project_id.clone(),
                     display_name: display_name.clone(),
@@ -520,7 +520,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
                 let file_meta = std::fs::metadata(jsonl_path).ok();
                 let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
 
-                let existing = queries::get_session_by_jsonl_path(&conn, &jsonl_path_str)
+                let existing = queries::get_session_by_jsonl_path(conn, &jsonl_path_str)
                     .map_err(|e| e.to_string())?;
 
                 // Skip when the indexer has already consumed the whole file: the
@@ -535,7 +535,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
                     }
                 }
 
-                match parse_claude_session(jsonl_path, &conn, &project_id, &now) {
+                match parse_claude_session(jsonl_path, conn, &project_id, &now) {
                     Ok(session) => {
                         indexed_sessions += 1;
                         indexed_messages += session.messages_indexed;
@@ -612,7 +612,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
             let file_meta = std::fs::metadata(jsonl_path).ok();
             let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
 
-            let existing = queries::get_session_by_jsonl_path(&conn, &jsonl_path_str)
+            let existing = queries::get_session_by_jsonl_path(conn, &jsonl_path_str)
                 .map_err(|e| e.to_string())?;
 
             if let Some(ref meta) = existing {
@@ -675,7 +675,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
             let now = chrono::Utc::now().to_rfc3339();
 
             // Resolve or create the project for this Codex session's cwd
-            let project_id = queries::get_project_id_by_dir(&conn, &codex_cwd)
+            let project_id = queries::get_project_id_by_dir(conn, &codex_cwd)
                 .map_err(|e| e.to_string())?
                 .unwrap_or_else(|| {
                     let pid = uuid::Uuid::new_v4().to_string();
@@ -684,7 +684,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_else(|| codex_cwd.clone());
                     let _ = queries::upsert_project(
-                        &conn,
+                        conn,
                         &queries::ProjectInput {
                             id: pid.clone(),
                             display_name: display,
@@ -697,7 +697,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
                     pid
                 });
 
-            match parse_codex_session(jsonl_path, &conn, &project_id, &now) {
+            match parse_codex_session(jsonl_path, conn, &project_id, &now) {
                 Ok(session) => {
                     codex_indexed += 1;
                     codex_messages += session.messages_indexed;
@@ -716,7 +716,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
     indexed_messages += codex_messages;
 
     // ── Phase 3: Scan Cursor AI sessions ─────────────────────
-    match index_cursor_sessions(&conn) {
+    match index_cursor_sessions(conn) {
         Ok((cursor_indexed, cursor_messages, cursor_skipped)) => {
             indexed_sessions += cursor_indexed;
             indexed_messages += cursor_messages;
@@ -728,7 +728,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
     }
 
     // ── Phase 4: Scan Grok CLI sessions (~/.grok/sessions) ───
-    match index_grok_sessions(&conn) {
+    match index_grok_sessions(conn) {
         Ok((grok_indexed, grok_messages, grok_skipped)) => {
             indexed_sessions += grok_indexed;
             indexed_messages += grok_messages;
@@ -740,7 +740,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
     }
 
     // ── Phase 5: Scan Cursor Agent CLI sessions (~/.cursor/chats) ───
-    match index_cursor_agent_sessions(&conn) {
+    match index_cursor_agent_sessions(conn) {
         Ok((ca_indexed, ca_messages, ca_skipped)) => {
             indexed_sessions += ca_indexed;
             indexed_messages += ca_messages;
@@ -752,7 +752,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
     }
 
     // ── Phase 6: Scan Devin CLI sessions (~/.local/share/devin/cli/sessions.db)
-    match index_devin_sessions(&conn) {
+    match index_devin_sessions(conn) {
         Ok((devin_indexed, devin_messages, devin_skipped)) => {
             indexed_sessions += devin_indexed;
             indexed_messages += devin_messages;
@@ -763,7 +763,7 @@ fn full_index_impl(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), Strin
         }
     }
 
-    let backfilled_archives = backfill_missing_session_archives(&conn)?;
+    let backfilled_archives = backfill_missing_session_archives(conn)?;
     if backfilled_archives > 0 {
         log::info!("Backfilled normalized session archive for {backfilled_archives} sessions");
     }
@@ -2192,7 +2192,7 @@ fn recent_codex_session_files(max_age: chrono::Duration, limit: usize) -> Vec<st
             (modified_utc >= cutoff).then_some((modified, path))
         })
         .collect();
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
     files
         .into_iter()
         .take(limit)
@@ -2426,6 +2426,25 @@ fn json_find_i64(value: &Value, key: &str) -> Option<i64> {
     }
 }
 
+fn record_turn_local_day(
+    turn_days: &mut std::collections::BTreeMap<i64, String>,
+    turn_millis: i64,
+) {
+    if let std::collections::btree_map::Entry::Vacant(entry) = turn_days.entry(turn_millis) {
+        if let Some(timestamp) = chrono::DateTime::<chrono::Utc>::from_timestamp(
+            turn_millis / 1000,
+            ((turn_millis % 1000) * 1_000_000) as u32,
+        ) {
+            entry.insert(
+                timestamp
+                    .with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d")
+                    .to_string(),
+            );
+        }
+    }
+}
+
 /// Estimate a Grok session's usage from its on-disk logs. Grok records only a
 /// per-turn *context-window size* (`totalTokens` in updates.jsonl), not
 /// cumulative billing — so summing the peak context per turn approximates the
@@ -2500,18 +2519,7 @@ fn parse_grok_session_dir(
                     }
                     // Record the day for this turn (local timezone, matching
                     // the cc_session_days convention used by other adapters).
-                    if !turn_days.contains_key(&turn) {
-                        if let Some(dt) = chrono::DateTime::<chrono::Utc>::from_timestamp(
-                            turn / 1000,
-                            ((turn % 1000) * 1_000_000) as u32,
-                        ) {
-                            let day = dt
-                                .with_timezone(&chrono::Local)
-                                .format("%Y-%m-%d")
-                                .to_string();
-                            turn_days.insert(turn, day);
-                        }
-                    }
+                    record_turn_local_day(&mut turn_days, turn);
                 }
             }
         }
@@ -4400,6 +4408,26 @@ mod tests {
         assert!(!session_fully_indexed(&meta(5, 1000), 500));
         // No messages yet (quick-startup stub) → must do a full parse.
         assert!(!session_fully_indexed(&meta(0, 1000), 1000));
+    }
+
+    #[test]
+    fn grok_turn_days_keep_first_valid_timestamp_attribution() {
+        let turn_millis = 1_700_000_000_123;
+        let mut turn_days = std::collections::BTreeMap::new();
+
+        record_turn_local_day(&mut turn_days, turn_millis);
+        let recorded = turn_days
+            .get(&turn_millis)
+            .expect("valid millisecond timestamp should be attributed")
+            .clone();
+        assert_eq!(recorded.len(), 10);
+
+        turn_days.insert(turn_millis, "existing-day".to_string());
+        record_turn_local_day(&mut turn_days, turn_millis);
+        assert_eq!(turn_days.get(&turn_millis).unwrap(), "existing-day");
+
+        record_turn_local_day(&mut turn_days, -1);
+        assert!(!turn_days.contains_key(&-1));
     }
 
     #[test]
