@@ -75,6 +75,14 @@ export interface QualificationInvocation {
   };
 }
 
+export interface QualificationRuntimeHealth {
+  serverIdentity: string;
+  browserIdentity: string;
+  serverReady: boolean;
+  browserReady: boolean;
+  activeContexts: number;
+}
+
 export interface QualificationHarness {
   readonly baseUrl: string;
   readonly browserRevision: string;
@@ -82,10 +90,19 @@ export interface QualificationHarness {
   readonly hmr: QualificationHmrReadiness;
   readonly benchmark: BenchmarkManifest;
   readonly scenarioIds: readonly string[];
+  readonly repositoryRoot: string;
   config(parallelism: 1 | 2 | 3 | 4): VerifyConfig;
   manifest(parallelism: 1 | 2 | 3 | 4): Readonly<ScenarioManifest>;
   run(parallelism: 1 | 2 | 3 | 4, runId: string): Promise<ScenarioBatchResult>;
+  runSelected(
+    parallelism: 1 | 2 | 3 | 4,
+    runId: string,
+    scenarioIds: readonly string[]
+  ): Promise<ScenarioBatchResult>;
+  runDeterministicRegression(runId: string): Promise<ScenarioBatchResult>;
+  runDeterministicCancellation(runId: string): Promise<ScenarioBatchResult>;
   invoke(parallelism: 1 | 2 | 3 | 4, runId: string): Promise<QualificationInvocation>;
+  runtimeHealth(): QualificationRuntimeHealth;
   activeContextCount(): number;
   close(): Promise<void>;
 }
@@ -182,7 +199,7 @@ export async function startQualificationHarness(options?: {
       return published;
     };
 
-    const run = async (parallelism: 1 | 2 | 3 | 4, runId: string) => {
+    const runnerFor = async (parallelism: 1 | 2 | 3 | 4) => {
       let runner = runnerByParallelism.get(parallelism);
       if (!runner) {
         runner = await ScenarioRunner.create(ownedBrowser, root, config(parallelism), {
@@ -194,20 +211,72 @@ export async function startQualificationHarness(options?: {
         });
         runnerByParallelism.set(parallelism, runner);
       }
-      return runner.run(manifest(parallelism), { runId, scenarioIds });
+      return runner;
     };
+    const runSelected = async (
+      parallelism: 1 | 2 | 3 | 4,
+      runId: string,
+      selectedScenarioIds: readonly string[]
+    ) => {
+      const runner = await runnerFor(parallelism);
+      return runner.run(manifest(parallelism), { runId, scenarioIds: selectedScenarioIds });
+    };
+    const run = (parallelism: 1 | 2 | 3 | 4, runId: string) =>
+      runSelected(parallelism, runId, scenarioIds);
     await prepareVisualBaselines(run, manifest(4), benchmark, root, ownedBrowser);
+
+    const negativeScenario = benchmark.scenarios[0];
+    if (!negativeScenario) throw new Error('qualification manifest has no stability scenario');
+    const regressionManifest = publishStabilityManifest(
+      negativeScenario,
+      benchmark.target.frozenTime,
+      'regression'
+    );
+    const browserRevision = chromiumRevisionFromExecutablePath(chromium.executablePath());
+    const serverIdentity = `vite:${baseUrl}:generation-1`;
+    const browserIdentity = `chromium:${browserRevision}:generation-1`;
 
     return {
       baseUrl,
-      browserRevision: chromiumRevisionFromExecutablePath(chromium.executablePath()),
+      browserRevision,
       coldStartup,
       hmr,
       benchmark,
       scenarioIds,
+      repositoryRoot: root,
       config,
       manifest,
       run,
+      runSelected,
+      async runDeterministicRegression(runId) {
+        const runner = await runnerFor(1);
+        return runner.run(regressionManifest, {
+          runId,
+          scenarioIds: [negativeScenario.id],
+        });
+      },
+      async runDeterministicCancellation(runId) {
+        const runner = await runnerFor(1);
+        const controller = new AbortController();
+        let notifyStarted: (() => void) | undefined;
+        const started = new Promise<void>((resolve) => {
+          notifyStarted = resolve;
+        });
+        const manifest = publishStabilityManifest(
+          negativeScenario,
+          benchmark.target.frozenTime,
+          'cancellation',
+          () => notifyStarted?.()
+        );
+        const pending = runner.run(manifest, {
+          runId,
+          scenarioIds: [negativeScenario.id],
+          signal: controller.signal,
+        });
+        await waitForCancellationStart(started);
+        controller.abort(new DOMException('Stability cancellation', 'AbortError'));
+        return pending;
+      },
       async invoke(parallelism, runId) {
         const totalStarted = performance.now();
         const diffStarted = performance.now();
@@ -248,11 +317,81 @@ export async function startQualificationHarness(options?: {
         };
       },
       activeContextCount: () => ownedBrowser.contexts().length,
+      runtimeHealth: () => ({
+        serverIdentity,
+        browserIdentity,
+        serverReady: server?.httpServer?.listening === true,
+        browserReady: ownedBrowser.isConnected(),
+        activeContexts: ownedBrowser.contexts().length,
+      }),
       close: () => closeHarness(ownedBrowser, server, root),
     };
   } catch (error) {
     await closeHarness(browser, server, root);
     throw error;
+  }
+}
+
+function publishStabilityManifest(
+  benchmark: BenchmarkScenario,
+  frozenTime: string,
+  mode: 'regression' | 'cancellation',
+  onCancellationStarted?: () => void
+): Readonly<ScenarioManifest> {
+  const scenario: DeterministicScenario = {
+    schemaVersion: 1,
+    id: benchmark.id,
+    capabilityIds: [benchmark.capability],
+    route: benchmark.route,
+    authProfileId: 'local-developer',
+    stateName: benchmark.mockState,
+    frozenTime,
+    flags: { qualification: true, stability: mode },
+    timeouts: { actionMs: 2_000, scenarioMs: 10_000 },
+    actions: [{ id: mode, kind: 'click', description: `Deterministic ${mode}` }],
+    assertions: [
+      {
+        id: mode,
+        kind: 'custom',
+        description: `The ${mode} outcome is classified and cleaned up`,
+      },
+    ],
+    run:
+      mode === 'regression'
+        ? async ({ page, observe, step }) => {
+            await step('regression', () => page.getByRole('button', { name: 'Action 1' }).click());
+            await observe.expectVisible('codevetter-intentional-regression-sentinel');
+          }
+        : async ({ signal }) => {
+            onCancellationStarted?.();
+            await new Promise<void>((_resolve, reject) => {
+              if (signal.aborted) {
+                reject(signal.reason);
+                return;
+              }
+              signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+            });
+          },
+  };
+  return publishScenarioManifest({
+    generatedAt: frozenTime,
+    batchTimeoutMs: 10_000,
+    parallelism: 1,
+    modules: [{ id: `stability-${mode}`, source: `stability-${mode}-v1`, scenarios: [scenario] }],
+  });
+}
+
+async function waitForCancellationStart(started: Promise<void>): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      started,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('cancellation scenario did not start')), 5_000);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 

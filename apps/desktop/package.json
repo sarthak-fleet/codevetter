@@ -31,6 +31,7 @@
     "bench:mcp": "node scripts/mcp-benchmark.mjs",
     "bench:mcp:smoke": "node scripts/mcp-benchmark.mjs --smoke",
     "bench:verify": "node --import tsx scripts/warm-verification-benchmark.ts",
+    "bench:verify:stability": "node --import tsx scripts/warm-verification-stability.ts",
     "bench:rust": "cargo test --release --manifest-path src-tauri/Cargo.toml perf_bench -- --ignored --nocapture",
     "bench": "npm run build && npm run bench:bundle && npm run bench:rust"
   },

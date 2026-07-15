@@ -208,21 +208,21 @@ pnpm bench:verify
 
 The 2026-07-15 qualification on the Apple M5 Pro used Chromium revision 1217,
 two excluded warm-up batches, and 20 recorded batches. Cold harness startup was
-833.504 ms (96.208 ms browser launch; 677.852 ms Vite server readiness). The
+1054.265 ms (148.949 ms browser launch; 845.355 ms Vite server readiness). The
 qualification target runs React through Vite and installs client-scoped named
 state through the real MSW state bridge. Vite's HMR client and target modules
-were ready in 645.945 ms before a recorded 250 ms settle window completed.
+were ready in 787.844 ms before a recorded 250 ms settle window completed.
 
 | batch parallelism | profile p50 | profile p95 | max |
 |---:|---:|---:|---:|
-| 1 | 9580.482 ms | 9597.592 ms | 9597.592 ms |
-| 2 | 5284.565 ms | 5326.225 ms | 5326.225 ms |
-| 3 | 3998.799 ms | 3999.704 ms | 3999.704 ms |
-| 4 | 3457.331 ms | 3471.157 ms | 3471.157 ms |
+| 1 | 9625.403 ms | 9850.835 ms | 9850.835 ms |
+| 2 | 5288.303 ms | 5319.061 ms | 5319.061 ms |
+| 3 | 4047.724 ms | 4058.937 ms | 4058.937 ms |
+| 4 | 3520.239 ms | 3558.023 ms | 3558.023 ms |
 
 Parallelism 4 is therefore the fastest stable default on the recorded machine.
-The independent 20-sample gate at that setting passed with **3432.874 ms p50,
-3499.347 ms p95, and 3517.521 ms max**, against the required p95 below 30 seconds.
+The independent 20-sample gate at that setting passed with **3605.560 ms p50,
+4792.196 ms p95, and 5320.379 ms max**, against the required p95 below 30 seconds.
 
 The machine-readable report at
 `tests/fixtures/warm-verification/qualification-2026-07-15.json` preserves all
@@ -231,6 +231,29 @@ app source hashes, machine and browser details, cold startup, HMR conditions,
 parallelism profiles, and per-stage summaries. Per-scenario stage values are
 summed work time and can overlap under parallel execution; `whole_invocation` is
 the wall-clock release gate.
+
+The normal small changed-capability path is measured separately with one exact
+mapped scenario; it does not replace or relax the 20-scenario release gate. Run:
+
+```bash
+pnpm bench:verify:stability
+```
+
+After two warm-ups, 20 whole focused invocations recorded **506.426 ms p50,
+512.035 ms p95, and 515.900 ms max**. The focused regression budget is 2000 ms,
+leaving operating headroom while remaining materially tighter than the
+independent 30-second full-corpus gate.
+
+The same command executed 100 additional warm batches: 80 passes, 10 intentional
+deterministic regressions, and 10 cancellations triggered only after scenario
+execution started. Every batch closed all contexts and retained the same Vite
+and Chromium identities. Peak Node RSS grew 13,582,336 bytes against a
+134,217,728-byte budget; second-half median RSS did not grow. Retention finished
+at its 20-run cap using 4470 bytes, below its 104,857,600-byte cap. The measured
+path recorded only its 110 required Git subprocess calls and zero Cargo, Tauri,
+or production-build invocations. Its raw samples, exact source hashes, resource
+gates, command audit, and temporary-root cleanup proof are in
+`tests/fixtures/warm-verification/stability-2026-07-15.json`.
 
 ## Principle
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "capturedAt": "2026-07-15T10:27:14.361Z",
+  "capturedAt": "2026-07-15T10:44:19.883Z",
   "scope": "warm local whole invocation: Git diff, deterministic selection, browser batch, reporting",
   "machine": {
     "platform": "darwin",
@@ -15,9 +15,9 @@
     "build": "26A5378j"
   },
   "target": {
-    "protectedRepositoryHead": "1b4a7d4838e1c8454a46e2738ac865379ddfe2d6",
-    "fixtureTargetSha": "f2cece9084017c335fa0736845554547d47fccc3",
-    "changeSetIdentity": "8882655a27fc673f122b964c552dfc07260bf14d58f33541975e606af0900fac",
+    "protectedRepositoryHead": "45e3266c4cb04c3fc1aa542e1557cdf9d1ad4cc2",
+    "fixtureTargetSha": "c517bc81fe3f07d78cc403332696a224a65e371f",
+    "changeSetIdentity": "be1f82949102ade0323da81a8dbb461082fdc8af622844f720b2adba34a6fbea",
     "baseUrl": "http://127.0.0.1:5173",
     "scenarioCount": 20,
     "configHash": "ec5877e8f817bc012b258e3de88f35b97dbd83679196628538dcef3e7d7f55eb",
@@ -26,7 +26,7 @@
     "benchmarkSourceHashes": {
       "scripts/warm-verification-benchmark.ts": "aee06f4367d9841113b66130580ea588bb48d993eb095650f30e3f362ff82cc9",
       "tests/fixtures/warm-verification/benchmark-manifest.json": "8da6cc15b50388f0e51d41e0c9c8ec3a719179164c77cee6f021d251ece6a978",
-      "tests/fixtures/warm-verification/qualification-fixture.ts": "a3989200037c13b2cf05f1f52386cb456df6d999a09e42f94d78d33491d09cbd",
+      "tests/fixtures/warm-verification/qualification-fixture.ts": "f914e36a220d852656909d0f5085db63e3e72efbe907bdb5804a991d78fe1e6d",
       "tests/fixtures/warm-verification/msw-app/index.html": "078ee2ddce3078e3495000e83e954b59b1341ace3e074057151fb9e4d6802b4c",
       "tests/fixtures/warm-verification/msw-app/main.tsx": "e020a74c26b7c39282583486df01b892bd7b2ad0e21a8d9c1f2a9d9a4f3a943c",
       "tests/fixtures/warm-verification/msw-app/vite.config.ts": "84f9e248d7915fce872a84b863679dc89cc1a269c4b47c0e82b7bb9a0499a717",
@@ -40,7 +40,7 @@
       "clientModuleReady": true,
       "settled": true,
       "settleMs": 250,
-      "readinessMs": 645.945
+      "readinessMs": 787.844
     }
   },
   "browser": {
@@ -51,9 +51,9 @@
     "reusedAcrossEveryBatch": true
   },
   "coldStartup": {
-    "totalMs": 833.504,
-    "serverReadyMs": 677.852,
-    "browserLaunchMs": 96.208
+    "totalMs": 1054.265,
+    "serverReadyMs": 845.355,
+    "browserLaunchMs": 148.949
   },
   "workload": {
     "checkedInManifest": "tests/fixtures/warm-verification/benchmark-manifest.json",
@@ -71,40 +71,40 @@
         "parallelism": 1,
         "warmupBatches": 1,
         "sampleCount": 3,
-        "invocationMs": [9580.482, 9597.592, 9517.986],
-        "p50": 9580.482,
-        "p95": 9597.592,
-        "max": 9597.592,
+        "invocationMs": [9616.101, 9625.403, 9850.835],
+        "p50": 9625.403,
+        "p95": 9850.835,
+        "max": 9850.835,
         "stable": true
       },
       {
         "parallelism": 2,
         "warmupBatches": 1,
         "sampleCount": 3,
-        "invocationMs": [5326.225, 5209.346, 5284.565],
-        "p50": 5284.565,
-        "p95": 5326.225,
-        "max": 5326.225,
+        "invocationMs": [5319.061, 5288.303, 5257.685],
+        "p50": 5288.303,
+        "p95": 5319.061,
+        "max": 5319.061,
         "stable": true
       },
       {
         "parallelism": 3,
         "warmupBatches": 1,
         "sampleCount": 3,
-        "invocationMs": [3998.799, 3981.345, 3999.704],
-        "p50": 3998.799,
-        "p95": 3999.704,
-        "max": 3999.704,
+        "invocationMs": [4058.937, 4047.724, 4046.857],
+        "p50": 4047.724,
+        "p95": 4058.937,
+        "max": 4058.937,
         "stable": true
       },
       {
         "parallelism": 4,
         "warmupBatches": 1,
         "sampleCount": 3,
-        "invocationMs": [3471.157, 3406.667, 3457.331],
-        "p50": 3457.331,
-        "p95": 3471.157,
-        "max": 3471.157,
+        "invocationMs": [3464.603, 3558.023, 3520.239],
+        "p50": 3520.239,
+        "p95": 3558.023,
+        "max": 3558.023,
         "stable": true
       }
     ],
@@ -116,80 +116,80 @@
     "warmupBatches": 2,
     "sampleCount": 20,
     "invocationMs": [
-      3452.328, 3436.071, 3449.137, 3517.521, 3373.094, 3440.358, 3449.289, 3442.108, 3453.809,
-      3499.347, 3431.68, 3432.874, 3415.377, 3357.586, 3415.166, 3384.568, 3427.81, 3410.469,
-      3409.098, 3492.465
+      3691.341, 3740.724, 3797.004, 3677.113, 3478.87, 3522.236, 3608.484, 3671.779, 3575.903,
+      3470.277, 3515.402, 3547.945, 3627.114, 3455.891, 3361.292, 3426.601, 4792.196, 5320.379,
+      4056.521, 3605.56
     ],
     "timingMs": {
-      "p50": 3432.874,
-      "p95": 3499.347,
-      "max": 3517.521
+      "p50": 3605.56,
+      "p95": 4792.196,
+      "max": 5320.379
     },
     "stageTimingMs": {
       "actions_work": {
-        "p50": 6763.351,
-        "p95": 6879.697,
-        "max": 6897.931
+        "p50": 7114.386,
+        "p95": 9243.66,
+        "max": 9935.853
       },
       "auth_work": {
-        "p50": 23.024,
-        "p95": 37.281,
-        "max": 39.833
+        "p50": 26.173,
+        "p95": 58.405,
+        "max": 97.804
       },
       "context_work": {
-        "p50": 69.112,
-        "p95": 90.914,
-        "max": 91.661
+        "p50": 78.671,
+        "p95": 107.405,
+        "max": 150.425
       },
       "diff": {
-        "p50": 28.961,
-        "p95": 30.756,
-        "max": 30.763
+        "p50": 32.113,
+        "p95": 46.454,
+        "max": 108.888
       },
       "navigation_work": {
-        "p50": 2078.465,
-        "p95": 2133.896,
-        "max": 2169.098
+        "p50": 2251.583,
+        "p95": 3001.503,
+        "max": 3770.452
       },
       "observation_work": {
-        "p50": 3275.66,
-        "p95": 3325.725,
-        "max": 3350.295
+        "p50": 3359.899,
+        "p95": 4345.549,
+        "max": 4826.777
       },
       "reporting": {
         "p50": 0.001,
-        "p95": 0.001,
-        "max": 0.001
+        "p95": 0.002,
+        "max": 0.003
       },
       "runner_total": {
-        "p50": 3403.417,
-        "p95": 3467.869,
-        "max": 3487.861
+        "p50": 3570.281,
+        "p95": 4760.874,
+        "max": 5210.352
       },
       "screenshots_work": {
-        "p50": 632.798,
-        "p95": 703.092,
-        "max": 718.179
+        "p50": 630.274,
+        "p95": 882.783,
+        "max": 979.959
       },
       "selection": {
-        "p50": 0.655,
-        "p95": 0.693,
-        "max": 0.709
+        "p50": 0.672,
+        "p95": 0.817,
+        "max": 1.1
       },
       "state_work": {
-        "p50": 720.278,
-        "p95": 729.987,
-        "max": 749.322
+        "p50": 780.387,
+        "p95": 960.021,
+        "max": 1174.026
       },
       "teardown_work": {
-        "p50": 86.689,
-        "p95": 102.319,
-        "max": 108.548
+        "p50": 100.53,
+        "p95": 147.894,
+        "max": 201.968
       },
       "whole_invocation": {
-        "p50": 3432.874,
-        "p95": 3499.347,
-        "max": 3517.521
+        "p50": 3605.56,
+        "p95": 4792.196,
+        "max": 5320.379
       }
     },
     "p95GateMs": 30000,

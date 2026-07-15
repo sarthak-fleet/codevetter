@@ -53,9 +53,17 @@ run separately and must not inflate or weaken this performance sample.
 Run `pnpm bench:verify` from `apps/desktop/` to profile parallelism 1 through 4,
 select the fastest stable setting, execute the independent qualification gate,
 and atomically replace the dated machine-readable report. The 2026-07-15 report
-selected parallelism 4 and recorded 3499.347 ms p95 across 20 measured batches,
+selected parallelism 4 and recorded 4792.196 ms p95 across 20 measured batches,
 including exact versioned screenshot checkpoints and source hashes for the
 benchmark script, harness, manifest, and qualification app.
+
+`pnpm bench:verify:stability` preserves that independent 20-scenario gate while
+measuring the normal one-scenario changed-capability path. Its 2026-07-15 report
+records 512.035 ms p95 against a 2000 ms focused budget, followed by 100 warm
+batches with an 80 pass / 10 regression / 10 cancellation mix. The stability
+report includes every raw sample, exact runtime/source identities, RSS and
+retention caps, zero leaked contexts, zero Cargo/Tauri/production-build calls,
+and proof that its temporary harness tree was removed.
 
 The manifest is invalid for qualification if an ID is duplicated, a route is not
 direct, a state is missing, fewer than two interactions are declared, the strict
