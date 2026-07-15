@@ -407,6 +407,7 @@ mod catalog;
 mod delta;
 mod git_objects;
 mod query_helpers;
+mod state;
 mod storage;
 
 pub(crate) use catalog::canonical_repo_path;
@@ -423,5 +424,14 @@ pub(crate) use query_helpers::{
     history_index_freshness, load_entity_annotation_contradictions, load_entity_occurrences,
     load_lineage_family, load_outcome_events,
 };
+use state::*;
+pub use state::{
+    get_history_as_of, get_history_entity_evolution, get_history_structural_delta,
+    get_history_structural_state,
+};
+pub(crate) use state::{reconstruct_history_as_of, resolve_temporal_reference};
 pub(crate) use storage::history_storage_key;
 use storage::*;
+
+#[cfg(test)]
+mod tests;
