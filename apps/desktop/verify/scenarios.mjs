@@ -18,7 +18,11 @@ export const scenarioModule = {
       ],
       assertions: [
         { id: 'trex-route', kind: 'route', description: 'T-Rex opens directly' },
-        { id: 'shell-visible', kind: 'visible', description: 'The CodeVetter shell remains visible' },
+        {
+          id: 'shell-visible',
+          kind: 'visible',
+          description: 'The CodeVetter shell remains visible',
+        },
         { id: 'runtime-clean', kind: 'runtime_errors', description: 'No runtime error occurs' },
       ],
       async run({ page, observe, step }) {
