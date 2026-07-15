@@ -51,6 +51,7 @@ import {
 } from '@/components/unpack-workspace/UnpackIntelligencePanels';
 import { UnpackHistoryList } from '@/components/unpack-workspace/UnpackHistoryList';
 import { UnpackMissionControl } from '@/components/unpack-workspace/UnpackMissionControl';
+import { HistoryGraphSlider } from '@/components/unpack-workspace/HistoryGraphSlider';
 import { RepoMemoryGraphPanel } from '@/components/unpack-workspace/RepoMemoryGraphPanel';
 import { RepoMemoryPanel } from '@/components/unpack-workspace/RepoMemoryPanel';
 import { StructuralGraphWorkbench } from '@/components/unpack-workspace/StructuralGraphWorkbench';
@@ -3706,6 +3707,7 @@ const InventorySummary = memo(function InventorySummary({
           <>
             <RepoMemoryGraphPanel graph={inventory.repo_graph} repoPath={inventory.repo_path} />
             <StructuralGraphWorkbench repoPath={inventory.repo_path} />
+            <HistoryGraphSlider repoPath={inventory.repo_path} />
             <DisclosurePanel
               title="Deep symbol lookup"
               summary="Build a local symbol index only when the repo map is not enough."
