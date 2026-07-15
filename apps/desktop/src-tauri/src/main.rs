@@ -132,7 +132,7 @@ fn main() {
 
             // v1.1.83: resume any T-Rex watchers that were enabled before the
             // last shutdown. Each enabled row spawns its own Tokio polling task.
-            commands::trex_watcher::resume_enabled_watchers(&app.handle());
+            commands::trex_watcher::resume_enabled_watchers(app.handle());
 
             // ── Trigger initial index on startup ─────────────────
             // Storage cleanup (one-time purge of cruft message rows) runs at
@@ -287,10 +287,10 @@ fn main() {
                                     }
                                 }
 
-                                if tick
-                                    % (commands::history::LIVE_SECONDARY_ADAPTER_INTERVAL_SECS
-                                        / commands::history::LIVE_TRANSCRIPT_INTERVAL_SECS)
-                                    == 0
+                                if tick.is_multiple_of(
+                                    commands::history::LIVE_SECONDARY_ADAPTER_INTERVAL_SECS
+                                        / commands::history::LIVE_TRANSCRIPT_INTERVAL_SECS,
+                                )
                                 {
                                     match commands::history::refresh_secondary_agents_with_conn(
                                         &conn,

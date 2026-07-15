@@ -17,10 +17,10 @@
 //!
 //! Stays in sync with `../local-ai/index.mjs`:
 //!   - claude: `-p --output-format stream-json --verbose --system-prompt SYS`
-//!             prompt via stdin; collect text from `assistant.message.content`
-//!             and `content_block_delta.delta.text`.
+//!     prompt via stdin; collect text from `assistant.message.content`
+//!     and `content_block_delta.delta.text`.
 //!   - codex:  `exec --json [-i FILE…]` with system prompt embedded in prompt
-//!             body; collect text from `item.completed → agent_message`.
+//!     body; collect text from `item.completed → agent_message`.
 
 use std::process::Stdio;
 use std::sync::Mutex;

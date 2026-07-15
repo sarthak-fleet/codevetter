@@ -568,11 +568,10 @@ fn build_verification_summary(
         "incomplete"
     } else if executable_test.status == "failed" {
         "blocked"
-    } else if executable_test.status != "passed" {
-        "incomplete"
-    } else if run.is_none_or(|run| run.required)
-        && audience.status != "completed"
-        && audience.status != "waived"
+    } else if executable_test.status != "passed"
+        || (run.is_none_or(|run| run.required)
+            && audience.status != "completed"
+            && audience.status != "waived")
     {
         "incomplete"
     } else if findings_count > 0 {
