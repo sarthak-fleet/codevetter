@@ -122,8 +122,8 @@ zero production builds.
 
 These figures apply only to one developer, one configured React app, one Mac,
 and one Chromium. They are not CI, cloud, team, mobile, Safari, Firefox, or
-arbitrary-repository claims. Final release qualification remains pending; no
-release is claimed here.
+arbitrary-repository claims. Local release qualification passed on 2026-07-15;
+the explicit release workflow has not run and no release is claimed here.
 
 ## Architecture
 

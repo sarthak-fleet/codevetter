@@ -158,6 +158,7 @@ for release qualification.
 
 The warm runtime, repository-owned CLI/Tauri bridge, T-Rex controls, exact-
 current Review qualification, and measured stability gates have focused test
-coverage. Final whole-product release qualification is still pending. Do not
-describe this implementation evidence as a shipped release until that gate and
-the explicit release workflow complete.
+coverage. Local whole-product release qualification passed on 2026-07-15,
+including fresh-install unit/browser checks, full Rust tests, strict Clippy,
+dependency and license review, and production desktop/landing builds. The
+explicit release workflow has not run, so this is qualified but not shipped.

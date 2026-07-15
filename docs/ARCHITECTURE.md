@@ -145,5 +145,5 @@ measured **506.426 ms p50, 512.035 ms p95, and 515.900 ms max**. A separate
 100-batch stability run completed 80 passes, 10 intentional regressions, and 10
 cancellations with no leaked contexts, stable browser/server identities, RSS
 growth of 13.6 MB against a 128 MB cap, retention at 20 runs / 4470 bytes, and
-zero production builds. Final release qualification remains pending; these
-results are implementation evidence, not a release claim.
+zero production builds. Local release qualification passed on 2026-07-15; the
+release workflow remains a separate explicit action and has not run.

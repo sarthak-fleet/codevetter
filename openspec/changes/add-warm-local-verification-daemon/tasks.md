@@ -79,5 +79,5 @@
 - [x] 9.1 Document target setup, state-bridge/MSW integration, auth profiles, capability mapping, scenario authoring, CLI outcomes, troubleshooting, redaction, and cleanup.
 - [x] 9.2 Update architecture, Synthetic QA, testing, performance, storage, and `PROJECT_STATUS.md` with measured claims and explicit one-developer/one-app/one-Mac/one-Chromium limits.
 - [x] 9.3 Create separate follow-up OpenSpec changes for model-assisted spec-to-scenario compilation and bounded main-versus-working-tree differential verification; do not implement either in this change.
-- [ ] 9.4 Run formatting, typecheck, lint, unit/integration/browser tests, strict Clippy, migration tests, OpenSpec strict validation, dependency/license audit, and production builds required for release qualification.
+- [x] 9.4 Run formatting, typecheck, lint, unit/integration/browser tests, strict Clippy, migration tests, OpenSpec strict validation, dependency/license audit, and production builds required for release qualification.
 - [ ] 9.5 Sync and archive the completed OpenSpec change only after every correctness, performance, storage, security, and compatibility gate passes; release remains a separate explicitly authorized action.
