@@ -689,4 +689,7 @@ fn stage_label(stage: &HistoryCausalStage) -> &'static str {
 
 mod causal;
 
+#[cfg(test)]
+mod tests;
+
 use causal::*;
