@@ -404,6 +404,7 @@ pub(super) fn compatible_history_checkpoint_exists(
 }
 
 pub(super) mod git;
+pub(super) mod persistence;
 
 pub(crate) use git::canonical_repo_path;
 use git::*;
