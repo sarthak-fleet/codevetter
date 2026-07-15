@@ -4,6 +4,7 @@ import type { VerifyConfig } from './config';
 import {
   matchesPathGlob,
   selectChangedCapabilities,
+  type SelectionHintEvidence,
   validateConfigAgainstScenarios,
 } from './selection';
 
@@ -122,6 +123,190 @@ describe('changed capability selection', () => {
 
     assert.equal(result.complete, false);
     assert.ok(result.limitations.some((entry) => entry.detail.includes('portfolio-empty')));
+  });
+
+  it('adds current intelligence hints after authoritative scenarios in rank order', () => {
+    const hintScenarioIds = ['impact-check', 'graph-check', 'import-check', 'coverage-check'];
+    const evidence: SelectionHintEvidence[] = [
+      {
+        source: 'coverage',
+        sourceIdentity: 'coverage:run-9',
+        state: 'current',
+        hints: [{ scenarioId: 'coverage-check', rank: 60, detail: 'Runtime coverage overlap' }],
+      },
+      {
+        source: 'import',
+        sourceIdentity: 'graph:import-4',
+        state: 'current',
+        hints: [{ scenarioId: 'import-check', rank: 70, detail: 'Imported edge overlap' }],
+      },
+      {
+        source: 'impacted_test',
+        sourceIdentity: 'impact:head',
+        state: 'current',
+        hints: [{ scenarioId: 'impact-check', rank: 80, detail: 'Impacted test mapping' }],
+      },
+      {
+        source: 'graph',
+        sourceIdentity: 'snapshot:abc',
+        state: 'current',
+        hints: [{ scenarioId: 'graph-check', rank: 90, detail: 'Extracted dependency path' }],
+      },
+    ];
+
+    const result = selectChangedCapabilities(
+      config(),
+      new Set([...available, ...hintScenarioIds]),
+      ['src/features/portfolio/Card.tsx'],
+      evidence
+    );
+
+    assert.deepEqual(result.selectedScenarioIds, [
+      'app-shell',
+      'portfolio-empty',
+      'shared-detail',
+      'graph-check',
+      'impact-check',
+      'import-check',
+      'coverage-check',
+    ]);
+    assert.deepEqual(
+      result.hintDecisions.map(({ scenarioId, disposition }) => ({ scenarioId, disposition })),
+      ['graph-check', 'impact-check', 'import-check', 'coverage-check'].map((scenarioId) => ({
+        scenarioId,
+        disposition: 'selected',
+      }))
+    );
+    assert.equal(result.complete, true);
+  });
+
+  it('never removes explicit, smoke, or fallback scenarios when a hint disagrees', () => {
+    const result = selectChangedCapabilities(
+      config(),
+      new Set([...available, 'hint-only']),
+      ['src/features/portfolio/Card.tsx', 'src/unknown/Thing.tsx'],
+      [
+        {
+          source: 'impacted_test',
+          sourceIdentity: 'impact:head',
+          state: 'current',
+          hints: [{ scenarioId: 'hint-only', rank: 100, detail: 'Different inferred scenario' }],
+        },
+      ]
+    );
+
+    assert.deepEqual(result.fallbackScenarioIds, ['activity-list', 'app-shell', 'portfolio-empty']);
+    assert.ok(result.selectedScenarioIds.includes('app-shell'));
+    assert.ok(result.selectedScenarioIds.includes('portfolio-empty'));
+    assert.ok(result.selectedScenarioIds.includes('shared-detail'));
+    assert.ok(result.selectedScenarioIds.includes('activity-list'));
+    assert.equal(result.selectedScenarioIds.at(-1), 'hint-only');
+    assert.equal(result.focused, false);
+  });
+
+  it('records a matching hint without duplicating an authoritative scenario', () => {
+    const result = selectChangedCapabilities(
+      config(),
+      available,
+      ['src/features/portfolio/Card.tsx'],
+      [
+        {
+          source: 'coverage',
+          sourceIdentity: 'coverage:run-11',
+          state: 'current',
+          hints: [{ scenarioId: 'portfolio-empty', rank: 100, detail: 'Covered execution path' }],
+        },
+      ]
+    );
+
+    assert.equal(result.selectedScenarioIds.filter((id) => id === 'portfolio-empty').length, 1);
+    assert.equal(result.hintDecisions[0]?.disposition, 'already_selected');
+  });
+
+  for (const state of ['stale', 'truncated', 'untrusted'] as const) {
+    it(`forces fallback and ignores ${state} supporting evidence`, () => {
+      const result = selectChangedCapabilities(
+        config(),
+        new Set([...available, 'hint-only']),
+        ['src/features/portfolio/Card.tsx'],
+        [
+          {
+            source: 'graph',
+            sourceIdentity: `snapshot:${state}`,
+            state,
+            hints: [{ scenarioId: 'hint-only', rank: 100, detail: 'Unsafe graph hint' }],
+          },
+        ]
+      );
+
+      assert.deepEqual(result.fallbackScenarioIds, [
+        'activity-list',
+        'app-shell',
+        'portfolio-empty',
+      ]);
+      assert.equal(result.selectedScenarioIds.includes('hint-only'), false);
+      assert.equal(result.hintDecisions[0]?.disposition, 'ignored');
+      assert.equal(result.focused, false);
+    });
+  }
+
+  it('bounds untrusted hint identities and collections before retaining evidence', () => {
+    const oversizedIdentity = selectChangedCapabilities(
+      config(),
+      new Set([...available, 'hint-only']),
+      ['src/features/portfolio/Card.tsx'],
+      [
+        {
+          source: 'graph',
+          sourceIdentity: 'x'.repeat(1_000),
+          state: 'current',
+          hints: [{ scenarioId: 'hint-only', rank: 100, detail: 'Unsafe identity' }],
+        },
+      ]
+    );
+    assert.equal(oversizedIdentity.hintDecisions.length, 0);
+    assert.equal(JSON.stringify(oversizedIdentity).includes('x'.repeat(1_000)), false);
+    assert.equal(oversizedIdentity.focused, false);
+
+    const oversizedHints = selectChangedCapabilities(
+      config(),
+      new Set([...available, 'hint-only']),
+      ['src/features/portfolio/Card.tsx'],
+      [
+        {
+          source: 'coverage',
+          sourceIdentity: 'coverage:bounded',
+          state: 'current',
+          hints: Array.from({ length: 101 }, () => ({
+            scenarioId: 'hint-only',
+            rank: 100,
+            detail: 'Bounded hint',
+          })),
+        },
+      ]
+    );
+    assert.equal(oversizedHints.hintDecisions.length, 100);
+    assert.equal(oversizedHints.focused, false);
+  });
+
+  it('cannot create complete or pass-like evidence from hints alone', () => {
+    const result = selectChangedCapabilities(
+      config(),
+      new Set([...available, 'hint-only']),
+      [],
+      [
+        {
+          source: 'coverage',
+          sourceIdentity: 'coverage:run-10',
+          state: 'current',
+          hints: [{ scenarioId: 'hint-only', rank: 100, detail: 'Only advisory evidence' }],
+        },
+      ]
+    );
+
+    assert.equal(result.complete, false);
+    assert.equal('outcome' in result, false);
+    assert.ok(result.selectedScenarioIds.includes('hint-only'));
   });
 });
 

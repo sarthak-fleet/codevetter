@@ -51,7 +51,7 @@
 - [x] 6.3 Reuse CodeVetter's exact worktree/staged/commit/range Git change collection and preserve target/change-set identities in daemon requests and results.
 - [x] 6.4 Implement deterministic path-to-capability-to-scenario selection, deduplication, stable ordering, and complete selection explanations.
 - [x] 6.5 Force mandatory smoke and configured broad fallback for unmatched/shared paths, incomplete mappings, absent commands, or stale/truncated/untrusted supporting evidence.
-- [ ] 6.6 Integrate impacted-test and graph/import/coverage evidence as additive ranked hints only, proving it cannot remove explicit scenarios, override fallback, or create pass evidence.
+- [x] 6.6 Integrate impacted-test and graph/import/coverage evidence as additive ranked hints only, proving it cannot remove explicit scenarios, override fallback, or create pass evidence.
 - [x] 6.7 Add selection fixtures for exact mapping, overlapping capabilities, shared scenario dedupe, shared infrastructure, unmatched files, invalid config, incomplete graph, and no safe fallback.
 
 ## 7. CLI, Persistence, and Review Integration

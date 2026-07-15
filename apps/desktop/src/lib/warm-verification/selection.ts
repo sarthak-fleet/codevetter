@@ -2,9 +2,40 @@ import type { VerifyConfig } from './config';
 
 export type SelectionReasonKind =
   | 'explicit_capability'
+  | 'intelligence_hint'
   | 'mandatory_smoke'
   | 'shared_infrastructure_fallback'
   | 'unmatched_path_fallback';
+
+export type SelectionHintSource = 'impacted_test' | 'graph' | 'import' | 'coverage';
+export type SelectionHintEvidenceState = 'current' | 'stale' | 'truncated' | 'untrusted';
+
+const MAX_HINT_EVIDENCE_SETS = 16;
+const MAX_TOTAL_HINTS = 100;
+const MAX_HINT_SOURCE_IDENTITY_LENGTH = 256;
+
+export interface RankedSelectionHint {
+  scenarioId: string;
+  rank: number;
+  detail: string;
+}
+
+/**
+ * A caller prequalifies each evidence set against its native graph or coverage
+ * context. Only current means current, complete, untruncated, and trusted.
+ */
+export interface SelectionHintEvidence {
+  source: SelectionHintSource;
+  sourceIdentity: string;
+  state: SelectionHintEvidenceState;
+  hints: readonly RankedSelectionHint[];
+}
+
+export interface SelectionHintDecision extends RankedSelectionHint {
+  source: SelectionHintSource;
+  sourceIdentity: string;
+  disposition: 'selected' | 'already_selected' | 'ignored';
+}
 
 export interface SelectionReason {
   kind: SelectionReasonKind;
@@ -12,6 +43,8 @@ export interface SelectionReason {
   changedPath?: string;
   capabilityId?: string;
   pattern?: string;
+  hintSource?: SelectionHintSource;
+  hintRank?: number;
   detail: string;
 }
 
@@ -20,7 +53,9 @@ export interface SelectionLimitation {
     | 'invalid_changed_path'
     | 'unmatched_changed_path'
     | 'shared_infrastructure'
-    | 'unknown_scenario';
+    | 'unknown_scenario'
+    | 'unsafe_supporting_evidence'
+    | 'invalid_intelligence_hint';
   changedPath?: string;
   detail: string;
 }
@@ -34,6 +69,7 @@ export interface ChangedCapabilitySelection {
   focused: boolean;
   complete: boolean;
   reasons: SelectionReason[];
+  hintDecisions: SelectionHintDecision[];
   limitations: SelectionLimitation[];
 }
 
@@ -104,15 +140,21 @@ export function validateConfigAgainstScenarios(
 export function selectChangedCapabilities(
   config: VerifyConfig,
   availableScenarioIds: ReadonlySet<string>,
-  changedPaths: readonly string[]
+  changedPaths: readonly string[],
+  supportingEvidence: readonly SelectionHintEvidence[] = []
 ): ChangedCapabilitySelection {
   const normalizedPaths = [...new Set(changedPaths)].sort();
   const selected = new Set<string>();
   const fallback = new Set<string>();
   const matchedCapabilities = new Set<string>();
   const reasons: SelectionReason[] = [];
+  const hintDecisions: SelectionHintDecision[] = [];
   const limitations: SelectionLimitation[] = [];
+  const usableHints: Array<
+    RankedSelectionHint & Pick<SelectionHintEvidence, 'source' | 'sourceIdentity'>
+  > = [];
   let needsFallback = false;
+  let remainingHintBudget = MAX_TOTAL_HINTS;
 
   for (const scenarioId of config.mandatorySmoke) {
     selected.add(scenarioId);
@@ -174,6 +216,86 @@ export function selectChangedCapabilities(
     }
   }
 
+  const boundedEvidence = supportingEvidence.slice(0, MAX_HINT_EVIDENCE_SETS);
+  if (supportingEvidence.length > boundedEvidence.length) {
+    needsFallback = true;
+    limitations.push({
+      code: 'unsafe_supporting_evidence',
+      detail: `Supporting evidence exceeds ${MAX_HINT_EVIDENCE_SETS} sets; excess hints were ignored`,
+    });
+  }
+  for (const evidence of stableEvidence(boundedEvidence)) {
+    if (!isValidSourceIdentity(evidence.sourceIdentity)) {
+      needsFallback = true;
+      limitations.push({
+        code: 'unsafe_supporting_evidence',
+        detail: `${evidence.source} evidence has an invalid source identity; its hints were ignored`,
+      });
+      continue;
+    }
+    const boundedHints = evidence.hints.slice(0, remainingHintBudget);
+    remainingHintBudget -= boundedHints.length;
+    if (boundedHints.length < evidence.hints.length) {
+      needsFallback = true;
+      limitations.push({
+        code: 'unsafe_supporting_evidence',
+        detail: `Supporting evidence exceeds ${MAX_TOTAL_HINTS} total hints; excess hints were ignored`,
+      });
+    }
+    const validHints: RankedSelectionHint[] = [];
+    for (const hint of boundedHints) {
+      if (isValidHint(hint)) {
+        validHints.push(hint);
+      } else {
+        needsFallback = true;
+        limitations.push({
+          code: 'invalid_intelligence_hint',
+          detail: `${evidence.source} evidence ${JSON.stringify(evidence.sourceIdentity)} contained an invalid hint`,
+        });
+      }
+    }
+    if (evidence.state !== 'current') {
+      needsFallback = true;
+      limitations.push({
+        code: 'unsafe_supporting_evidence',
+        detail: `${evidence.source} evidence ${JSON.stringify(evidence.sourceIdentity)} is ${evidence.state}; its hints were ignored`,
+      });
+      for (const hint of stableHints(validHints)) {
+        hintDecisions.push({
+          ...hint,
+          source: evidence.source,
+          sourceIdentity: evidence.sourceIdentity,
+          disposition: 'ignored',
+          detail: `${hint.detail}; ignored because the supporting evidence is ${evidence.state}`,
+        });
+      }
+      continue;
+    }
+
+    for (const hint of stableHints(validHints)) {
+      if (!availableScenarioIds.has(hint.scenarioId)) {
+        needsFallback = true;
+        limitations.push({
+          code: 'invalid_intelligence_hint',
+          detail: `${evidence.source} evidence ${JSON.stringify(evidence.sourceIdentity)} referenced an invalid or unavailable scenario ${JSON.stringify(hint.scenarioId)}`,
+        });
+        hintDecisions.push({
+          ...hint,
+          source: evidence.source,
+          sourceIdentity: evidence.sourceIdentity,
+          disposition: 'ignored',
+          detail: `${hint.detail}; ignored because the hinted scenario is invalid or unavailable`,
+        });
+        continue;
+      }
+      usableHints.push({
+        ...hint,
+        source: evidence.source,
+        sourceIdentity: evidence.sourceIdentity,
+      });
+    }
+  }
+
   if (needsFallback) {
     for (const scenarioId of config.sharedInfrastructure.fallbackScenarios) {
       fallback.add(scenarioId);
@@ -189,6 +311,28 @@ export function selectChangedCapabilities(
     }
   }
 
+  const authoritativeScenarioIds = [...selected].sort();
+  const hintedScenarioIds: string[] = [];
+  for (const hint of stableHints(usableHints)) {
+    const alreadySelected = selected.has(hint.scenarioId);
+    if (!alreadySelected) {
+      selected.add(hint.scenarioId);
+      hintedScenarioIds.push(hint.scenarioId);
+    }
+    const decision: SelectionHintDecision = {
+      ...hint,
+      disposition: alreadySelected ? 'already_selected' : 'selected',
+    };
+    hintDecisions.push(decision);
+    reasons.push({
+      kind: 'intelligence_hint',
+      scenarioId: hint.scenarioId,
+      hintSource: hint.source,
+      hintRank: hint.rank,
+      detail: `${hint.source} hint ${JSON.stringify(hint.sourceIdentity)} ranked ${JSON.stringify(hint.scenarioId)} at ${hint.rank}; ${alreadySelected ? 'authoritative selection retained it' : 'added as advisory coverage'}`,
+    });
+  }
+
   const missingScenarios = [...selected].filter(
     (scenarioId) => !availableScenarioIds.has(scenarioId)
   );
@@ -202,12 +346,13 @@ export function selectChangedCapabilities(
   return {
     changedPaths: normalizedPaths,
     matchedCapabilityIds: [...matchedCapabilities].sort(),
-    selectedScenarioIds: [...selected].sort(),
+    selectedScenarioIds: [...authoritativeScenarioIds, ...hintedScenarioIds],
     mandatorySmokeIds: [...new Set(config.mandatorySmoke)].sort(),
     fallbackScenarioIds: [...fallback].sort(),
     focused: !needsFallback,
     complete: normalizedPaths.length > 0 && missingScenarios.length === 0,
     reasons: stableUniqueReasons(reasons),
+    hintDecisions,
     limitations,
   };
 }
@@ -282,4 +427,43 @@ function stableUniqueReasons(reasons: SelectionReason[]): SelectionReason[] {
       seen.add(key);
       return true;
     });
+}
+
+function stableEvidence(evidence: readonly SelectionHintEvidence[]): SelectionHintEvidence[] {
+  return [...evidence].sort((left, right) =>
+    [left.source, left.sourceIdentity]
+      .join('\0')
+      .localeCompare([right.source, right.sourceIdentity].join('\0'))
+  );
+}
+
+function stableHints<
+  T extends RankedSelectionHint & Partial<Pick<SelectionHintEvidence, 'source' | 'sourceIdentity'>>,
+>(hints: readonly T[]): T[] {
+  return [...hints].sort(
+    (left, right) =>
+      right.rank - left.rank ||
+      (left.source ?? '').localeCompare(right.source ?? '') ||
+      left.scenarioId.localeCompare(right.scenarioId) ||
+      (left.sourceIdentity ?? '').localeCompare(right.sourceIdentity ?? '') ||
+      left.detail.localeCompare(right.detail)
+  );
+}
+
+function isValidHint(hint: RankedSelectionHint): boolean {
+  return (
+    /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(hint.scenarioId) &&
+    Number.isFinite(hint.rank) &&
+    hint.rank >= 0 &&
+    hint.detail.trim().length > 0 &&
+    hint.detail.length <= 500
+  );
+}
+
+function isValidSourceIdentity(value: string): boolean {
+  return (
+    value.trim().length > 0 &&
+    value.length <= MAX_HINT_SOURCE_IDENTITY_LENGTH &&
+    !Array.from(value).some((character) => character.charCodeAt(0) < 32)
+  );
 }
