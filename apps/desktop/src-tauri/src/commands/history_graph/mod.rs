@@ -385,10 +385,9 @@ pub use api::{
     explain_history_entity, get_history_graph_status, get_history_timeline,
     list_history_annotations,
 };
-pub use catalog::{history_list_releases, history_search, load_history_revisions};
+pub use catalog::load_history_revisions;
 pub use state::{
-    get_history_as_of, get_history_entity_evolution, get_history_structural_delta,
-    get_history_structural_state,
+    get_history_entity_evolution, get_history_structural_delta, get_history_structural_state,
 };
 
 pub(crate) use catalog::git::{git_text, resolve_revision};

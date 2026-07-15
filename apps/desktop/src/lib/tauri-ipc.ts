@@ -2086,19 +2086,6 @@ export interface HistoryEntityEvolution {
   next_cursor?: string | null;
 }
 
-export type HistoryTemporalReference =
-  | { kind: 'revision'; revision: string }
-  | { kind: 'release'; tag: string }
-  | { kind: 'date'; at: string };
-
-export interface HistoryAsOfState {
-  requested: HistoryTemporalReference;
-  resolved_revision: string;
-  committed_at: string;
-  exact: boolean;
-  state: HistoryStructuralState;
-}
-
 export interface HistoryBackfillProgress {
   phase: string;
   completed: number;
@@ -2276,24 +2263,6 @@ export interface HistoryCausalTrace {
   next_cursor?: string | null;
 }
 
-export interface HistoryReviewSlice {
-  schema_version: number;
-  repo_path: string;
-  files: string[];
-  entity_ids: string[];
-  episodes: HistoryChangeEpisode[];
-  constraints: HistoryCausalEvent[];
-  verification: HistoryCausalEvent[];
-  failures: HistoryCausalEvent[];
-  regressions: HistoryCausalEvent[];
-  qualified_leads: HistoryCausalEvent[];
-  gaps: string[];
-  indexed_head: string;
-  stale: boolean;
-  coverage: Record<string, unknown>;
-  truncated: boolean;
-}
-
 export type HistoryAnnotationDecision = 'note' | 'confirm' | 'reject' | 'correction';
 
 export interface HistoryAnnotation {
@@ -2313,11 +2282,6 @@ export interface HistoryAnnotationPage {
   annotations: HistoryAnnotation[];
   truncated: boolean;
   next_cursor?: string | null;
-}
-
-export interface HistorySearchResult {
-  revisions: HistoryRevision[];
-  truncated: boolean;
 }
 
 export async function getHistoryTimeline(
@@ -2357,12 +2321,6 @@ export async function getHistoryEvidenceAdapters(
   repoPath: string
 ): Promise<HistoryEvidenceAdapterDescriptor[]> {
   return safeInvoke('get_history_evidence_adapters', { repoPath });
-}
-
-export async function refreshHistoryEvidence(
-  repoPath: string
-): Promise<HistoryEvidenceRefreshResult> {
-  return safeInvoke('refresh_history_evidence', { repoPath });
 }
 
 export async function importHistoryEvidenceExport(
@@ -2469,33 +2427,6 @@ export async function getHistoryEntityEvolution(
     entity,
     revision: revision ?? null,
   });
-}
-
-export async function getHistoryAsOf(
-  repoPath: string,
-  reference: HistoryTemporalReference,
-  maxNodes?: number
-): Promise<HistoryAsOfState> {
-  return safeInvoke('get_history_as_of', {
-    repoPath,
-    reference,
-    maxNodes: maxNodes ?? null,
-  });
-}
-
-export async function listHistoryReleases(
-  repoPath: string,
-  limit?: number
-): Promise<HistorySearchResult> {
-  return safeInvoke('history_list_releases', { repoPath, limit: limit ?? null });
-}
-
-export async function searchHistory(
-  repoPath: string,
-  query: string,
-  limit?: number
-): Promise<HistorySearchResult> {
-  return safeInvoke('history_search', { repoPath, query, limit: limit ?? null });
 }
 
 export async function getRepoHistoryContext(

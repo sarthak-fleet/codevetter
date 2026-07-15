@@ -1,46 +1,5 @@
 use super::*;
 
-#[tauri::command]
-pub async fn history_list_releases(
-    repo_path: String,
-    limit: Option<usize>,
-    db: State<'_, DbState>,
-) -> Result<HistorySearchResult, String> {
-    query_history_revisions(repo_path, None, true, limit, db).await
-}
-
-#[tauri::command]
-pub async fn history_search(
-    repo_path: String,
-    query: String,
-    limit: Option<usize>,
-    db: State<'_, DbState>,
-) -> Result<HistorySearchResult, String> {
-    query_history_revisions(repo_path, Some(query), false, limit, db).await
-}
-
-pub(super) async fn query_history_revisions(
-    repo_path: String,
-    query: Option<String>,
-    releases_only: bool,
-    limit: Option<usize>,
-    db: State<'_, DbState>,
-) -> Result<HistorySearchResult, String> {
-    let key = canonical_repo_path(&repo_path)?
-        .to_string_lossy()
-        .to_string();
-    let database = Arc::clone(&db.0);
-    let limit = limit.unwrap_or(50).clamp(1, 200);
-    tokio::task::spawn_blocking(move || {
-        let connection = database
-            .lock()
-            .map_err(|_| "History database is unavailable".to_string())?;
-        load_history_revisions(&connection, &key, query.as_deref(), releases_only, limit)
-    })
-    .await
-    .map_err(|error| format!("History query worker failed: {error}"))?
-}
-
 pub fn load_history_revisions(
     connection: &Connection,
     repo_path: &str,

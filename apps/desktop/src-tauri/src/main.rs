@@ -480,7 +480,6 @@ fn main() {
             // Temporal repository graph
             commands::history_graph::api::backfill_history_graph,
             commands::history_graph::api::cancel_history_backfill,
-            commands::history_graph::state::get_history_as_of,
             commands::history_graph::state::get_history_entity_evolution,
             commands::history_graph::api::get_history_graph_status,
             commands::history_graph::api::explain_history_entity,
@@ -489,10 +488,7 @@ fn main() {
             commands::history_graph::state::get_history_structural_delta,
             commands::history_graph::state::get_history_structural_state,
             commands::history_graph::api::get_history_timeline,
-            commands::history_graph::catalog::history_list_releases,
-            commands::history_graph::catalog::history_search,
             commands::history_evidence::service::get_history_evidence_adapters,
-            commands::history_evidence::service::refresh_history_evidence,
             commands::history_evidence::service::import_history_evidence_export,
             commands::history_query::service::get_history_causal_trace,
             // Repository-scoped local MCP access

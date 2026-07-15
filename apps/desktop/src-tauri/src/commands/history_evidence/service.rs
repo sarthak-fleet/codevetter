@@ -44,23 +44,6 @@ pub async fn get_history_evidence_adapters(
 }
 
 #[tauri::command]
-pub async fn refresh_history_evidence(
-    repo_path: String,
-    db: State<'_, DbState>,
-) -> Result<HistoryEvidenceRefreshResult, String> {
-    let repo_path = canonical_repo_path(&repo_path)?;
-    let database = Arc::clone(&db.0);
-    tokio::task::spawn_blocking(move || {
-        let mut connection = database
-            .lock()
-            .map_err(|_| "History database is unavailable".to_string())?;
-        refresh_builtin_adapters(&mut connection, &repo_path)
-    })
-    .await
-    .map_err(|error| format!("History evidence refresh worker failed: {error}"))?
-}
-
-#[tauri::command]
 pub async fn import_history_evidence_export(
     repo_path: String,
     file_path: String,
