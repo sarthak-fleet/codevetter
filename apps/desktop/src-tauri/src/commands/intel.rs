@@ -1297,46 +1297,6 @@ pub(crate) fn top_directory(path: &str) -> &str {
     }
 }
 
-// ─── Tool breakdown query ───────────────────────────────────────────────────
-
-fn canonicalize_model(raw: &str) -> String {
-    let r = raw.to_ascii_lowercase();
-    if r.is_empty() {
-        return "unknown".into();
-    }
-    if r.contains("opus") {
-        return "opus".into();
-    }
-    if r.contains("sonnet") {
-        return "sonnet".into();
-    }
-    if r.contains("haiku") {
-        return "haiku".into();
-    }
-    if r.contains("gpt-4o") {
-        return "gpt-4o".into();
-    }
-    if r.contains("gpt-4.1") {
-        return "gpt-4.1".into();
-    }
-    if r.contains("o3") || r.contains("o4-mini") {
-        return "o-series".into();
-    }
-    r
-}
-
-fn percentiles(values: &mut [f64]) -> (f64, f64) {
-    if values.is_empty() {
-        return (0.0, 0.0);
-    }
-    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let pick = |q: f64| {
-        let idx = ((values.len() as f64 - 1.0) * q).round() as usize;
-        values[idx.min(values.len() - 1)]
-    };
-    (pick(0.5), pick(0.95))
-}
-
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1608,23 +1568,6 @@ Co-Authored-By: Claude <noreply@anthropic.com>
         let (tool, is_ai) = classify_commit(c);
         assert_eq!(tool, TOOL_CURSOR);
         assert!(is_ai);
-    }
-
-    #[test]
-    fn percentiles_basic() {
-        let mut v = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
-        let (p50, p95) = percentiles(&mut v);
-        assert!(p50 >= 5.0 && p50 <= 6.0);
-        assert!(p95 >= 9.0 && p95 <= 10.0);
-    }
-
-    #[test]
-    fn canonicalize_model_buckets_correctly() {
-        assert_eq!(canonicalize_model("claude-opus-4-7"), "opus");
-        assert_eq!(canonicalize_model("claude-sonnet-4-6"), "sonnet");
-        assert_eq!(canonicalize_model("haiku-4-5"), "haiku");
-        assert_eq!(canonicalize_model("gpt-4o-2024-08-06"), "gpt-4o");
-        assert_eq!(canonicalize_model(""), "unknown");
     }
 
     // ─── v1.1.77 helpers ───────────────────────────────────────────────────

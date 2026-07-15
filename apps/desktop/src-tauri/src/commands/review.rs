@@ -2368,52 +2368,6 @@ pub(crate) fn unwrap_agent_envelope(agent: &str, raw: &str) -> String {
     raw.to_string()
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CommandCodeModelRow {
-    pub id: String,
-    pub description: String,
-    pub group: String,
-}
-
-fn parse_command_code_models_output(raw: &str) -> Vec<CommandCodeModelRow> {
-    let known_groups = ["Open Source", "Anthropic", "OpenAI", "Google", "Sakana"];
-    let mut current_group = "Other".to_string();
-    let mut models = Vec::new();
-
-    for line in raw.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if trimmed.starts_with("Available models")
-            || trimmed.starts_with("Pass the full id")
-            || trimmed.starts_with("Docs:")
-        {
-            continue;
-        }
-        if known_groups.contains(&trimmed) {
-            current_group = trimmed.to_string();
-            continue;
-        }
-        let Some((id, description)) = trimmed.split_once("  ") else {
-            continue;
-        };
-        let id = id.trim();
-        let description = description.trim();
-        if id.is_empty() {
-            continue;
-        }
-        models.push(CommandCodeModelRow {
-            id: id.to_string(),
-            description: description.to_string(),
-            group: current_group.clone(),
-        });
-    }
-
-    models
-}
-
 /// Public re-export for `unpack.rs` (and any future module) — same logic, no
 /// duplication.
 pub fn extract_json_from_output_pub(output: &str) -> Option<String> {
@@ -2884,17 +2838,6 @@ mod tests {
         let rendered = render_review_memory_graph_for_prompt(&review_graph);
         assert!(rendered.contains("navigation lead"));
         assert!(rendered.contains("cannot independently create a finding or verified claim"));
-    }
-
-    #[test]
-    fn parse_command_code_models_output_groups_models() {
-        let raw = "Available models  ·  35 models\n\nOpen Source\n\ndeepseek/deepseek-v4-flash           fast hybrid-attention reasoning (default)\n\nAnthropic\n\nclaude-sonnet-5                      best combo of speed & intelligence (recommended)\n";
-        let models = parse_command_code_models_output(raw);
-        assert_eq!(models.len(), 2);
-        assert_eq!(models[0].id, "deepseek/deepseek-v4-flash");
-        assert_eq!(models[0].group, "Open Source");
-        assert_eq!(models[1].id, "claude-sonnet-5");
-        assert_eq!(models[1].group, "Anthropic");
     }
 }
 

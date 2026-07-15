@@ -124,14 +124,6 @@ pub async fn open_in_app(app_name: String, path: String) -> Result<Value, String
 
 // ─── Internal helpers ───────────────────────────────────────────────────────
 
-// ─── Simple gitignore parser ───────────────────────────────────────────────
-
-struct GlobPattern {
-    pattern: String,
-    negated: bool,
-    dir_only: bool,
-}
-
 /// Detect programming language from file extension.
 fn detect_language(path: &Path) -> String {
     let ext = path
