@@ -70,7 +70,7 @@
 - [ ] 8.2 Run two warm-up batches plus at least 20 recorded 20-scenario batches and enforce whole-invocation p95 below 30 seconds on the recorded Mac.
 - [ ] 8.3 Measure and publish the normal small changed-capability hot path, then set a regression budget from evidence without weakening the mandatory 20-scenario gate.
 - [x] 8.4 Run observer negative fixtures outside performance samples and prove all required automatic regressions are detected without handwritten assertions.
-- [ ] 8.5 Implement passing-summary-only retention, failure/explicit artifact capture, count/byte/age caps, redacted cleanup controls, and shared Playwright-cache report-only behavior.
+- [x] 8.5 Implement passing-summary-only retention, failure/explicit artifact capture, count/byte/age caps, redacted cleanup controls, and shared Playwright-cache report-only behavior.
 - [ ] 8.6 Run 100 warm batches with failures and cancellations; gate context/process cleanup, bounded RSS, stable browser/server reuse, artifact caps, and no Cargo/Tauri/production build invocation.
 - [ ] 8.7 Profile parallelism one through four on the benchmark Mac and select the fastest stable default while retaining deterministic isolation.
 

@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import type { VerifyArtifact, VerifyObservationDisposition } from './contracts';
+import { ensureOwnedDirectory } from './retention';
 
 export const VISUAL_BASELINE_VERSION = 1 as const;
 export const VISUAL_CAPTURE_CONTRACT = 'playwright-exact-png-masked-v1' as const;
@@ -60,6 +61,7 @@ export interface VisualCheckpointVerifierOptions {
   scenarioId: string;
   scenarioSourceHash: string;
   artifactBudget: VisualArtifactBudget;
+  detailedCapture?: boolean;
   now?: () => Date;
   capture?: (page: Page) => Promise<Uint8Array>;
   environment?: (page: Page) => Promise<VisualEnvironment>;
@@ -126,7 +128,7 @@ export class VisualCheckpointVerifier {
     const actualHash = sha256(screenshot);
     const baseline = await this.#loadBaseline(name);
     if (baseline.kind !== 'loaded') {
-      const artifact = await this.#retainFailure(name, screenshot, actualHash);
+      const artifact = await this.#retainArtifact(name, screenshot, actualHash);
       return noConfidence(
         baseline.policyId,
         baseline.message,
@@ -147,7 +149,7 @@ export class VisualCheckpointVerifier {
       environment,
     });
     if (incompatibility) {
-      const artifact = await this.#retainFailure(name, screenshot, actualHash);
+      const artifact = await this.#retainArtifact(name, screenshot, actualHash);
       return noConfidence(
         incompatibility.policyId,
         incompatibility.message,
@@ -165,6 +167,9 @@ export class VisualCheckpointVerifier {
       baseline.value.screenshot_sha256 === actualHash &&
       baseline.value.screenshot_bytes === screenshot.byteLength;
     if (exactMatch) {
+      const artifact = this.#options.detailedCapture
+        ? await this.#retainArtifact(name, screenshot, actualHash)
+        : undefined;
       return {
         disposition: 'passed',
         policyId: 'visual.exact-baseline',
@@ -174,11 +179,13 @@ export class VisualCheckpointVerifier {
           screenshot_sha256: actualHash,
           screenshot_bytes: screenshot.byteLength,
           baseline_version: VISUAL_BASELINE_VERSION,
+          artifact_retained: Boolean(artifact),
         },
+        ...(artifact ? { artifact } : {}),
       };
     }
 
-    const artifact = await this.#retainFailure(name, screenshot, actualHash);
+    const artifact = await this.#retainArtifact(name, screenshot, actualHash);
     return {
       disposition: 'regression',
       policyId: 'visual.exact-baseline',
@@ -247,7 +254,7 @@ export class VisualCheckpointVerifier {
     }
   }
 
-  async #retainFailure(
+  async #retainArtifact(
     checkpoint: string,
     screenshot: Uint8Array,
     screenshotHash: string
@@ -264,9 +271,8 @@ export class VisualCheckpointVerifier {
     if (!isWithin(retentionRoot, targetPath)) return undefined;
     let safeTargetPath: string;
     try {
-      const canonicalRepoRoot = await realpath(this.#options.repoRoot);
-      const targetParent = await ensureDirectoryPath(
-        canonicalRepoRoot,
+      const targetParent = await ensureOwnedDirectory(
+        this.#options.repoRoot,
         path.relative(this.#options.repoRoot, path.dirname(targetPath))
       );
       safeTargetPath = path.join(targetParent, path.basename(targetPath));
@@ -297,26 +303,6 @@ export class VisualCheckpointVerifier {
       scenario_id: this.#options.scenarioId,
     };
   }
-}
-
-async function ensureDirectoryPath(root: string, relativeDirectory: string): Promise<string> {
-  if (!isWithin(root, path.resolve(root, relativeDirectory))) {
-    throw new Error('Artifact directory escapes the repository');
-  }
-  let current = root;
-  for (const segment of relativeDirectory.split(path.sep).filter(Boolean)) {
-    current = path.join(current, segment);
-    try {
-      const metadata = await lstat(current);
-      if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-        throw new Error('Artifact directory contains a non-directory path');
-      }
-    } catch (error) {
-      if (!isNodeError(error) || error.code !== 'ENOENT') throw error;
-      await mkdir(current);
-    }
-  }
-  return current;
 }
 
 export function visualBaselinePath(

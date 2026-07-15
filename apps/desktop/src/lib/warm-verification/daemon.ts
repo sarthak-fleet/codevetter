@@ -22,6 +22,7 @@ import type { VerifyConfigSnapshot } from './config-loader';
 import { VerifyConfigLoader } from './config-loader';
 import { ScenarioManifestLoader } from './manifest-loader';
 import { redactVerifyResult } from './redaction';
+import { WarmArtifactRetention } from './retention';
 import { ScenarioRunner, type ScenarioBatchResult } from './runner';
 import { elapsed, raceAbort, safeErrorMessage, throwIfAborted } from './runtime-utils';
 import type { ScenarioManifest } from './scenario';
@@ -74,6 +75,7 @@ export class VerificationDaemon {
   readonly #onShutdown: (graceMs: number) => void;
   readonly #collectChangeSet: NonNullable<VerificationDaemonDependencies['collectChangeSet']>;
   readonly #watchSources: typeof watchVerificationSources;
+  readonly #retention: WarmArtifactRetention;
   readonly #startupStartedAt: number;
   readonly #activeRuns = new Map<string, ActiveRun>();
 
@@ -108,6 +110,11 @@ export class VerificationDaemon {
     this.#onShutdown = dependencies.onShutdown ?? (() => undefined);
     this.#collectChangeSet = dependencies.collectChangeSet ?? collectGitChangeSet;
     this.#watchSources = dependencies.watchSources ?? watchVerificationSources;
+    this.#retention = new WarmArtifactRetention(
+      repoRoot,
+      startupConfig.config.retention,
+      this.#now
+    );
   }
 
   static async create(
@@ -142,6 +149,7 @@ export class VerificationDaemon {
   }
 
   async start(): Promise<void> {
+    await this.#retention.enforce();
     await this.#runtime.start();
     this.#coldStartupMs = elapsed(this.#monotonicNow, this.#startupStartedAt);
   }
@@ -186,7 +194,7 @@ export class VerificationDaemon {
         rss_bytes: memory.rss,
         heap_used_bytes: memory.heapUsed,
         active_contexts: this.#runner?.activeContextCount ?? 0,
-        retained_artifact_bytes: 0,
+        retained_artifact_bytes: this.#retention.retainedBytes,
       },
       checked_at: this.#now().toISOString(),
     };
@@ -244,6 +252,7 @@ export class VerificationDaemon {
         request.run_id,
         request.change_set,
         request.options.batch_timeout_ms,
+        request.options.detailed_capture,
         active
       );
       return { type: 'verify_result', result };
@@ -288,6 +297,7 @@ export class VerificationDaemon {
     runId: string,
     changeSet: VerifyChangeSetIdentity,
     requestedBatchTimeoutMs: number,
+    detailedCapture: boolean,
     active: ActiveRun
   ): Promise<VerifyResult> {
     const started = this.#now();
@@ -364,6 +374,7 @@ export class VerificationDaemon {
       batch = await runner.run(manifest, {
         runId,
         scenarioIds: selection.selectedScenarioIds,
+        detailedCapture,
         signal: runSignal,
       });
       const afterRuntime = await raceAbort(this.#runtime.ensureReady(), runSignal);
@@ -497,7 +508,32 @@ export class VerificationDaemon {
       ...(batch?.timings.filter((timing) => timing.stage !== 'total') ?? []),
       { stage: 'total', duration_ms: elapsed(this.#monotonicNow, invocationStarted) },
     ];
-    return redactVerifyResult(result);
+    const redacted = redactVerifyResult(result);
+    try {
+      const retained = await this.#retention.finalize({
+        runId,
+        outcome: redacted.outcome,
+        createdAt: redacted.finished_at,
+        detailedCapture,
+        artifacts: redacted.artifacts,
+      });
+      redacted.artifacts = retained.artifacts;
+      if (retained.droppedArtifactIds.length > 0) {
+        redacted.limitations.push({
+          code: 'artifact_limit',
+          message: `${retained.droppedArtifactIds.length} artifact(s) were not retained under the configured ownership or storage policy`,
+          affects_confidence: false,
+        });
+      }
+    } catch (error) {
+      redacted.artifacts = [];
+      redacted.limitations.push({
+        code: 'artifact_limit',
+        message: `Artifact retention was unavailable: ${safeErrorMessage(error)}`,
+        affects_confidence: false,
+      });
+    }
+    return redacted;
   }
 
   async #timed<T>(

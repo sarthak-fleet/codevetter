@@ -13,6 +13,7 @@ import {
   type IntelligenceBoundarySnapshot,
 } from './intelligence-boundary';
 import { AutomaticObserver, type AutomaticObserverResult } from './observer';
+import { RETENTION_SUMMARY_RESERVE_BYTES } from './retention';
 import { elapsed, raceAbort, safeErrorMessage, throwIfAborted } from './runtime-utils';
 import type { PublishedScenario, ScenarioManifest } from './scenario';
 import {
@@ -45,6 +46,7 @@ export interface ScenarioBatchResult {
 export interface ScenarioBatchRequest {
   runId: string;
   scenarioIds: readonly string[];
+  detailedCapture?: boolean;
   signal?: AbortSignal;
 }
 
@@ -123,7 +125,9 @@ export class ScenarioRunner {
     const batchSignal = request.signal
       ? AbortSignal.any([request.signal, batchTimeout])
       : batchTimeout;
-    const artifactBudget = new VisualArtifactBudget(this.#config.retention.maxBytes);
+    const artifactBudget = new VisualArtifactBudget(
+      Math.max(0, this.#config.retention.maxBytes - RETENTION_SUMMARY_RESERVE_BYTES)
+    );
     const results = await intelligenceGuard.runBatch(() =>
       runBounded(
         selected,
@@ -135,7 +139,8 @@ export class ScenarioRunner {
               scenario,
               batchSignal,
               intelligenceGuard,
-              artifactBudget
+              artifactBudget,
+              request.detailedCapture === true
             )
           )
       )
@@ -166,7 +171,8 @@ export class ScenarioRunner {
     scenario: PublishedScenario,
     batchSignal: AbortSignal,
     intelligenceGuard: ExternalIntelligenceGuard,
-    artifactBudget: VisualArtifactBudget
+    artifactBudget: VisualArtifactBudget,
+    detailedCapture: boolean
   ): Promise<ScenarioExecutionResult> {
     const started = this.#monotonicNow();
     const timings: VerifyTiming[] = [];
@@ -223,6 +229,7 @@ export class ScenarioRunner {
           scenarioId: scenario.id,
           scenarioSourceHash: scenario.sourceHash,
           artifactBudget,
+          detailedCapture,
           now: this.#now,
         }),
         now: this.#now,

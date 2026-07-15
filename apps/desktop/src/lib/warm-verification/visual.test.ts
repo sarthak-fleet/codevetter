@@ -49,6 +49,17 @@ describe('VisualCheckpointVerifier', () => {
     assert.equal(result.evidence.screenshot_bytes, screenshot.byteLength);
   });
 
+  it('retains an exact passing screenshot only when detailed capture is explicit', async () => {
+    const fixture = await createFixture();
+    await fixture.writeBaseline(baseline(screenshot));
+
+    const result = await fixture.verifier(true).verify('ready', page);
+
+    assert.equal(result.disposition, 'passed');
+    assert.equal(result.artifact?.bytes, screenshot.byteLength);
+    assert.equal(result.evidence.artifact_retained, true);
+  });
+
   it('reports an exact-byte mismatch as a regression with a bounded failure artifact', async () => {
     const fixture = await createFixture();
     const expected = Buffer.from('other screenshot bytes');
@@ -146,7 +157,7 @@ async function createFixture(artifactBudget = new VisualArtifactBudget()) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'codevetter-visual-'));
   roots.push(root);
   let captures = 0;
-  const verifier = () =>
+  const verifier = (detailedCapture = false) =>
     new VisualCheckpointVerifier({
       repoRoot: root,
       retentionDirectory: '.codevetter/artifacts',
@@ -155,6 +166,7 @@ async function createFixture(artifactBudget = new VisualArtifactBudget()) {
       scenarioId: 'scenario-1',
       scenarioSourceHash: 'a'.repeat(64),
       artifactBudget,
+      detailedCapture,
       now: () => new Date('2026-07-15T00:00:00.000Z'),
       capture: async () => {
         captures += 1;
