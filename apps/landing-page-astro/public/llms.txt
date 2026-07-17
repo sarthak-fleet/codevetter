@@ -1,16 +1,18 @@
 # CodeVetter
 
-> Desktop-first AI code review workbench for agent-generated code. Local SQLite storage, Tauri shell, evidence-backed review loops — your repo never hits a central server.
-
-Open source (ISC). macOS desktop app with optional Claude, Codex, or Gemini CLI backends.
+> Desktop-first AI code review workbench for agent-generated code. Local SQLite, Tauri shell, evidence-backed review — your repo never hits a central server.
 
 ## Product
 
-- [Home](https://codevetter.com/): Features, pricing, and how it works
-- [Download](https://codevetter.com/download): macOS release and install instructions
-- [Agent PR benchmark](https://codevetter.com/benchmark): Public benchmark plan for measuring AI review catch rate
-- [Privacy](https://codevetter.com/privacy): Local-first data handling and third-party CLI usage
-- [Terms](https://codevetter.com/terms): Terms of use
+- [Home](https://codevetter.com/): Features, pricing, how it works
+- [Download](https://codevetter.com/download): macOS release
+- [Privacy](https://codevetter.com/privacy): Local-first data handling
+
+## Machine surfaces
+
+- [Agent catalog](https://codevetter.com/api/ai): JSON inventory of public surfaces
+- [Homepage markdown](https://codevetter.com/index.md): Product brief without JS
+- [This index](https://codevetter.com/llms.txt)
 
 ## Docs
 
@@ -20,4 +22,3 @@ Open source (ISC). macOS desktop app with optional Claude, Codex, or Gemini CLI 
 ## Optional
 
 - [Foundry](https://sassmaker.com): Parent fleet showcase
-- [Sarthak Agrawal](https://sarthakagrawal.dev): Builder portfolio

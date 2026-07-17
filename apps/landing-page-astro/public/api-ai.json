@@ -1,0 +1,39 @@
+{
+  "name": "CodeVetter",
+  "version": "1",
+  "url": "https://codevetter.com",
+  "llms": "https://codevetter.com/llms.txt",
+  "llmsFull": null,
+  "sitemap": "https://codevetter.com/sitemap.xml",
+  "markdown": {
+    "suffix": ".md",
+    "negotiation": true
+  },
+  "surfaces": [
+    {
+      "id": "home",
+      "url": "https://codevetter.com/",
+      "md": "https://codevetter.com/index.md",
+      "kind": "static",
+      "description": "Product home"
+    },
+    {
+      "id": "download",
+      "url": "https://codevetter.com/download",
+      "md": null,
+      "kind": "static",
+      "description": "macOS release"
+    },
+    {
+      "id": "privacy",
+      "url": "https://codevetter.com/privacy",
+      "md": null,
+      "kind": "static",
+      "description": "Local-first data handling"
+    }
+  ],
+  "auth": {
+    "public": true,
+    "notes": "Auth-walled app routes are not agent-indexed unless listed here."
+  }
+}
