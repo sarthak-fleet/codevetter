@@ -1,3 +1,7 @@
+---
+title: Scenario compilation
+---
+
 # Scenario compilation
 
 T-Rex can turn a bounded Markdown acceptance criterion into a private scenario

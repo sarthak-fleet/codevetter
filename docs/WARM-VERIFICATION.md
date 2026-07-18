@@ -1,3 +1,7 @@
+---
+title: Warm local verification
+---
+
 # Warm local verification
 
 `verify changed` is CodeVetter's deterministic browser check for one developer,

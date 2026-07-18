@@ -1,3 +1,7 @@
+---
+title: Business-rule archaeology
+---
+
 # Business-rule archaeology
 
 Business-rule archaeology is a local, evidence-first index for explaining source behavior. It

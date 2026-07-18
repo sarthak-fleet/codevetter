@@ -1,3 +1,7 @@
+---
+title: Structural graph coverage contract
+---
+
 # Structural graph coverage contract
 
 Last verified: 2026-07-18

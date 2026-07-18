@@ -1,3 +1,7 @@
+---
+title: Local differential verification
+---
+
 # Local differential verification
 
 Differential verification compares the same selected scenarios against an

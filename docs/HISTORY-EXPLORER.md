@@ -1,3 +1,7 @@
+---
+title: Local History Explorer
+---
+
 # Local History Explorer
 
 CodeVetter's History Explorer is a local, read-only view of indexed Git facts
@@ -16,7 +20,7 @@ surfaces available:
 - release navigation, including tags outside the currently loaded timeline;
 - candidate inflection markers derived from bounded churn and structural facts;
 - release-interval contributor participation summaries; and
-- the local, read-only [MCP surface](./MCP.md).
+- the local, read-only [MCP surface](./architecture/mcp-sidecar.md).
 
 The slider identifies revisions by their full Git SHA, not an array position.
 When a selected release or contributor revision is outside the visible window,
