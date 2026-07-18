@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "captured_at": "2026-07-18",
+  "command": "pnpm bench:scenario-compiler",
+  "machine": {
+    "os": "macOS 27.0 (26A5378j)",
+    "architecture": "arm64",
+    "node": "v26.5.0",
+    "pnpm": "10.33.2"
+  },
+  "scope": {
+    "compiler_pipeline": "fixture provider, strict IR parsing, validation, private storage, and cache reuse",
+    "provider": "deterministic test fixture; no network or model inference",
+    "dry_run": "synthetic qualification callback only; verifyd/Chromium dry-run latency is not measured"
+  },
+  "samples": {
+    "compilation_runs": 10,
+    "provider_responses": 1,
+    "dry_run_callbacks": 10
+  },
+  "measured": {
+    "compilation_ms": {
+      "median": 7.29,
+      "max": 12.86
+    },
+    "cache": {
+      "cache_hits": 9,
+      "cache_hit_rate": 0.9,
+      "provider_calls": 1
+    },
+    "structured_output": {
+      "valid_responses": 1,
+      "attempted_responses": 1,
+      "success_rate": 1
+    },
+    "candidate_qualification": {
+      "qualified_candidates": 10,
+      "generated_candidates": 10,
+      "qualified_rate": 1
+    }
+  },
+  "not_measured": {
+    "manual_authoring_time_and_quality": "requires representative human authoring records; no historic record is fabricated",
+    "warm_browser_dry_run_latency": "requires the real verifyd/Chromium qualification path, not this callback fixture",
+    "accepted_candidate_quality": "no candidate is accepted by this private-staging benchmark",
+    "local_free_provider": "requires an explicitly installed local model and recorded model identity",
+    "paid_provider": "requires explicit paid approval and must never be invoked by a default benchmark"
+  }
+}
