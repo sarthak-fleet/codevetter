@@ -11,6 +11,14 @@ jobs:
           node-version: '22'
           cache: 'pnpm'
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
       - name: Lint
@@ -22,12 +30,15 @@ jobs:
       - name: Unit Tests
         working-directory: apps/desktop
         run: pnpm run test:unit
-      - name: MCP protocol and safety tests
-        working-directory: apps/desktop
-        run: cargo test --manifest-path src-tauri/Cargo.toml mcp::
-      - name: MCP release-mode stdio lifecycle
-        working-directory: apps/desktop
-        run: cargo test --release --manifest-path src-tauri/Cargo.toml --test mcp_stdio
       - name: MCP sidecar build smoke
         working-directory: apps/desktop
         run: pnpm run prepare:mcp-sidecar
+      - name: Desktop build
+        working-directory: apps/desktop
+        run: pnpm run build
+      - name: MCP protocol and safety tests
+        working-directory: apps/desktop
+        run: "cargo test --manifest-path src-tauri/Cargo.toml mcp::"
+      - name: MCP release-mode stdio lifecycle
+        working-directory: apps/desktop
+        run: cargo test --release --manifest-path src-tauri/Cargo.toml --test mcp_stdio

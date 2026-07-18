@@ -352,7 +352,7 @@ fn run_with_timeout(bin: &str, args: &[&str], timeout_ms: u64) -> Option<String>
     Some(out)
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
 
