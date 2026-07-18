@@ -29,6 +29,7 @@ Engineers shipping AI-generated PRs who want review before merge — without upl
 
 - Home: https://codevetter.com/ — Features, pricing, how it works
 - Download: https://codevetter.com/download — macOS release
+- FAQ: https://codevetter.com/faq — Common questions about local-first AI code review
 - Privacy: https://codevetter.com/privacy — Local-first data handling
 
 ## Machine surfaces

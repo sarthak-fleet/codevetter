@@ -26,6 +26,13 @@
       "description": "macOS release"
     },
     {
+      "id": "faq",
+      "url": "https://codevetter.com/faq",
+      "md": null,
+      "kind": "static",
+      "description": "Common questions about local-first AI code review"
+    },
+    {
       "id": "privacy",
       "url": "https://codevetter.com/privacy",
       "md": null,
