@@ -16,7 +16,7 @@ pnpm bench          # build + bundle budget + Rust benches (everything)
 pnpm bench:bundle   # JS chunk sizes vs budget (needs a prior `pnpm build`)
 pnpm bench:rust     # serialized index, graph, history, and FTS benches
 pnpm qualify:graph     # enforced canonical-graph backend + UI data-path budgets
-pnpm qualify:graph:browser # enforced history-slider browser interaction budget
+pnpm qualify:graph:browser # history-slider browser interaction qualification
 ```
 
 The Rust benches are `#[ignore]`d (`src-tauri/src/commands/perf_bench.rs`) so they
@@ -25,9 +25,12 @@ assertions. `qualify:graph` sets `CV_ENFORCE_GRAPH_BUDGETS=1`; on the calibrated
 Apple M5 Pro profile, the real-repository structural benchmark enforces the
 release envelope below. Shared release runners set
 `CV_GRAPH_BUDGET_MODE=report-only`, retaining correctness and resource
-measurement without treating variable hosted-runner timing as comparable. The
-script forces one test thread so independent CPU, SQLite, and filesystem benches
-do not contaminate each other's baselines. Bigger inputs:
+measurement without treating variable hosted-runner timing as comparable.
+`qualify:graph:browser` likewise enables its absolute frame-time ceilings only
+outside report-only mode; normal browser CI still exercises every scrub input,
+final revision, accessibility label, and concurrent indexing state. The script
+forces one test thread so independent CPU, SQLite, and filesystem benches do not
+contaminate each other's baselines. Bigger inputs:
 
 ```bash
 cd src-tauri
@@ -281,10 +284,13 @@ transitions, and 2,000 revisions:
 - heap used: **26.5 MiB** (64 MiB gate).
 
 The Playwright scrub test delays mocked background indexing for 1.2 seconds and
-measures 46 animation frames while the slider changes. The latest release-gate
-run measured **8.3 ms p50 / 10.2 ms p95 / 10.3 ms max**, against enforced
-50 ms p95 / 120 ms maximum bounds. This is a browser-level responsiveness proxy; the Rust
-benchmark above separately measures native backfill CPU, memory, and I/O.
+measures at least 40 animation frames while the slider changes. The latest
+calibrated local qualification measured **8.3 ms p50 / 10.2 ms p95 / 10.3 ms
+max**, against enforced
+50 ms p95 / 120 ms maximum bounds. Shared hosted runners report these timings
+while keeping deterministic interaction assertions enforced. This is a
+browser-level responsiveness proxy; the Rust benchmark above separately measures
+native backfill CPU, memory, and I/O.
 
 ### Production Chrome audit
 

@@ -40,7 +40,7 @@
     "qualify:archaeology:reviewer": "node scripts/archaeology-reviewer-effort.mjs",
     "bench:rust": "cargo test --release --manifest-path src-tauri/Cargo.toml perf_bench -- --ignored --nocapture --test-threads=1",
     "qualify:graph": "CV_ENFORCE_GRAPH_BUDGETS=1 cargo test --release --manifest-path src-tauri/Cargo.toml perf_bench::bench_structural_graph_real_repo -- --ignored --nocapture --test-threads=1 && pnpm bench:history-ui",
-    "qualify:graph:browser": "playwright test tests/e2e/repo-unpacked.spec.ts --grep 'history slider stays frame-responsive'",
+    "qualify:graph:browser": "CV_ENFORCE_GRAPH_BROWSER_BUDGETS=1 playwright test tests/e2e/repo-unpacked.spec.ts --grep 'history slider stays frame-responsive'",
     "bench": "npm run build && npm run bench:bundle && npm run bench:rust"
   },
   "dependencies": {

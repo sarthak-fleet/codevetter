@@ -1658,7 +1658,9 @@ test.describe('Repo Unpacked page', () => {
     await expect(page.getByRole('button', { name: 'Resume' })).toHaveCount(0);
   });
 
-  test('history slider stays frame-responsive while background indexing runs', async ({ page }) => {
+  test('history slider stays frame-responsive while background indexing runs', async ({
+    page,
+  }, testInfo) => {
     await installRepoUnpackedMock(page);
     await navigateTo(page, '/unpack');
     await waitForNoSpinners(page);
@@ -1704,9 +1706,18 @@ test.describe('Repo Unpacked page', () => {
         max: ordered.at(-1) ?? 0,
       };
     });
+    testInfo.annotations.push({
+      type: 'graph-frame-metrics',
+      description: JSON.stringify(frameMetrics),
+    });
     expect(frameMetrics.frames).toBeGreaterThanOrEqual(40);
-    expect(frameMetrics.p95).toBeLessThan(50);
-    expect(frameMetrics.max).toBeLessThan(120);
+    const enforceTimingBudget =
+      process.env.CV_ENFORCE_GRAPH_BROWSER_BUDGETS === '1' &&
+      process.env.CV_GRAPH_BUDGET_MODE !== 'report-only';
+    if (enforceTimingBudget) {
+      expect(frameMetrics.p95).toBeLessThan(50);
+      expect(frameMetrics.max).toBeLessThan(120);
+    }
     await expect(page.getByRole('button', { name: 'Index history' })).toBeVisible();
     await expect(slider).toHaveValue('63');
     await expect(slider).toHaveAttribute('aria-valuetext', /Change|Release/);
