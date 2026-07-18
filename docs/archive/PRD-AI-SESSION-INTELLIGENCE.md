@@ -6,17 +6,15 @@ Last updated: 2026-07-13
 
 ## Summary
 
-AI Session Intelligence turns CodeVetter's local agent history into actionable guidance for developers and repos. It borrows the useful parts of Team Cadence: background AI coding session analysis, personal recommendations, repo AI-readiness scoring, and org/team views. CodeVetter should adapt those ideas to its own wedge: agent-written code verification with local evidence.
+AI Session Intelligence turns CodeVetter's local agent history into actionable guidance for developers and repos: background coding-session analysis, personal recommendations, repo AI-readiness scoring, and eventual team views. CodeVetter applies those capabilities to its own wedge: agent-written code verification with local evidence.
 
-Cadence's useful insight is that AI coding logs are not just history. They reveal how well developers use AI, where repos make AI fail, and which habits lead to risky pull requests.
-
-AgentsView adds the tactical architecture CodeVetter should steal: local session source adapters, a SQLite evidence archive, fast usage/stats JSON, per-session cost summaries, full-text search, live updates, and a careful loopback-first security posture.
+AI coding logs are not just history. They reveal how well developers use AI, where repos make agents fail, and which habits lead to risky pull requests. The implementation should use local session adapters, a SQLite evidence archive, fast usage/stats JSON, per-session cost summaries, full-text search, live updates, and a careful loopback-first security posture.
 
 ## Why This, Why Now
 
 CodeVetter already indexes Claude/Codex sessions, extracts command/test snippets, tracks provider usage, links evidence into Review, and has a History surface. The missing product layer is recommendation: "what should this developer or repo change next based on real AI sessions?"
 
-This also points to a credible future team tier. Cadence prices at `$10 / active dev / month` for session analysis, org/team/repo dashboards, personal recommendations, repo AI-readiness scoring, and PR review. CodeVetter can use that as a market anchor later, but the first version should remain local-first and individual-developer useful.
+This also points to a credible future team tier for session analysis, org/team/repo dashboards, personal recommendations, repo AI-readiness scoring, and PR review. Pricing research can happen later; the first version should remain local-first and individual-developer useful.
 
 ## Target User
 
@@ -50,7 +48,7 @@ Secondary: a tech lead who wants to understand which repos are AI-friendly, wher
 
 CodeVetter should treat agent transcripts as source data that is parsed once, normalized, indexed, and then queried cheaply.
 
-Steal from AgentsView:
+Adopt now:
 
 - local SQLite archive as the default store
 - raw transcript path retained as an evidence reference
@@ -80,7 +78,7 @@ Acceptance:
 
 CodeVetter should expose local usage and stats as stable machine-readable output, not just dashboard UI.
 
-Steal from AgentsView:
+Adopt now:
 
 - daily usage summary
 - per-session usage
@@ -166,7 +164,7 @@ Acceptance:
 
 Active sessions should update CodeVetter without waiting for a full manual reindex.
 
-Steal from AgentsView:
+Adopt now:
 
 - server-sent-event style update stream internally where useful
 - active session change detection
@@ -288,7 +286,7 @@ Explore team pricing and cloud sync only after local value is proven.
 
 Acceptance:
 
-- Compare Cadence-style `$10 / active dev / month` against CodeVetter's existing pricing notes.
+- Compare active-developer pricing models against CodeVetter's existing pricing notes.
 - Define active-dev criteria without tracking raw keystrokes or private transcript content.
 - Document enterprise requirements: SSO/SAML, audit logs, custom integrations, retention controls.
 - Decide whether team mode belongs in CodeVetter or a separate SaaS Maker fleet product.
@@ -308,12 +306,12 @@ Acceptance:
 - Review already mines command/test snippets, status, source/event anchors, and artifact paths.
 - Repo Unpacked already scans repo structure and can host repo-readiness output.
 - Dashboard already tracks provider usage, but avoid fake quota percentages where providers do not expose real limits.
-- AgentsView's local SQLite plus JSON CLI shape is the closest reference for implementation, but CodeVetter should avoid adding it as a required dependency until the adapter contract is proven.
+- Keep the local SQLite and JSON CLI boundary implementation-owned; prove the adapter contract before adding any dependency.
 - Start deterministic. Add LLM summarization only after evidence refs and score dimensions are stable.
 
-## Steal / Adapt / Skip
+## Adopt / Adapt / Skip
 
-Steal now:
+Adopt now:
 
 - session source adapter interface
 - local SQLite evidence archive
@@ -361,8 +359,3 @@ Skip:
 - Start with Phase 0 scorecard schema and fixtures.
 - Keep the first implementation local-only and deterministic.
 - Run the smallest relevant test before handoff.
-
-## References
-
-- Team Cadence: https://teamcadence.ai/#pricing
-- AgentsView: https://github.com/kenn-io/agentsview

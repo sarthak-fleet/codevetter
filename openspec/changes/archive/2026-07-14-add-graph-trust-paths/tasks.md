@@ -22,8 +22,8 @@
 ## 4. Incremental Index and Interchange
 
 - [x] 4.1 Implement transactional full build plus changed/deleted/renamed-file refresh, affected-edge re-resolution, progress, cancellation, freshness, and failure rollback.
-- [x] 4.2 Add Graphify node-link JSON import with engine/origin labeling and versioned CodeVetter JSON/Markdown export.
-- [x] 4.3 Add optional Graphify/GitNexus adapter boundaries without making either runtime required for the canonical graph.
+- [x] 4.2 Add bounded node-link JSON import with engine/origin labeling and versioned CodeVetter JSON/Markdown export.
+- [x] 4.3 Keep optional graph adapters outside the required canonical runtime.
 - [x] 4.4 Test stale-node cleanup, history rewrites, corrupted snapshots, import caps/dangling edges, and round-trip preservation.
 
 ## 5. Query Service
@@ -31,7 +31,7 @@
 - [x] 5.1 Implement indexed search/resolve with exact ID/path/qualified-label precedence, lexical question seeding, stop-word handling, and ambiguity results.
 - [x] 5.2 Implement explain, neighbors, context-filtered subgraph query, trust-weighted path, hub-aware upstream/downstream impact, community, hub/bridge, and snapshot-diff operations.
 - [x] 5.3 Add stable projections, pagination, result/hop/byte limits, source links, freshness, coverage, trust, and truncation to every result.
-- [x] 5.4 Benchmark query relevance and latency against pinned Graphify fixtures and raw-search baselines, including a large-repository corpus.
+- [x] 5.4 Benchmark query relevance and latency against owned expected-answer fixtures and raw-search baselines, including a large-repository corpus.
 
 ## 6. Repo and Review Experience
 
@@ -43,10 +43,10 @@
 
 ## 7. Parity and Handoff
 
-- [x] 7.1 Maintain a pinned Graphify capability matrix covering AST symbols, cross-file edges, trust, communities, hubs/bridges, incremental update, query/explain/path, visualization, and interchange.
+- [x] 7.1 Maintain a pinned repository-owned capability matrix covering AST symbols, cross-file edges, trust, communities, hubs/bridges, incremental update, query/explain/path, visualization, and interchange.
 - [x] 7.2 Run targeted extractor/resolution/analysis/query tests, Rust format/clippy/tests, desktop unit/typecheck/Biome/Playwright, and a production build.
-- [x] 7.3 Runtime-verify supported multi-language repos, a large repo, incremental edit/delete/rename, Graphify import, graph workbench, Review context, and offline operation.
-- [x] 7.4 Update Codebase History/Review Memory Graph docs and `PROJECT_STATUS.md` only after measured parity and runtime verification.
+- [x] 7.3 Runtime-verify supported multi-language repos, a large repo, incremental edit/delete/rename, local graph import, graph workbench, Review context, and offline operation.
+- [x] 7.4 Update Codebase History/Review Memory Graph docs and `PROJECT_STATUS.md` only after measured capability coverage and runtime verification.
 - [x] 7.5 Record cold full-build, warm no-op, one-file edit, delete/rename repair, query p50/p95, peak memory, database growth, and UI interaction budgets; fail release qualification when the canonical graph regresses the agreed local performance envelope.
 
 ## 8. Release-Qualification Remediation
@@ -55,4 +55,4 @@
 - [x] 8.2 Expand the shared sensitive-path policy for top-level secret directories and common credential/config/state files, with extractor regression tests.
 - [x] 8.3 Use stable node IDs for visual selection, make trust filters affect the current projection, and prevent repository-switch/listener races.
 - [x] 8.4 Add bounded retention for rebuildable present-state snapshots without deleting release-history checkpoints.
-- [x] 8.5 Run incremental repair, status, secret-policy, workbench, retention, Graphify parity, and full production verification.
+- [x] 8.5 Run incremental repair, status, secret-policy, workbench, retention, structural coverage, and full production verification.

@@ -1047,40 +1047,40 @@ mod tests {
     #[test]
     fn normalizes_https_with_dot_git() {
         assert_eq!(
-            normalize_git_url("https://github.com/Codevetter/codevetter.git"),
-            "github.com/Codevetter/codevetter"
+            normalize_git_url("https://github.com/ExampleOrg/ExampleRepo.git"),
+            "github.com/exampleorg/examplerepo"
         );
     }
 
     #[test]
     fn normalizes_https_without_dot_git() {
         assert_eq!(
-            normalize_git_url("https://github.com/Codevetter/codevetter"),
-            "github.com/Codevetter/codevetter"
+            normalize_git_url("https://github.com/ExampleOrg/ExampleRepo"),
+            "github.com/exampleorg/examplerepo"
         );
     }
 
     #[test]
     fn normalizes_ssh_form() {
         assert_eq!(
-            normalize_git_url("git@github.com:Codevetter/codevetter.git"),
-            "github.com/Codevetter/codevetter"
+            normalize_git_url("git@github.com:ExampleOrg/ExampleRepo.git"),
+            "github.com/exampleorg/examplerepo"
         );
     }
 
     #[test]
     fn normalizes_ssh_form_with_user_and_port() {
         assert_eq!(
-            normalize_git_url("ssh://git@github.com/Codevetter/codevetter.git"),
-            "github.com/Codevetter/codevetter"
+            normalize_git_url("ssh://git@github.com/ExampleOrg/ExampleRepo.git"),
+            "github.com/exampleorg/examplerepo"
         );
     }
 
     #[test]
     fn normalizes_trailing_slash_and_casing() {
         assert_eq!(
-            normalize_git_url("https://GitHub.com/Codevetter/codevetter/"),
-            "github.com/Codevetter/codevetter"
+            normalize_git_url("https://GitHub.com/ExampleOrg/ExampleRepo/"),
+            "github.com/exampleorg/examplerepo"
         );
     }
 

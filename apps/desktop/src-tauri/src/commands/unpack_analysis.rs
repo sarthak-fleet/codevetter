@@ -1838,3 +1838,27 @@ fn read_first_bytes(path: &Path, limit: usize) -> String {
     buf.truncate(n);
     String::from_utf8_lossy(&buf).to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::detects_io_in_loop;
+
+    #[test]
+    fn io_loop_window_saturates_and_preserves_boundary() {
+        let inside_window = format!(
+            "for item in items {{\n{}std::fs::read_to_string(path);",
+            "let value = item;\n".repeat(16)
+        );
+        assert!(detects_io_in_loop(&inside_window));
+
+        let outside_window = format!(
+            "for item in items {{\n{}std::fs::read_to_string(path);",
+            "let value = item;\n".repeat(17)
+        );
+        assert!(!detects_io_in_loop(&outside_window));
+
+        assert!(!detects_io_in_loop(
+            "let a = 1;\nlet b = 2;\nstd::fs::read_to_string(path);"
+        ));
+    }
+}

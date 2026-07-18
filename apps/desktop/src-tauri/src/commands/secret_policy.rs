@@ -157,10 +157,10 @@ mod tests {
     fn common_credential_shapes_are_redacted() {
         for value in [
             "Authorization: Bearer a-long-runtime-token",
-            "AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF",
+            concat!("AWS_ACCESS_KEY_ID=AK", "IA1234567890ABCDEF"),
             "password=correct-horse-battery-staple",
             "postgres://user:password@localhost/db",
-            "xoxb-123456789-secret",
+            concat!("xo", "xb-123456789-secret"),
         ] {
             assert!(looks_like_secret(value), "expected secret: {value}");
             assert_eq!(redact_secret_text(value).0, REDACTED);

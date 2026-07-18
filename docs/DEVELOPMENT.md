@@ -1,270 +1,171 @@
-<!-- generated-by: gsd-doc-writer -->
-# Development Guide
+# Development guide
 
-## Local Setup
+## Prerequisites
 
-### Prerequisites
+- Node.js 22, matching CI
+- pnpm 10.33.2, matching the root `packageManager` field
+- stable Rust and Cargo for the Tauri backend
+- Xcode Command Line Tools and the other Tauri macOS prerequisites
+- Playwright Chromium for browser tests and warm verification
 
-- **Node.js 22** (matches CI) — managed via `asdf` or direct install
-- **Rust + Cargo** (stable) — required for the Tauri desktop app; see [Tauri prerequisites](https://tauri.app/v1/guides/getting-started/prerequisites)
-- **npm** — used as the workspace package manager (not pnpm/yarn)
+CodeVetter is a pnpm workspace containing `apps/*`. The active product is
+`apps/desktop`; `apps/landing-page-astro` is the marketing site. Earlier shared
+library, edge service, and dashboard workspaces are not part of the repository.
 
-### Clone and install
+## Install and run
 
-```bash
-git clone https://github.com/Codevetter/codevetter.git
-cd CodeVetter
-npm install
-```
-
-### Copy environment files
+From the repository root:
 
 ```bash
-# Root — Cloudflare Workers secrets and AI gateway config
-cp .env.example .env
-
-# Dashboard app
-cp apps/dashboard/.env.example apps/dashboard/.env.local
+pnpm install --frozen-lockfile
+pnpm --dir apps/desktop exec playwright install chromium
 ```
 
-Fill in at minimum `AI_GATEWAY_BASE_URL` and `AI_GATEWAY_API_KEY` if you plan to run reviews locally. All other variables have safe defaults or degrade gracefully when absent. See [docs/CONFIGURATION.md](./CONFIGURATION.md) for the full reference.
-
-### Build shared packages before starting any dev server
-
-Workspace packages compile to `dist/` and must be built before any app or worker can import them:
-
-```bash
-npm run build:packages
-```
-
-This runs `build:types` → `build:db` → `build:gateway` → `build:review-core` in order (dependencies respected).
-
-### Start the desktop app in dev mode
+Run only the browser frontend:
 
 ```bash
 cd apps/desktop
-npm run tauri:dev
+pnpm dev
 ```
 
-Tauri opens a native window backed by the Vite dev server on port `1420`. Hot-reload works for the React frontend; Rust changes require a full rebuild.
-
-### Start web apps in dev mode
+Run the full native desktop app:
 
 ```bash
-# Dashboard (Next.js, port 4174)
-cd apps/dashboard && npm run dev
+cd apps/desktop
+pnpm tauri:dev
 ```
 
-### Start Cloudflare Workers locally
+The Vite webview normally uses port 1420. Frontend changes hot-reload; Rust
+changes rebuild the Tauri process. Normal desktop work needs no copied `.env`
+file. Configure AI providers in Settings.
 
-```bash
-cd workers/api   && npm run dev   # wrangler dev
-cd workers/review && npm run dev  # wrangler dev
-```
+## Primary commands
 
----
+Run desktop commands from `apps/desktop/` unless noted.
 
-## Build Commands
-
-### Root workspace
-
-| Command | Description |
+| Command | Purpose |
 |---|---|
-| `npm run build:types` | Compile `packages/shared-types` to `dist/` |
-| `npm run build:db` | Compile `packages/db` to `dist/` |
-| `npm run build:gateway` | Compile `packages/ai-gateway-client` to `dist/` |
-| `npm run build:review-core` | Compile `packages/review-core` to `dist/` |
-| `npm run build:packages` | Run all four package builds in dependency order |
-| `npm run deploy:api` | Deploy `workers/api` to Cloudflare via Wrangler |
-| `npm run deploy:review` | Deploy `workers/review` to Cloudflare via Wrangler |
-| `npm run prepare` | Install Husky git hooks (runs automatically after `npm install`) |
+| `pnpm dev` | Start the Vite webview |
+| `pnpm build` | Build the frontend to `out/` |
+| `pnpm tauri:dev` | Prepare the MCP sidecar and run Tauri in development |
+| `pnpm tauri:build` | Prepare the release sidecar and build desktop bundles |
+| `pnpm lint` | Run Biome checks |
+| `pnpm exec tsc --noEmit` | Type-check the desktop frontend |
+| `pnpm test:unit` | Run all TypeScript unit tests through `node:test` + `tsx` |
+| `pnpm test` | Run Playwright Chromium tests |
+| `pnpm test:verify` | Run warm-verifier contracts and lifecycle tests |
+| `pnpm bench:verify` | Run the full 20-scenario named-machine qualification |
+| `pnpm bench:verify:stability` | Run the focused latency and 100-batch stability gate |
 
-### `apps/desktop`
+At the repository root, `pnpm lint` checks the whole workspace with Biome and
+`pnpm test:benchmark` runs the public benchmark harness tests.
 
-| Command | Description |
-|---|---|
-| `npm run dev` | Kill any process on port 1420, then start Vite dev server |
-| `npm run build` | Build shared types, then compile the Vite frontend to `out/` |
-| `npm run preview` | Preview the Vite production build |
-| `npm run tauri` | Run Tauri CLI directly |
-| `npm run tauri:dev` | Start Tauri in dev mode (Rust + Vite hot-reload) |
-| `npm run tauri:build` | Build the signed Tauri desktop bundle for distribution |
-| `npm run test` / `npm run test:e2e` | Run Playwright end-to-end tests |
-| `npm run test:e2e:ui` | Run Playwright tests with the interactive UI |
-| `npm run test:e2e:tauri` | Run the Tauri-specific e2e spec via tsx |
-| `npm run lint` | ESLint over `src/` (`.ts`, `.tsx`), quiet mode |
+## Warm verification development
 
-### `apps/dashboard`
-
-| Command | Description |
-|---|---|
-| `npm run dev` | Start Next.js dev server on port 4174 |
-| `npm run build` | Build shared types, then run `next build` |
-| `npm run start` | Start the Next.js production server on port 4174 |
-
-### `packages/*` (shared libraries)
-
-| Command | Scope | Description |
-|---|---|---|
-| `npm run build` | All packages | Compile TypeScript to `dist/` via `tsc` |
-| `npm run test` | `ai-gateway-client`, `db` | Run unit tests with Node's built-in test runner + tsx |
-
-### `workers/api` and `workers/review`
-
-| Command | Description |
-|---|---|
-| `npm run build` | Compile TypeScript to `dist/` via `tsc` |
-| `npm run dev` | Run worker locally with `wrangler dev` |
-| `npm run deploy` | Deploy worker to Cloudflare with `wrangler deploy` |
-
----
-
-## Code Style
-
-### ESLint
-
-- **Tool:** ESLint 10 with `@typescript-eslint` plugin and parser
-- **Config file:** `/eslint.config.js` (flat config format)
-- **Applies to:** All `*.ts` and `*.tsx` files across the monorepo; ignores `node_modules/`, `dist/`, `out/`, `.next/`, `target/`, and all pre-compiled `.js`/`.mjs` files
-- **Notable rules:** `no-unused-vars` (warn, args prefixed with `_` are exempt), `no-explicit-any` (warn), `no-console` (off)
-- **Run command:** `npx eslint src/ --ext .ts,.tsx --quiet` (from any workspace, e.g. `apps/desktop`)
-
-ESLint runs automatically on staged files via Husky + lint-staged before every commit (see [Git Hooks](#git-hooks) below).
-
-### Prettier
-
-No Prettier configuration is present in this repository. Formatting is not enforced by tooling.
-
-### TypeScript
-
-- **Baseline config:** `/tsconfig.json` — `target: es2020`, `strict: true`; covers `packages/` only
-- Each workspace defines its own `tsconfig.json` that extends the root or sets independent compiler options
-
----
-
-## Branch Conventions
-
-No branch naming convention is formally documented in this repository (no `CONTRIBUTING.md` or PR template found).
-
-The default and only long-lived branch is `main`. CI runs on pushes and pull requests targeting `main`.
-
-Suggested patterns (informal):
-- Feature work: `feature/<short-description>`
-- Bug fixes: `fix/<short-description>`
-- Hotfixes: `hotfix/<short-description>`
-
----
-
-## PR Process
-
-No `.github/PULL_REQUEST_TEMPLATE.md` is present. The following reflects the CI checks that every PR must pass:
-
-- All TypeScript in `apps/desktop` must type-check cleanly (`tsc --noEmit`)
-- ESLint must report no more than 50 warnings across `apps/desktop/src/`
-- The Vite frontend build must succeed (`vite build`)
-- Cargo check must pass on the Rust backend (`cargo check` in `apps/desktop/src-tauri`)
-- Playwright tests must pass (Chromium)
-
-Additionally, the pre-push hook (see below) runs `build:types`, ESLint, the Vite build, and the package unit tests locally before the push reaches CI.
-
----
-
-## Monorepo Tooling
-
-### Package manager and workspaces
-
-The monorepo uses **npm workspaces** (no Turborepo or Nx). The workspace roots are declared in the root `package.json`:
-
-```json
-"workspaces": ["apps/*", "packages/*", "workers/*"]
-```
-
-All packages are installed into the root `node_modules/` with a single `npm install` at the repo root. Local packages are linked via `file:` protocol references in each workspace's `package.json` (e.g. `"@code-reviewer/shared-types": "file:../../packages/shared-types"`).
-
-### Running a command in a specific workspace
+Warm verification is a repository-owned Node/Playwright path. Normal invocations
+do not run Cargo, Tauri, or a production build.
 
 ```bash
-npm run -w <workspace-name> <script>
+cd apps/desktop
 
-# Examples
-npm run -w packages/shared-types build
-npm run -w apps/desktop lint
-npm run -w workers/api dev
+pnpm verify daemon start --repo /path/to/react-app
+pnpm verify daemon status --repo /path/to/react-app --json
+pnpm verify changed --repo /path/to/react-app
+pnpm verify changed --repo /path/to/react-app --staged
+pnpm verify changed --repo /path/to/react-app --commit HEAD~1
+pnpm verify changed --repo /path/to/react-app --range main..HEAD --detailed
+pnpm verify current --repo /path/to/react-app --json
+pnpm verify cancel --repo /path/to/react-app --run-id <run-id> --json
+pnpm verify cleanup --repo /path/to/react-app --dry-run --json
+pnpm verify daemon stop --repo /path/to/react-app
 ```
 
-### Build order
+Worktree is the default change mode. Exactly one of worktree, `--staged`,
+`--commit`, or `--range` may be selected. `--detailed` opts a passing run into
+additional artifacts.
 
-Packages have a hard dependency order. Always build in this sequence when doing a clean build:
+| Outcome | Exit code |
+|---|---:|
+| passed | 0 |
+| regression | 2 |
+| no confidence / operational failure | 3 |
+| invalid usage | 64 |
 
-1. `packages/shared-types` — no internal deps
-2. `packages/db` — depends on `shared-types`
-3. `packages/ai-gateway-client` — depends on `shared-types`
-4. `packages/review-core` — depends on `shared-types`
+The T-Rex page drives the same repository-owned script through the Tauri bridge.
+The bridge selects the package manager from the target repository lockfile and
+requires exactly one `verify` script. It does not bundle Node or Chromium.
 
-`npm run build:packages` at the root handles this automatically.
+## Adding a warm scenario
 
-### Git Hooks
+1. Add the deterministic scenario to a repository-relative scenario module.
+2. Map it under `capabilities` in `.codevetter/verify.yaml`.
+3. Use an existing named MSW state or add target-owned deterministic state.
+4. Declare actions and assertions before the scenario's Playwright function.
+5. Run the smallest matching contract test, then `pnpm test:verify`.
+6. Add a browser-surface test only when T-Rex or Review behavior changes.
 
-Husky is configured with two hooks:
+Normal scenario execution must make zero model or browser-agent calls. Use direct
+route entry and injected auth/state; do not repeat login as feature setup.
 
-- **pre-commit** (`/.husky/pre-commit`): Runs `lint-staged`, which applies ESLint to any staged `.ts`/`.tsx` files in `apps/desktop/src/`, `packages/*/src/`, and `workers/*/src/`.
-- **pre-push** (`/.husky/pre-push`): Builds `shared-types`, runs ESLint on `apps/desktop/src/`, builds the Vite frontend, and runs unit tests in `packages/db` and `packages/ai-gateway-client`.
+Model-assisted scenario authoring is a separate short-lived path documented in
+`SCENARIO-COMPILATION.md`. Its candidate dry runs are qualification only and must
+never be stored or presented as warm-verification evidence.
 
-Hooks are installed automatically via the `prepare` script when you run `npm install`.
+## Code style and boundaries
 
----
+- TypeScript and TSX are formatted and checked by Biome.
+- The frontend uses strict TypeScript and the `@/` alias for `apps/desktop/src`.
+- Tauri calls go through typed wrappers in `src/lib/tauri-ipc.ts` and must retain
+  the browser-safe `isTauriAvailable()` behavior.
+- Rust owns privileged Git, filesystem, process, and SQLite operations.
+- Preserve the local-first boundary; do not introduce a server for desktop
+  verification.
+- Do not add production dependencies unless the capability genuinely requires
+  one and the tradeoff is documented.
 
-## Common Setup Issues
+The pre-commit hook runs `lint-staged` for changed desktop TypeScript. The
+pre-push hook runs the root lint command and scans tracked files for common
+secret patterns. Run the focused checks yourself before relying on either hook.
 
-### 1. Rust/Tauri compilation fails on first `tauri:dev`
+## CI
 
-**Symptom:** `cargo build` errors mentioning missing system libraries, linker errors, or Xcode toolchain issues.
+`.github/workflows/ci.yml` currently runs on pushes and pull requests:
 
-**Solution:** Make sure Xcode Command Line Tools are installed and up to date:
+- desktop Biome lint;
+- TypeScript type-check;
+- all desktop unit tests;
+- MCP sidecar preparation and focused Rust protocol/safety tests;
+- focused Chromium tests for MCP settings and Repo Unpacked.
 
-```bash
-xcode-select --install
-# If already installed, reset the path
-sudo xcode-select --reset
-```
+This is not a substitute for release qualification. A release build, full
+Playwright suite, warm-verifier qualification, migration checks, and platform
+packaging should be treated as explicit release gates.
 
-Then verify Tauri prerequisites at [https://tauri.app/start/prerequisites/](https://tauri.app/start/prerequisites/). `pnpm tauri:dev` prepares the local MCP sidecar automatically. For a manual check run `pnpm prepare:mcp-sidecar`; the target-suffixed generated binary under `apps/desktop/src-tauri/binaries/` is ignored by Git and replaced by each build.
+## Troubleshooting
 
-### 2. `npm run build:packages` fails with "Cannot find module"
+### Port 1420 is busy
 
-**Symptom:** TypeScript errors referencing types from sibling packages during `build:packages`.
+`pnpm dev` attempts to clear the port before starting Vite. If another owned
+process remains, stop it explicitly and retry. Do not kill an unknown listener
+just to satisfy warm verification; the daemon intentionally refuses to claim a
+readiness endpoint it does not own.
 
-**Solution:** The packages must build in order (`shared-types` first, then `db` and `ai-gateway-client`, then `review-core`). The root `build:packages` script enforces this order. If you ran individual package build commands out of order, reset with:
+### Tauri fails to compile
 
-```bash
-npm run build:packages
-```
+Confirm stable Rust, Xcode Command Line Tools, and the Tauri macOS prerequisites.
+For local checks that create large Rust targets, use a temporary
+`CARGO_TARGET_DIR` and remove it after the check instead of accumulating build
+directories across worktrees.
 
-If the error persists, delete compiled output and rebuild:
+### The verifier is not discovered
 
-```bash
-find packages -name dist -type d -exec rm -rf {} + 2>/dev/null; npm run build:packages
-```
+The selected repository must have exactly one supported lockfile and exactly one
+root/workspace package with a non-empty `verify` script. Ambiguous package
+managers or multiple verifier scripts are rejected rather than guessed.
 
-### 3. Missing environment variables cause worker startup failures
+### A run reports no confidence
 
-**Symptom:** `wrangler dev` throws validation errors such as `AI_GATEWAY_MODEL must not be empty` or `Invalid REVIEW_WORKER_POLL_MS`.
-
-**Solution:** Copy `.env.example` to `.env` and populate required values. For local worker development the minimum required secrets are:
-
-- `AI_GATEWAY_BASE_URL` and `AI_GATEWAY_API_KEY` — without these, review jobs are skipped.
-- `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` — without these, OAuth routes throw at invocation.
-
-Non-secret defaults (e.g. `AI_GATEWAY_MODEL`) are already set in each worker's `wrangler.toml` `[vars]` block and do not need to be in `.env`.
-
-### 4. Port `1420` already in use
-
-**Symptom:** Vite fails to bind with `EADDRINUSE: address already in use :::1420`.
-
-**Solution:** The desktop `dev` script already kills any process on port `1420` before starting (`lsof -ti:1420 | xargs kill -9`). If the error persists, kill the process manually:
-
-```bash
-lsof -ti:1420 | xargs kill -9
-```
-
-Or override the port in `apps/desktop/vite.config.ts` (`server.strictPort` is `false`, so Vite will auto-increment to the next available port if the kill fails).
+Check the exact config/manifest/source identity, target readiness, MSW ready
+handshake, request allowlist, visual baseline identity, and Git change mode.
+Operational, stale, cancelled, or incomplete evidence is intentionally not
+converted into a pass.

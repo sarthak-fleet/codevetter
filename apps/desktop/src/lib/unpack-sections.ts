@@ -14,6 +14,7 @@ import {
 export type UnpackWorkspaceSection =
   | 'overview'
   | 'memory'
+  | 'rules'
   | 'brief'
   | 'activity'
   | 'inventory'
@@ -45,6 +46,14 @@ const UNPACK_SECTIONS: UnpackSectionMeta[] = [
     short: 'Handoff',
     icon: BookOpenText,
     description: 'Files, rules, and boundaries an agent should read before editing.',
+    requiresInventory: true,
+  },
+  {
+    id: 'rules',
+    label: 'Rules',
+    short: 'Rules',
+    icon: BookOpenText,
+    description: 'Evidence-traced business rules, exact clauses, source spans, and dependencies.',
     requiresInventory: true,
   },
   {

@@ -108,6 +108,8 @@ pub fn snapshot_from_legacy_map(
         files,
         nodes,
         edges,
+        metrics: Vec::new(),
+        clone_groups: Vec::new(),
         truncated: graph.truncated,
     }
 }

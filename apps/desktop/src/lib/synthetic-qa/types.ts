@@ -36,6 +36,11 @@ export interface SyntheticQaRunResult {
   steps?: SyntheticQaStepResult[];
   observations?: SyntheticQaObservationResult[];
   fixture_id?: string;
+  /**
+   * Optional richer outcome for adapters whose execution can be inconclusive.
+   * Legacy runners omit this and retain the historical pass/fail contract.
+   */
+  verification_outcome?: 'passed' | 'regression' | 'no_confidence';
 }
 
 export interface SyntheticQaLoopDef {

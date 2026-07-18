@@ -1,5 +1,8 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 jobs:
   lint-and-typecheck:
     runs-on: ubuntu-latest
@@ -19,6 +22,9 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libxdo-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
       - name: Lint
@@ -27,10 +33,18 @@ jobs:
       - name: Type Check
         working-directory: apps/desktop
         run: pnpm exec tsc --noEmit
+      - name: Install focused browser
+        working-directory: apps/desktop
+        run: pnpm exec playwright install --with-deps chromium
       - name: Unit Tests
         working-directory: apps/desktop
-        run: pnpm run test:unit
-      - name: MCP sidecar build smoke
+        # Process-heavy differential fixtures model one singleton-owned daemon.
+        # Serial file execution avoids multiplying Git/browser processes beyond
+        # that production ownership boundary on constrained hosted runners.
+        run: |
+          pnpm exec node --import tsx --test --test-concurrency=1 "src/**/*.test.ts"
+          pnpm exec node --import tsx --test tests/qualification/warm-verification-live.test.ts
+      - name: Prepare MCP sidecar
         working-directory: apps/desktop
         run: pnpm run prepare:mcp-sidecar
       - name: Desktop build
@@ -38,7 +52,10 @@ jobs:
         run: pnpm run build
       - name: MCP protocol and safety tests
         working-directory: apps/desktop
-        run: "cargo test --manifest-path src-tauri/Cargo.toml mcp::"
-      - name: MCP release-mode stdio lifecycle
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib mcp
+          cargo test --manifest-path src-tauri/Cargo.toml --bin codevetter-mcp
+          cargo test --manifest-path src-tauri/Cargo.toml --test mcp_stdio
+      - name: MCP and history browser tests
         working-directory: apps/desktop
-        run: cargo test --release --manifest-path src-tauri/Cargo.toml --test mcp_stdio
+        run: pnpm exec playwright test tests/e2e/mcp-settings.spec.ts tests/e2e/repo-unpacked.spec.ts

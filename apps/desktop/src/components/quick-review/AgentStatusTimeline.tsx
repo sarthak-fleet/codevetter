@@ -44,7 +44,7 @@ export default function AgentStatusTimeline({
           const hiddenAnchorCount = anchors.length - visibleAnchors.length;
           return (
             <div
-              key={item.label}
+              key={item.id}
               className="flex items-start gap-2 rounded-lg border border-[var(--cv-line)] bg-[#050505] px-2 py-1.5"
             >
               <span

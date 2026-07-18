@@ -35,62 +35,44 @@ pub struct StructuralGraphInterchangePreview {
 pub fn adapter_descriptors() -> Vec<StructuralGraphAdapterDescriptor> {
     vec![
         StructuralGraphAdapterDescriptor {
-            id: "graphify-json".to_string(),
-            label: "Graphify node-link JSON".to_string(),
+            id: "node_link-json".to_string(),
+            label: "Generic node-link JSON".to_string(),
             mode: "local_import".to_string(),
             bundled: true,
             mutates_repository: false,
             requires_explicit_action: true,
             runtime_behavior: "Parses a user-supplied local JSON document; no Python, process, network, or repository write".to_string(),
         },
-        StructuralGraphAdapterDescriptor {
-            id: "graphify-cli".to_string(),
-            label: "Graphify CLI".to_string(),
-            mode: "optional_external".to_string(),
-            bundled: false,
-            mutates_repository: false,
-            requires_explicit_action: true,
-            runtime_behavior: "Reserved adapter boundary for an explicitly installed Python Graphify runtime; never used by canonical indexing".to_string(),
-        },
-        StructuralGraphAdapterDescriptor {
-            id: "gitnexus-cli".to_string(),
-            label: "GitNexus CLI".to_string(),
-            mode: "optional_external".to_string(),
-            bundled: false,
-            mutates_repository: false,
-            requires_explicit_action: true,
-            runtime_behavior: "Reserved adapter boundary for an explicitly installed Node runtime and index; never used by canonical indexing".to_string(),
-        },
     ]
 }
 
-pub fn import_graphify_json(
+pub fn import_node_link_json(
     repo_path: &str,
     json_text: &str,
 ) -> Result<StructuralGraphInterchangePreview, String> {
     if json_text.len() > MAX_IMPORT_BYTES {
         return Err(format!(
-            "Graphify import exceeds the {} MiB local safety limit",
+            "node-link import exceeds the {} MiB local safety limit",
             MAX_IMPORT_BYTES / 1024 / 1024
         ));
     }
     let document: Value = serde_json::from_str(json_text)
-        .map_err(|error| format!("Graphify JSON is invalid: {error}"))?;
+        .map_err(|error| format!("node-link JSON is invalid: {error}"))?;
     let object = document
         .as_object()
-        .ok_or_else(|| "Graphify JSON must be a node-link object".to_string())?;
+        .ok_or_else(|| "node-link JSON must be an object".to_string())?;
     let raw_nodes = object
         .get("nodes")
         .and_then(Value::as_array)
-        .ok_or_else(|| "Graphify JSON requires a nodes array".to_string())?;
+        .ok_or_else(|| "node-link JSON requires a nodes array".to_string())?;
     let raw_edges = object
         .get("links")
         .or_else(|| object.get("edges"))
         .and_then(Value::as_array)
-        .ok_or_else(|| "Graphify JSON requires a links or edges array".to_string())?;
+        .ok_or_else(|| "node-link JSON requires a links or edges array".to_string())?;
     if raw_nodes.len() > MAX_IMPORT_NODES || raw_edges.len() > MAX_IMPORT_EDGES {
         return Err(format!(
-            "Graphify import exceeds bounded graph limits ({MAX_IMPORT_NODES} nodes, {MAX_IMPORT_EDGES} edges)"
+            "node-link import exceeds bounded graph limits ({MAX_IMPORT_NODES} nodes, {MAX_IMPORT_EDGES} edges)"
         ));
     }
 
@@ -99,12 +81,12 @@ pub fn import_graphify_json(
     for raw in raw_nodes {
         let fields = raw
             .as_object()
-            .ok_or_else(|| "Every Graphify node must be an object".to_string())?;
-        let upstream_id = required_string(fields, "id", "Graphify node")?;
+            .ok_or_else(|| "Every node-link node must be an object".to_string())?;
+        let upstream_id = required_string(fields, "id", "node-link node")?;
         if id_map.contains_key(upstream_id) {
-            return Err(format!("Graphify node id is duplicated: {upstream_id}"));
+            return Err(format!("node-link node id is duplicated: {upstream_id}"));
         }
-        let id = stable_graph_id("graphify-node", upstream_id);
+        let id = stable_graph_id("node_link-node", upstream_id);
         id_map.insert(upstream_id.to_string(), id.clone());
         let label = fields
             .get("label")
@@ -119,7 +101,7 @@ pub fn import_graphify_json(
         let community_id = fields
             .get("community")
             .filter(|value| !value.is_null())
-            .map(|value| stable_graph_id("graphify-community", &value.to_string()));
+            .map(|value| stable_graph_id("node_link-community", &value.to_string()));
         nodes.push(StructuralGraphNode {
             id,
             kind: infer_node_kind(&label, path.as_deref()),
@@ -140,7 +122,7 @@ pub fn import_graphify_json(
             language: None,
             community_id,
             trust: GraphTrust::Inferred,
-            origin: GraphOrigin::ImportedGraphify,
+            origin: GraphOrigin::ImportedNodeLink,
             sources: source.into_iter().collect(),
         });
     }
@@ -149,14 +131,14 @@ pub fn import_graphify_json(
     for (ordinal, raw) in raw_edges.iter().enumerate() {
         let fields = raw
             .as_object()
-            .ok_or_else(|| "Every Graphify link must be an object".to_string())?;
+            .ok_or_else(|| "Every node-link link must be an object".to_string())?;
         let source_id = endpoint_string(fields, "source", "_src")?;
         let target_id = endpoint_string(fields, "target", "_tgt")?;
         let from = id_map.get(source_id).ok_or_else(|| {
-            format!("Graphify link {ordinal} references missing source node {source_id}")
+            format!("node-link link {ordinal} references missing source node {source_id}")
         })?;
         let to = id_map.get(target_id).ok_or_else(|| {
-            format!("Graphify link {ordinal} references missing target node {target_id}")
+            format!("node-link link {ordinal} references missing target node {target_id}")
         })?;
         let kind = fields
             .get("relation")
@@ -164,7 +146,7 @@ pub fn import_graphify_json(
             .and_then(Value::as_str)
             .unwrap_or("related_to")
             .to_ascii_lowercase();
-        let trust = graphify_trust(fields.get("confidence").and_then(Value::as_str));
+        let trust = node_link_trust(fields.get("confidence").and_then(Value::as_str));
         let sources = source_anchor(fields).into_iter().collect::<Vec<_>>();
         let extensions = extension_detail(
             fields,
@@ -181,14 +163,17 @@ pub fn import_graphify_json(
             ],
         );
         edges.push(StructuralGraphEdge {
-            id: stable_graph_id("graphify-edge", &format!("{ordinal}\0{from}\0{to}\0{kind}")),
+            id: stable_graph_id(
+                "node_link-edge",
+                &format!("{ordinal}\0{from}\0{to}\0{kind}"),
+            ),
             from: from.clone(),
             to: to.clone(),
             kind,
             evidence: extensions
-                .unwrap_or_else(|| "Imported from Graphify node-link JSON".to_string()),
+                .unwrap_or_else(|| "Imported from generic node-link JSON".to_string()),
             trust,
-            origin: GraphOrigin::ImportedGraphify,
+            origin: GraphOrigin::ImportedNodeLink,
             sources,
             candidates: Vec::new(),
         });
@@ -208,14 +193,14 @@ pub fn import_graphify_json(
     let diagnostics = (!top_level_extensions.is_empty())
         .then(|| StructuralGraphDiagnostic {
             severity: "info".to_string(),
-            code: "graphify_top_level_extensions".to_string(),
+            code: "node_link_top_level_extensions".to_string(),
             message: format!("{EXTENSION_PREFIX}{}", Value::Object(top_level_extensions)),
             path: None,
             language: None,
         })
         .into_iter()
         .collect();
-    let snapshot_id = stable_graph_id("graphify-snapshot", json_text);
+    let snapshot_id = stable_graph_id("node_link-snapshot", json_text);
     Ok(StructuralGraphInterchangePreview {
         snapshot: StructuralGraphSnapshot {
             schema_version: STRUCTURAL_GRAPH_SCHEMA_VERSION,
@@ -224,7 +209,7 @@ pub fn import_graphify_json(
             repo_head: None,
             created_at: Utc::now().to_rfc3339(),
             engine: StructuralGraphEngineInfo {
-                id: "graphify-json-import".to_string(),
+                id: "node_link-json-import".to_string(),
                 version: "node-link".to_string(),
                 bundled: true,
                 syntax_aware: true,
@@ -242,10 +227,12 @@ pub fn import_graphify_json(
             files,
             nodes,
             edges,
+            metrics: Vec::new(),
+            clone_groups: Vec::new(),
             truncated: false,
         },
         warnings: vec![
-            "Preview only: importing Graphify JSON does not replace the canonical CodeVetter index"
+            "Preview only: importing node-link JSON does not replace the canonical CodeVetter index"
                 .to_string(),
         ],
     })
@@ -381,7 +368,7 @@ fn endpoint_string<'a>(
         .get(primary)
         .or_else(|| fields.get(fallback))
         .and_then(Value::as_str)
-        .ok_or_else(|| format!("Graphify link requires {primary}/{fallback} string endpoints"))
+        .ok_or_else(|| format!("node-link link requires {primary}/{fallback} string endpoints"))
 }
 
 fn normalize_path(path: &str) -> String {
@@ -419,7 +406,7 @@ fn infer_node_kind(label: &str, path: Option<&str>) -> String {
     }
 }
 
-fn graphify_trust(confidence: Option<&str>) -> GraphTrust {
+fn node_link_trust(confidence: Option<&str>) -> GraphTrust {
     match confidence.unwrap_or_default().to_ascii_uppercase().as_str() {
         "EXTRACTED" => GraphTrust::Extracted,
         "AMBIGUOUS" => GraphTrust::Ambiguous,
@@ -453,7 +440,7 @@ fn imported_communities(nodes: &[StructuralGraphNode]) -> Vec<StructuralGraphCom
             node_ids.sort();
             StructuralGraphCommunity {
                 label: format!(
-                    "Graphify community {}",
+                    "node-link community {}",
                     id.rsplit(':').next().unwrap_or(&id)
                 ),
                 id,
@@ -504,8 +491,8 @@ mod tests {
     }"#;
 
     #[test]
-    fn graphify_import_preserves_trust_locations_communities_and_extensions() {
-        let preview = import_graphify_json("/repo", FIXTURE).expect("import");
+    fn node_link_import_preserves_trust_locations_communities_and_extensions() {
+        let preview = import_node_link_json("/repo", FIXTURE).expect("import");
         assert_eq!(preview.snapshot.nodes.len(), 2);
         assert_eq!(preview.snapshot.edges[0].trust, GraphTrust::Extracted);
         assert_eq!(preview.snapshot.edges[0].sources[0].start_line, Some(4));
@@ -520,24 +507,24 @@ mod tests {
     }
 
     #[test]
-    fn graphify_import_rejects_dangling_edges_without_partial_output() {
+    fn node_link_import_rejects_dangling_edges_without_partial_output() {
         let invalid = r#"{"nodes":[{"id":"a"}],"links":[{"source":"a","target":"missing"}]}"#;
-        assert!(import_graphify_json("/repo", invalid)
+        assert!(import_node_link_json("/repo", invalid)
             .unwrap_err()
             .contains("missing target"));
     }
 
     #[test]
-    fn graphify_import_enforces_the_document_byte_cap() {
+    fn node_link_import_enforces_the_document_byte_cap() {
         let oversized = " ".repeat(MAX_IMPORT_BYTES + 1);
-        assert!(import_graphify_json("/repo", &oversized)
+        assert!(import_node_link_json("/repo", &oversized)
             .unwrap_err()
             .contains("safety limit"));
     }
 
     #[test]
     fn codevetter_json_and_markdown_exports_are_versioned_and_source_backed() {
-        let preview = import_graphify_json("/repo", FIXTURE).expect("import");
+        let preview = import_node_link_json("/repo", FIXTURE).expect("import");
         let json = export_json(&preview.snapshot).expect("json export");
         assert!(json.contains("codevetter-structural-graph"));
         assert!(json.contains("interchange_extensions"));

@@ -1,0 +1,7 @@
+BILLING  CSECT
+         CLC   AMOUNT,ZERO
+         BNH   REJECT
+         MVC   STATUS,APPROVED
+         BR    R14
+REJECT   MVC   STATUS,DENIED
+         BR    R14

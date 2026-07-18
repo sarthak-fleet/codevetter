@@ -2890,6 +2890,8 @@ mod tests {
                     sources: vec![source],
                     candidates: Vec::new(),
                 }],
+                metrics: Vec::new(),
+                clone_groups: Vec::new(),
                 truncated: false,
             },
         )

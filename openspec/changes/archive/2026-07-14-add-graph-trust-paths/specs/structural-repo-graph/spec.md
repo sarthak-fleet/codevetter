@@ -37,7 +37,7 @@ The system SHALL persist the canonical graph in indexed local storage with deter
 - **WHEN** an indexed dirty file is reverted or an indexed untracked file is deleted without changing HEAD
 - **THEN** refresh compares persisted file cursors with the live tree, removes stale contributions, and reports freshness accurately
 
-### Requirement: Graph provides Graphify-grade analysis
+### Requirement: Graph provides deterministic topology analysis
 The system SHALL deterministically compute communities/subsystems, highest-degree hubs, bridge nodes/edges, cross-community relationships, bounded surprising connections, and graph-grounded suggested questions with cited sources. Analysis MUST be reproducible and MUST label algorithmic groupings as navigation evidence rather than architectural fact.
 
 #### Scenario: Repository contains separable subsystems
@@ -70,10 +70,10 @@ The system SHALL render graph summaries and an interactive search/filter/focus e
 - **WHEN** a node is selected visually or through search
 - **THEN** the UI shows its source, trust-qualified relationships, community, tests/decisions, and available path/impact/history actions
 
-### Requirement: Graph interoperates with Graphify and local exports
-The system SHALL explicitly import current Graphify node-link JSON and export versioned CodeVetter JSON/Markdown while preserving supported node kinds, relations, source file/location, community, confidence, and unknown fields safely. Import/export MUST be local, bounded, non-mutating, and schema validated.
+### Requirement: Graph supports bounded local interchange
+The system SHALL explicitly import supported node-link JSON and export versioned CodeVetter JSON/Markdown while preserving recognized node kinds, relations, source file/location, community, confidence, and unknown fields safely. Import/export MUST be local, bounded, non-mutating, and schema validated.
 
-#### Scenario: Graphify graph is imported
+#### Scenario: A supported local graph is imported
 - **WHEN** the user selects a valid supported `graph.json`
 - **THEN** CodeVetter persists or previews the graph under an explicit imported engine/origin without weakening confidence or replacing a canonical graph silently
 
@@ -91,13 +91,13 @@ The system SHALL provide compact graph neighborhoods, paths, and impact leads to
 ### Requirement: Canonical graph remains local and secret-safe
 The system SHALL build and query code graphs locally without LLM calls, network requests, user-installed runtimes, repository mutation, or reading excluded secret-bearing paths. Optional external engine adapters MUST require explicit action and report their data/runtime behavior before execution.
 
-#### Scenario: Optional engines are absent
-- **WHEN** Graphify, GitNexus, Python, and Node are not installed
+#### Scenario: No optional graph tool is installed
+- **WHEN** only the signed CodeVetter application is available
 - **THEN** the bundled canonical engine still provides the documented core graph capability
 
-### Requirement: Graphify-grade floor is measured
-The system SHALL maintain a pinned, reproducible parity matrix and fixture benchmark against Graphify's relevant code-graph workflow. For supported languages, CodeVetter MUST meet the fixture contract for symbol extraction, cross-file relationships, trust, communities, incremental repair, query, explain, path, source evidence, and large-graph access before the canonical graph is described as production-ready; intentional product exclusions MUST be reported separately from failures.
+### Requirement: Structural graph release floor is measured
+The system SHALL maintain a pinned, reproducible capability matrix and owned fixture benchmark. For supported languages, CodeVetter MUST meet the fixture contract for symbol extraction, cross-file relationships, trust, communities, incremental repair, query, explain, path, source evidence, and large-graph access before the canonical graph is described as production-ready; intentional product exclusions MUST be reported separately from failures.
 
 #### Scenario: Canonical graph is release-qualified
 - **WHEN** an implementation is proposed for release
-- **THEN** the parity suite reports supported-language correctness, query/path answer coverage, incremental-update correctness, latency/storage measurements, and any remaining gaps against the pinned Graphify baseline
+- **THEN** the qualification suite reports supported-language correctness, query/path answer coverage, incremental-update correctness, latency/storage measurements, and any remaining contract gaps

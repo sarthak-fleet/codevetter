@@ -24,6 +24,14 @@ interface EvidenceCounts {
   notReproduced: number;
 }
 
+export interface WarmExecutionFinding {
+  runId: string;
+  finishedAt: string;
+  finding: CliReviewFinding;
+  artifact: string;
+  notes: string;
+}
+
 export interface VerificationSummaryPanelProps {
   sortedFindings: CliReviewFinding[];
   evidenceProcedureSteps: EvidenceProcedureStep[];
@@ -42,6 +50,7 @@ export interface VerificationSummaryPanelProps {
   procedureEventKey: (event: ProcedureExecutionEvent) => string;
   procedureEventTimeLabel: (event: ProcedureExecutionEvent) => string;
   uncheckedBySeverity: Array<[string, CliReviewFinding[]]>;
+  warmExecutionFindings: WarmExecutionFinding[];
 }
 
 export default function VerificationSummaryPanel({
@@ -62,6 +71,7 @@ export default function VerificationSummaryPanel({
   procedureEventKey,
   procedureEventTimeLabel,
   uncheckedBySeverity,
+  warmExecutionFindings,
 }: VerificationSummaryPanelProps) {
   return (
     <>
@@ -72,7 +82,8 @@ export default function VerificationSummaryPanel({
         evidenceProcedureSteps.length > 0 ||
         procedureExecutionEvents.length > 0 ||
         intentReport ||
-        uncheckedFindings.length > 0) && (
+        uncheckedFindings.length > 0 ||
+        warmExecutionFindings.length > 0) && (
         <div className="shrink-0 border-t border-[var(--cv-line)] bg-[#07080a] px-3 py-2">
           <div className="flex items-center gap-2">
             <button
@@ -93,6 +104,12 @@ export default function VerificationSummaryPanel({
                 <span className="text-yellow-400">{evidenceCounts.reproduced} reproduced</span>
                 <span className="text-slate-700">·</span>
                 <span className="text-slate-500">{uncheckedFindings.length} unchecked</span>
+                {warmExecutionFindings.length > 0 && (
+                  <>
+                    <span className="text-slate-700">·</span>
+                    <span className="text-red-300">{warmExecutionFindings.length} execution</span>
+                  </>
+                )}
               </span>
             </button>
             {sortedFindings.length > 0 && (
@@ -243,6 +260,44 @@ export default function VerificationSummaryPanel({
                 )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {verificationOpen && warmExecutionFindings.length > 0 && (
+        <div
+          className="shrink-0 border-t border-[var(--cv-line)] bg-[#07080a] px-3 py-2"
+          data-testid="warm-execution-findings"
+        >
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle size={12} className="shrink-0 text-red-300" />
+            <span className="cv-label min-w-0 flex-1 truncate text-slate-300">
+              Recent read-only execution findings · {warmExecutionFindings.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-1.5">
+            {warmExecutionFindings
+              .slice(0, 8)
+              .map(({ runId, finishedAt, finding, artifact, notes }) => (
+                <div
+                  key={`${runId}-${finding.title}`}
+                  className="rounded-lg border border-red-500/20 bg-red-500/[0.03] px-2 py-1.5"
+                  title={notes}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-[10px] text-slate-300">
+                      {finding.title}
+                    </span>
+                    <span className="shrink-0 font-mono text-[9px] text-slate-600">
+                      {new Date(finishedAt).toLocaleString()} · {runId}
+                    </span>
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-slate-500">
+                    {finding.summary}
+                  </p>
+                  <p className="mt-1 truncate font-mono text-[9px] text-slate-600">{artifact}</p>
+                </div>
+              ))}
           </div>
         </div>
       )}

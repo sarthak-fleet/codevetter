@@ -129,7 +129,7 @@ export default function Sidebar() {
           </span>
           <span className="hidden min-w-24 sm:block">
             <span className="block text-sm font-semibold leading-4 text-slate-100">CodeVetter</span>
-            <span className="block text-[10px] uppercase tracking-[0.16em] text-slate-500">
+            <span className="block text-[10px] uppercase tracking-[0.16em] text-slate-400">
               local
             </span>
           </span>
@@ -150,7 +150,7 @@ export default function Sidebar() {
                       'group relative flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 text-sm transition-all duration-200',
                       active
                         ? `border ${item.tone} shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]`
-                        : 'text-slate-500 hover:bg-white/[0.045] hover:text-slate-200'
+                        : 'text-slate-400 hover:bg-white/[0.045] hover:text-slate-200'
                     )}
                   >
                     <span

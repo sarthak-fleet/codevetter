@@ -5,8 +5,8 @@
 
 //! Shared CodeVetter backend library.
 //!
-//! Tauri and the local MCP sidecar call the same typed graph/history services.
-//! Transport adapters must not duplicate SQL or graph interpretation.
+//! Transport adapters share typed services instead of duplicating SQL or
+//! repository interpretation.
 
 pub mod agent;
 pub mod commands;
@@ -17,6 +17,6 @@ pub mod timeutil;
 
 use std::sync::{Arc, Mutex};
 
-/// Shared database state accessible from Tauri commands.
+/// Shared database state accessible from transport command handlers.
 #[derive(Clone)]
 pub struct DbState(pub Arc<Mutex<rusqlite::Connection>>);

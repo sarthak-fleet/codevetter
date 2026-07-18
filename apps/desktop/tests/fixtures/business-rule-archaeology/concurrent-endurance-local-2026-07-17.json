@@ -1,0 +1,56 @@
+{
+  "captured_at": "2026-07-17T10:37:05.412457+00:00",
+  "command": "CODEVETTER_ARCHAEOLOGY_ENDURANCE_SECONDS=30 CODEVETTER_ARCHAEOLOGY_ENDURANCE_REPORT=../tests/fixtures/business-rule-archaeology/concurrent-endurance-local-2026-07-17.json cargo test --release archaeology_concurrent_endurance_qualification -- --ignored --nocapture",
+  "contract_id": "codevetter.business-rule-archaeology.concurrent-endurance.v1",
+  "machine": {
+    "arch": "aarch64",
+    "cpu": "Apple M5 Pro",
+    "kernel": "Darwin 27.0.0 Darwin Kernel Version 27.0.0: Mon Jun 29 21:25:23 PDT 2026; root:xnu-13432.0.50.501.3~1/RELEASE_ARM64_T6050 arm64 arm",
+    "logical_cpus": 18,
+    "memory_bytes": 51539607552,
+    "os": "macos",
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+  },
+  "passed": true,
+  "resources": {
+    "cpu_system_seconds": 26.483,
+    "cpu_user_seconds": 37.452,
+    "peak_rss_bytes": 70975488,
+    "rss_growth_bytes": 39157760,
+    "rss_growth_limit_bytes": 268435456,
+    "sqlite_final_bytes_after_cleanup": 169852928,
+    "sqlite_initial_bytes": 8558760,
+    "sqlite_limit_bytes": 536870912,
+    "sqlite_max_observed_bytes": 184842480
+  },
+  "safety": {
+    "cleanup_deleted_generations": 43,
+    "cleanup_preview_repeatable": true,
+    "orphan_processes_detected": false,
+    "owned_child_processes_after": 0,
+    "owned_child_processes_before": 0,
+    "prior_ready_checks": 44,
+    "read_error_samples": [],
+    "read_failures": 0,
+    "review_failures": 0,
+    "source_immutable_after_fixture_driver_commits": true
+  },
+  "schema_version": 1,
+  "workload": {
+    "cancellations": 11,
+    "canonical_reads": 4797,
+    "changed_publications": 11,
+    "duration_seconds": 30,
+    "exports": 1582,
+    "global_publications": 11,
+    "mcp_reads": 1582,
+    "read_workers": 2,
+    "review_mutations": 44,
+    "serialized_lifecycle_review_writers": 1,
+    "source_files": 64,
+    "stale_cas_rejections": 44,
+    "stale_owner_recoveries": 11,
+    "stale_read_retries": 17,
+    "workers_spawned_and_joined": 2
+  }
+}

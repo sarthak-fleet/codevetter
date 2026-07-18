@@ -1,0 +1,334 @@
+{
+  "schema_version": 1,
+  "report_id": "business-rule-archaeology-correctness-v1",
+  "corpus_id": "business-rule-archaeology-hand-labeled-v1",
+  "input_identities": {
+    "adapter_source_fixtures": "sha256:7b5b035b9635fc0a2285a1854b77105d9f0226b4fa198da86c9aeac5894743ac",
+    "comparison": "sha256:7456b468de1eddc3bfba31a2638db468139db7b85eef0447e00117acdae2350b",
+    "corpus": "sha256:49359cf4a8872f4e8bae38e46b9d7c6a990790a44c9d63b42980301357a75fe5",
+    "policy": "sha256:aac211d2ab2316d95bb946fdef68b034654b135ee277450588bf498ea2d31794"
+  },
+  "labeled_fixture_inventory": {
+    "source_unit_count": 13,
+    "span_count": 38,
+    "fact_count": 36,
+    "edge_count": 16,
+    "rule_count": 9,
+    "dialects": {
+      "assembly/ambiguous": {
+        "labeled_fact_count": 1,
+        "labeled_span_reference_count": 1,
+        "constructs": {
+          "unresolved": {
+            "labeled_positive_count": 1,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          }
+        }
+      },
+      "assembly/hlasm": {
+        "labeled_fact_count": 4,
+        "labeled_span_reference_count": 4,
+        "constructs": {
+          "control_flow": {
+            "labeled_positive_count": 1,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "mutation": {
+            "labeled_positive_count": 2,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "predicate": {
+            "labeled_positive_count": 1,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          }
+        }
+      },
+      "assembly/x86-64-gas-att": {
+        "labeled_fact_count": 5,
+        "labeled_span_reference_count": 5,
+        "constructs": {
+          "call": {
+            "labeled_positive_count": 2,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "control_flow": {
+            "labeled_positive_count": 1,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "entry_point": {
+            "labeled_positive_count": 1,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "predicate": {
+            "labeled_positive_count": 1,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          }
+        }
+      },
+      "cobol/free": {
+        "labeled_fact_count": 3,
+        "labeled_span_reference_count": 3,
+        "constructs": {
+          "decision": {
+            "labeled_positive_count": 1,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "mutation": {
+            "labeled_positive_count": 2,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          }
+        }
+      },
+      "cobol/generated-listing": {
+        "labeled_fact_count": 2,
+        "labeled_span_reference_count": 2,
+        "constructs": {
+          "mutation": {
+            "labeled_positive_count": 1,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "predicate": {
+            "labeled_positive_count": 1,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          }
+        }
+      },
+      "cobol/ibm-copybook": {
+        "labeled_fact_count": 3,
+        "labeled_span_reference_count": 3,
+        "constructs": {
+          "constant": {
+            "labeled_positive_count": 1,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "data_field": {
+            "labeled_positive_count": 2,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          }
+        }
+      },
+      "cobol/ibm-fixed": {
+        "labeled_fact_count": 11,
+        "labeled_span_reference_count": 11,
+        "constructs": {
+          "include": {
+            "labeled_positive_count": 1,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "mutation": {
+            "labeled_positive_count": 6,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "predicate": {
+            "labeled_positive_count": 4,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          }
+        }
+      },
+      "typescript/typescript": {
+        "labeled_fact_count": 7,
+        "labeled_span_reference_count": 7,
+        "constructs": {
+          "calculation": {
+            "labeled_positive_count": 2,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "entry_point": {
+            "labeled_positive_count": 1,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "mutation": {
+            "labeled_positive_count": 2,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          },
+          "predicate": {
+            "labeled_positive_count": 2,
+            "exact_span_precision": null,
+            "exact_span_recall": null,
+            "fact_precision": null,
+            "fact_recall": null,
+            "status": "not_measured_against_adapter_output"
+          }
+        }
+      }
+    }
+  },
+  "observed_rule_synthesis": {
+    "variants": {
+      "deterministic_template": {
+        "case_count": 6,
+        "clause_count": 15,
+        "supported_clause_count": 15,
+        "supported_clause_rate": 1,
+        "unsupported_clause_count": 0,
+        "unsupported_clause_rate": 0,
+        "text_edit_distance": 1157,
+        "external_model_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "reported_cost_microusd": 0
+      },
+      "mock_structured_synthesis": {
+        "case_count": 6,
+        "clause_count": 6,
+        "supported_clause_count": 6,
+        "supported_clause_rate": 1,
+        "unsupported_clause_count": 0,
+        "unsupported_clause_rate": 0,
+        "text_edit_distance": 1581,
+        "external_model_calls": 0,
+        "input_tokens": 768,
+        "output_tokens": 384,
+        "reported_cost_microusd": 0
+      }
+    },
+    "clause_shapes_covered": [
+      "subject",
+      "condition",
+      "action",
+      "exception"
+    ],
+    "clause_shapes_not_measured": [
+      "quantifier"
+    ],
+    "rule_kind_matches": 3,
+    "rule_kind_cases": 6
+  },
+  "catalog_checks": {
+    "contradictions": {
+      "labeled_cases": 1,
+      "precision": null,
+      "recall": null,
+      "status": "not_measured_by_the_comparison_fixture"
+    },
+    "duplicate_reconciliation": {
+      "labeled_groups": 1,
+      "reconciled_alias_cases": 1,
+      "exact_scope_match": true,
+      "precision": null,
+      "recall": null,
+      "status": "scope_reconciliation_only_not_clustering_accuracy"
+    },
+    "retrieval": {
+      "precision": null,
+      "recall": null,
+      "status": "not_measured_by_the_comparison_fixture"
+    },
+    "reverse_lookup": {
+      "precision": null,
+      "recall": null,
+      "status": "not_measured_by_the_comparison_fixture"
+    },
+    "dependency_paths": {
+      "labeled_edges": 16,
+      "correct_paths": null,
+      "status": "not_measured_by_the_comparison_fixture"
+    },
+    "temporal_diffs": {
+      "labeled_changes": 1,
+      "correct_changes": null,
+      "status": "label_integrity_only_not_canonical_read_accuracy"
+    }
+  },
+  "reviewer_correction_effort": {
+    "human_reviewers": 0,
+    "measured_minutes": null,
+    "measured_edits": null,
+    "deterministic_template_text_edit_distance": 1157,
+    "mock_structured_synthesis_text_edit_distance": 1581,
+    "status": "not_human_measured_text_distance_is_only_a_reproducible_proxy"
+  },
+  "qualification": {
+    "policy_id": "codevetter.business-rule-archaeology.qualification",
+    "policy_version": 1,
+    "full_correctness_qualification": false,
+    "passing_claim": null
+  },
+  "limitations": [
+    "The labeled inventory is not adapter-output precision or recall; null metrics are intentional.",
+    "Clause support and edit distance come from a deterministic no-network mock comparison, not a live model.",
+    "Text edit distance is not measured human reviewer effort.",
+    "Contradiction, clustering, retrieval, reverse lookup, dependency-path, and temporal accuracy remain unmeasured by this artifact.",
+    "This report is correctness evidence only and makes no repository-size or performance claim."
+  ]
+}

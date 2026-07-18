@@ -36,7 +36,7 @@ The system SHALL expose MCP resources and resource templates for repository/stru
 - **WHEN** a resource references evidence whose underlying transcript or artifact has been rotated away
 - **THEN** the resource preserves the citation metadata, marks the content unavailable, and does not fabricate or substitute evidence
 
-### Requirement: Server exposes Graphify-grade structural queries
+### Requirement: Server exposes canonical structural graph queries
 The system SHALL provide read-only tools for structural graph query, node explanation, filtered neighbors, trust-weighted path, and upstream/downstream impact. These tools MUST call the canonical structural graph service and MUST preserve stable node IDs, source locations, relation kinds, trust, ambiguity, community, engine coverage, freshness, bounds, and links to release history.
 
 #### Scenario: Agent asks how two concepts connect

@@ -1,87 +1,172 @@
-# Local Graph and Release History MCP
+# Local History MCP
 
-CodeVetter can expose one repository's persisted structural graph and release
-history to local coding agents over MCP. The server is a native binary bundled
-beside the desktop app. It uses stdio only: there is no HTTP endpoint, account,
-daemon, or provider call.
+CodeVetter can expose one repository's persisted structural graph and Git
+history to local agents through a packaged, read-only MCP server. The server
+uses stdio, opens no network listener, requires no credentials, and cannot
+modify the repository or refresh its indexes.
 
-## Enable a repository
+## Setup
 
-1. Open the repository in CodeVetter and build its release history from Repo.
-2. Open **Settings → Agent MCP**.
-3. Review freshness, resource/tool kinds, redaction rules, limits, and the exact
-   packaged server path.
-4. Choose **Enable**, then **Copy config**.
-5. Paste the JSON into the MCP client you control. CodeVetter never edits an
-   external agent configuration.
+1. Open the repository in **Repo Unpacked**.
+2. In **Git history playback**, select **Index history**. Re-run it whenever the
+   panel reports that the index is stale.
+3. Open **Settings → Agent MCP** and select the repository.
+4. Review the freshness, exposed surface, limits, and redaction summary, then
+   select **Enable**.
+5. Select **Copy config** and paste the exact JSON into the local MCP client.
+   Reload the client if it does not detect configuration changes automatically.
 
-Enablement is repository-specific and disabled by default. The copied command is
-bound to an opaque repository ID and the local CodeVetter database. Disabling the
-repository makes both new and already-running servers reject subsequent reads.
+Opening Agent MCP prepares a disabled opaque scope so CodeVetter can preview
+the exact configuration; it does not enable access. The generated entry has
+this shape, with machine-specific values supplied by the app:
 
-## Progressive retrieval
-
-Agents should start with compact tools and hydrate detail only when needed:
-
-- `graph_query` finds ranked structural seeds; `graph_get_node`,
-  `graph_get_neighbors`, `graph_path`, and `graph_impact` deepen one question.
-- `history_list_releases` and `history_search` orient an agent in time.
-- `history_get_state`, `history_lineage`, `history_explain`, `history_trace`, and
-  `history_compare` reconstruct and explain bounded history.
-- `history_get_evidence` hydrates only explicitly selected evidence IDs.
-
-Every tool has an input/output schema and read-only, idempotent, closed-world
-annotations. Results include structured content plus a short text fallback,
-stable IDs, freshness, engine/schema identity, trust, gaps, applied limits, and
-resource links. Pagination cursors are opaque and request/repository-bound.
-
-## The analytics-event boundary
-
-For an analytics event, CodeVetter can prove local facts such as the definition,
-call sites, release that changed it, and linked tests. That proves code-side
-emission—not provider ingestion, delivery, dashboard processing, or visibility.
-Unless imported provider evidence exists, the outcome facet explicitly remains
-unknown and supplies evidence IDs that can be hydrated separately.
-
-## Safety and privacy
-
-- History and graph connections are opened read-only with bounded busy/query
-  timeouts. The only write is the separate metadata-only access audit.
-- No mutation, refresh, shell, filesystem-write, arbitrary SQL, transcript-read,
-  external-provider, or network tool exists.
-- Repository paths do not appear in URIs, cursors, or audit rows. Sensitive paths,
-  secret-looking values, raw transcripts, credentials, and oversized excerpts are
-  removed again at the serialization boundary.
-- Every response is bounded by page, node, edge, hop, evidence, excerpt, duration,
-  and 256 KiB serialized-response limits.
-- The audit records only repository ID, server session, operation, status,
-  timestamp, duration, result count, and response bytes. Settings can inspect and
-  clear it. Arguments, query text, prompts, resource content, and evidence payloads
-  are never recorded.
-
-The server remains usable when the desktop window is closed, provided the local
-database and repository still exist. A one-second HEAD cache avoids spawning Git
-for every agent query; repository scope/disable authorization is still checked on
-every request.
-
-## Development and verification
-
-From `apps/desktop`:
-
-```bash
-pnpm prepare:mcp-sidecar
-pnpm bench:mcp
-cargo test --manifest-path src-tauri/Cargo.toml mcp::
-cargo test --manifest-path src-tauri/Cargo.toml --test mcp_stdio
+```json
+{
+  "mcpServers": {
+    "codevetter-history": {
+      "command": "<packaged sidecar path shown in Settings>",
+      "args": [
+        "--database",
+        "<local CodeVetter database path>",
+        "--repo-id",
+        "<opaque repository id>"
+      ]
+    }
+  }
+}
 ```
 
-`prepare:mcp-sidecar:release` builds the target-suffixed binary Tauri expects in
-`src-tauri/binaries/`; that generated binary is ignored by Git. Release builds
-package it through `bundle.externalBin`, so the installed config needs no Node,
-Python, download, or service endpoint.
+The `command` resolves to the packaged `codevetter-mcp` sidecar. Its supported
+invocation is `codevetter-mcp --database <database> --repo-id <opaque-id>`;
+Settings supplies both machine-local values.
 
-Compatibility was rechecked on 2026-07-14 with isolated client homes and a fixture
-database: Claude Code 2.1.197 reported the release binary connected; Cursor Agent
-2026.07.01 reported it ready and listed all 13 tools. Codex CLI 0.144.1 also
-accepted the generated stdio configuration; the protocol-level claim is based on
-the two clients that actually launched and interrogated the server.
+Do not substitute a repository path for `--repo-id` or hand-edit the generated
+arguments. For more than one repository, copy each repository's entry and give
+the client-side entry a unique name while preserving its command and arguments.
+
+### Revoke access
+
+In **Settings → Agent MCP**, select the repository and choose **Disable**.
+Running MCP processes recheck the scope, so subsequent requests are rejected
+without requiring a client restart. Remove the entry from the MCP client as a
+separate cleanup step. Clearing the access audit does not disable access, and
+removing only the client entry does not revoke the scope in CodeVetter.
+
+## Tools
+
+All tools are read-only, idempotent, repository-scoped, and reject unknown
+arguments. Responses use a versioned envelope containing freshness, applied
+limits, stable links, and structured data.
+
+| Tool | Purpose |
+|---|---|
+| `graph_query` | Search the structural graph or return a compact overview. |
+| `graph_get_node` | Explain one stable node and its source-backed relationships. |
+| `graph_get_neighbors` | Read bounded incoming, outgoing, or bidirectional neighbors. |
+| `graph_path` | Find a trust-weighted path between two nodes. |
+| `graph_impact` | Find bounded upstream or downstream impact leads. |
+| `history_list_releases` | List indexed release summaries. |
+| `history_list_landmarks` | List bounded release and candidate-inflection landmarks. |
+| `history_list_contributors` | Summarize bounded ancestry-aware contributor participation for one interval. |
+| `history_search` | Search releases, commits, entities, events, and annotations. |
+| `history_get_state` | Reconstruct an indexed state at a release, revision, or date. |
+| `history_lineage` | Follow an entity through moves, renames, splits, merges, and removal. |
+| `history_explain` | Explain what, why, when, how, verification, outcome, and known gaps. |
+| `history_trace` | Trace bounded evidence from intent through verification and outcome. |
+| `history_compare` | Compare two persisted states without inventing causation. |
+| `history_get_evidence` | Hydrate an explicit batch of stable evidence IDs. |
+
+Start with graph overview, release listing, or history search. Follow stable IDs
+into explanation, lineage, or trace results, then call
+`history_get_evidence` only for citations the agent actually needs. Normal
+execution never makes a model or provider call.
+
+## Resources
+
+Resources use opaque `codevetter-history://` URIs; repository paths do not
+appear in those URIs. Repository and graph overviews, recent structural
+snapshots, and indexed releases are discoverable through resource listing.
+Parameterized templates expose the remaining kinds. The versioned landmark
+catalog and release-scoped contributor summaries are also discoverable directly.
+
+| Resource kind | Contents |
+|---|---|
+| `repository` | Structural and history status for the scoped repository. |
+| `graph` | Compact current structural overview. |
+| `snapshot` | Metadata, analysis, and projection for one structural snapshot. |
+| `community` | One bounded structural community. |
+| `release` | State at an indexed release tag. |
+| `landmark-catalog` | Versioned bounded release and candidate-inflection catalog. |
+| `contributor-summary` | Versioned bounded release-cycle participation summary. |
+| `commit` | State at an indexed Git revision. |
+| `episode` | One causal episode. |
+| `entity-lineage` | Head-relative lineage for one stable entity. |
+| `causal-thread` | A causal trace rooted at an event. |
+| `annotation` | One persisted history annotation. |
+| `evidence` | One explicitly selected evidence record. |
+
+Resource IDs are encoded by CodeVetter. Use URIs returned by tool or resource
+results rather than constructing them from local paths.
+
+## Freshness, bounds, and evidence
+
+Every successful tool or resource response reports structural and history
+freshness. CodeVetter checks the repository's current Git HEAD and tags during
+scoped reads. A stale index remains readable and is labeled stale; MCP never
+silently rebuilds it. Return to **Repo Unpacked → Git history playback** and
+select **Index history** to update it.
+
+The server applies these hard bounds:
+
+- 25 items by default and at most 100 items per page
+- 240 graph nodes, 480 graph edges, and 8 traversal hops
+- 32 explicit evidence IDs per hydration request
+- 2,048 bytes per returned excerpt and 256 KiB per response
+- 5 seconds per query and at most 4 concurrent query workers
+
+Use filters and opaque continuation cursors when a response is truncated.
+Explanations preserve trust, citations, and known gaps; absence of evidence is
+reported as a gap rather than converted into inferred fact.
+
+## Privacy and access audit
+
+The MCP server reads the CodeVetter SQLite database in query-only mode. It does
+not expose arbitrary files, raw transcripts, credentials, environment values,
+authorization material, raw provider payloads, or unrestricted database access.
+Sensitive references and secret-shaped values are redacted, absolute local
+paths are removed from responses, and oversized output is rejected rather than
+leaked partially.
+
+CodeVetter records bounded operational metadata in its own local database:
+opaque repository and server-session IDs, operation, status, duration, result
+count, response size, and timestamp. It does not record arguments, prompts,
+query text, or returned evidence. At most 1,000 rows are retained per repository.
+Recent entries can be inspected or cleared in **Settings → Agent MCP**.
+
+## Troubleshooting
+
+- **Enable is unavailable:** select **Index history** in Repo Unpacked first.
+- **History is stale:** re-index history. Stale responses are still bounded and
+  readable, but they do not describe unindexed commits or tags.
+- **The packaged server is unavailable:** use the installed desktop app. For a
+  source build, run `pnpm tauri:dev` or `pnpm tauri:build` from `apps/desktop/`;
+  both prepare the target-specific sidecar before starting Tauri.
+- **The client reports disabled or unavailable scope:** verify the selected
+  repository is enabled, then copy its configuration again. Do not reuse another
+  repository's opaque ID.
+- **A resource or evidence ID is unavailable:** search or explain again and use
+  IDs returned by the current index. MCP does not fall back to arbitrary file
+  reads.
+- **A response is too large or times out:** reduce the limit, add graph/history
+  filters, narrow the date range, follow the cursor, or request fewer evidence
+  IDs.
+- **A copied configuration stops working after reinstalling or moving the app:**
+  copy the current configuration again so the sidecar path matches the install.
+
+## Local-only limits
+
+This surface is intentionally for one machine and the current OS user. It is not
+a hosted endpoint, remote collaboration service, browser embed, write API,
+indexer, or provider gateway. The MCP client and CodeVetter must be able to read
+the same local database and repository. Publishing a live graph or README embed
+requires a separate privacy-aware hosted surface.

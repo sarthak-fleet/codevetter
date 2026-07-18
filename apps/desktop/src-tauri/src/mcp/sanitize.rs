@@ -3,6 +3,7 @@ use crate::{
     mcp::limits::{MAX_EXCERPT_BYTES, MAX_RESPONSE_BYTES},
 };
 use serde_json::{Map, Value};
+use std::path::Path;
 
 const OMITTED: &str = "[redacted]";
 
@@ -29,7 +30,9 @@ fn sanitize_value(key: Option<&str>, value: &mut Value) {
         }
         Value::String(text) => {
             if (key.is_some_and(is_sensitive_reference_key) && contains_sensitive_path(text))
+                || contains_absolute_local_path(text)
                 || looks_like_secret(text)
+                || looks_like_email(text)
             {
                 *text = OMITTED.to_string();
             } else if key.is_some_and(is_excerpt_key) && text.len() > MAX_EXCERPT_BYTES {
@@ -52,7 +55,19 @@ fn truncate_utf8_bytes(value: &str, max_bytes: usize) -> &str {
 }
 
 fn sanitize_map(map: &mut Map<String, Value>) {
-    for key in ["repo_path", "repository_path", "database_path", "command"] {
+    for key in [
+        "repo_path",
+        "repository_path",
+        "database_path",
+        "command",
+        "raw_prompt",
+        "prompt",
+        "email",
+        "author_email",
+        "content_hash",
+        "credential",
+        "credentials",
+    ] {
         map.remove(key);
     }
     for (key, value) in map.iter_mut() {
@@ -68,50 +83,75 @@ fn is_sensitive_reference_key(key: &str) -> bool {
 }
 
 fn is_excerpt_key(key: &str) -> bool {
-    matches!(key, "summary" | "detail" | "excerpt" | "text" | "subject")
+    matches!(
+        key,
+        "summary" | "detail" | "excerpt" | "text" | "subject" | "title" | "label"
+    )
+}
+
+fn looks_like_email(value: &str) -> bool {
+    value.split_whitespace().any(|part| {
+        let part = part.trim_matches(|character: char| {
+            !character.is_ascii_alphanumeric() && !matches!(character, '@' | '.' | '_' | '-' | '+')
+        });
+        let Some((local, domain)) = part.split_once('@') else {
+            return false;
+        };
+        !local.is_empty()
+            && domain.contains('.')
+            && !domain.starts_with('.')
+            && !domain.ends_with('.')
+    })
+}
+
+fn is_absolute_local_path(value: &str) -> bool {
+    Path::new(value).is_absolute()
+        || value.as_bytes().get(1) == Some(&b':')
+            && value
+                .as_bytes()
+                .get(2)
+                .is_some_and(|byte| matches!(byte, b'/' | b'\\'))
+}
+
+fn contains_absolute_local_path(value: &str) -> bool {
+    is_absolute_local_path(value)
+        || value
+            .split(|character: char| {
+                character.is_whitespace()
+                    || matches!(
+                        character,
+                        '`' | '\''
+                            | '"'
+                            | ','
+                            | ';'
+                            | '('
+                            | ')'
+                            | '['
+                            | ']'
+                            | '{'
+                            | '}'
+                            | '<'
+                            | '>'
+                            | '='
+                    )
+            })
+            .filter(|token| !token.is_empty())
+            .any(is_absolute_local_path)
 }
 
 pub fn sanitize_error_message(message: &str, repo_path: &str) -> String {
-    if contains_sensitive_path(message) || looks_like_secret(message) {
+    if contains_sensitive_path(message)
+        || looks_like_secret(message)
+        || contains_absolute_local_path(message)
+    {
         return "Requested content is unavailable under CodeVetter redaction policy".to_string();
     }
-    message.replace(repo_path, "[repository]")
+    if repo_path.is_empty() {
+        message.to_string()
+    } else {
+        message.replace(repo_path, "[repository]")
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn removes_local_scope_and_sensitive_content() {
-        let value = sanitize_response(json!({
-            "repo_path": "/private/repo",
-            "sources": [{"path": ".env", "summary": "sk-proj-secret"}],
-            "safe": {"path": "src/main.rs"}
-        }))
-        .expect("sanitize");
-        assert!(value.get("repo_path").is_none());
-        assert_eq!(value["sources"][0]["path"], OMITTED);
-        assert_eq!(value["sources"][0]["summary"], OMITTED);
-        assert_eq!(value["safe"]["path"], "src/main.rs");
-        assert_eq!(
-            sanitize_error_message("Could not read .env in /private/repo", "/private/repo"),
-            "Requested content is unavailable under CodeVetter redaction policy"
-        );
-    }
-
-    #[test]
-    fn enforces_excerpt_and_total_response_byte_limits() {
-        let multibyte = "🦀".repeat(MAX_EXCERPT_BYTES);
-        let value = sanitize_response(json!({"excerpt": multibyte})).expect("truncate excerpt");
-        assert!(value["excerpt"].as_str().expect("excerpt").len() <= MAX_EXCERPT_BYTES);
-
-        let oversized = json!({
-            "items": (0..(MAX_RESPONSE_BYTES / 4))
-                .map(|index| format!("safe-{index}"))
-                .collect::<Vec<_>>()
-        });
-        assert!(sanitize_response(oversized).is_err());
-    }
-}
+mod tests;

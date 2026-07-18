@@ -1,0 +1,204 @@
+{
+  "schemaVersion": "1.0.0",
+  "capturedAt": "2026-07-18T07:22:34.663Z",
+  "scope": "warm local whole invocation: Git diff, deterministic selection, browser batch, reporting",
+  "machine": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "cpuModel": "Apple M5 Pro",
+    "logicalCpuCount": 18,
+    "memoryGiB": 48,
+    "osRelease": "27.0.0",
+    "model": "Mac17,8",
+    "chip": "Apple M5 Pro",
+    "macOS": "27.0",
+    "build": "26A5378j"
+  },
+  "target": {
+    "protectedRepositoryHead": "d6074bfbb670f3d4754bca296f0574814485c67f",
+    "fixtureTargetSha": "302bdff3ba2137672b8fdc4cbdb8fefd2cd9ae7d",
+    "changeSetIdentity": "474351d6f2d4d429496fbaec0db8a6ecda4891168a7e830687e8d5441543355a",
+    "baseUrl": "http://127.0.0.1:51833",
+    "scenarioCount": 20,
+    "configHash": "9cafefd54ac0679574b411afe1480fe4e5a49eaeee74900f8bf3ebedf10e5d42",
+    "manifestHash": "1d13ac5a98c4fa8cbf03855c9f7761d86af38c84400106313717525188999f01",
+    "moduleSourceHashes": ["8da6cc15b50388f0e51d41e0c9c8ec3a719179164c77cee6f021d251ece6a978"],
+    "benchmarkSourceHashes": {
+      "scripts/warm-verification-benchmark.ts": "aee06f4367d9841113b66130580ea588bb48d993eb095650f30e3f362ff82cc9",
+      "tests/fixtures/warm-verification/benchmark-manifest.json": "8da6cc15b50388f0e51d41e0c9c8ec3a719179164c77cee6f021d251ece6a978",
+      "tests/fixtures/warm-verification/qualification-fixture.ts": "c05faa1a36b49336a6a70990a748616d1d7b19426eb9b752a43fd603a3ca6904",
+      "tests/fixtures/warm-verification/msw-app/index.html": "078ee2ddce3078e3495000e83e954b59b1341ace3e074057151fb9e4d6802b4c",
+      "tests/fixtures/warm-verification/msw-app/main.tsx": "e020a74c26b7c39282583486df01b892bd7b2ad0e21a8d9c1f2a9d9a4f3a943c",
+      "tests/fixtures/warm-verification/msw-app/vite.config.ts": "84f9e248d7915fce872a84b863679dc89cc1a269c4b47c0e82b7bb9a0499a717",
+      "tests/fixtures/warm-verification/msw-app/index.ts": "9c27d5fbf856afabafb93d5c3cfbd2542ce852eb41dd2f4f4627716c644bb813",
+      "tests/fixtures/warm-verification/msw-app/bridge.ts": "1aae476c4757d8347c3a616d710f71bc2bf5d9082ae445d0f063d6066e66c68a",
+      "tests/fixtures/warm-verification/msw-app/handlers.ts": "69687ddf82ccae105e0c649d84eeb8b282862980189acdc3a9a8d944c896899f",
+      "tests/fixtures/warm-verification/msw-app/states.ts": "5faf16d7af51209c461ccd6be1a1718da32b12e75984369f5812424cedce485f"
+    },
+    "hmr": {
+      "required": true,
+      "clientModuleReady": true,
+      "settled": true,
+      "settleMs": 250,
+      "readinessMs": 672.529
+    }
+  },
+  "browser": {
+    "engine": "chromium",
+    "revision": "external-150.0.7871.127",
+    "playwrightVersion": "1.59.1",
+    "headless": true,
+    "reusedAcrossEveryBatch": true
+  },
+  "coldStartup": {
+    "totalMs": 1022.301,
+    "serverReadyMs": 706.417,
+    "browserLaunchMs": 253.729
+  },
+  "workload": {
+    "checkedInManifest": "tests/fixtures/warm-verification/benchmark-manifest.json",
+    "scenariosPerBatch": 20,
+    "deterministicMockState": true,
+    "excludedVisualBaselineCalibrationBatches": 1,
+    "negativeFixturesIncluded": false,
+    "p95GateMs": 30000
+  },
+  "parallelismProfile": {
+    "samplesPerLevel": 3,
+    "warmupsPerLevel": 1,
+    "profiles": [
+      {
+        "parallelism": 1,
+        "warmupBatches": 1,
+        "sampleCount": 3,
+        "invocationMs": [11868.446, 11874.047, 11959.135],
+        "p50": 11874.047,
+        "p95": 11959.135,
+        "max": 11959.135,
+        "stable": true
+      },
+      {
+        "parallelism": 2,
+        "warmupBatches": 1,
+        "sampleCount": 3,
+        "invocationMs": [8178.027, 7914.185, 7978.819],
+        "p50": 7978.819,
+        "p95": 8178.027,
+        "max": 8178.027,
+        "stable": true
+      },
+      {
+        "parallelism": 3,
+        "warmupBatches": 1,
+        "sampleCount": 3,
+        "invocationMs": [7038.628, 6945.675, 6664.946],
+        "p50": 6945.675,
+        "p95": 7038.628,
+        "max": 7038.628,
+        "stable": true
+      },
+      {
+        "parallelism": 4,
+        "warmupBatches": 1,
+        "sampleCount": 3,
+        "invocationMs": [6050.731, 5961.691, 5972.565],
+        "p50": 5972.565,
+        "p95": 6050.731,
+        "max": 6050.731,
+        "stable": true
+      }
+    ],
+    "selectedDefault": 4,
+    "selectionRule": "lowest stable whole-invocation p95; ties prefer lower parallelism"
+  },
+  "qualification": {
+    "parallelism": 4,
+    "warmupBatches": 2,
+    "sampleCount": 20,
+    "invocationMs": [
+      6218.314, 6382.842, 6067.413, 5997.583, 6039.203, 6229.526, 6090.42, 6058.275, 5960.116,
+      5902.346, 6008.485, 6011.417, 6074.112, 5925.513, 5909.648, 6076.435, 6351.395, 6108.792,
+      6080.357, 6058.285
+    ],
+    "timingMs": {
+      "p50": 6058.285,
+      "p95": 6351.395,
+      "max": 6382.842
+    },
+    "stageTimingMs": {
+      "actions_work": {
+        "p50": 10769.474,
+        "p95": 11132.098,
+        "max": 11158.044
+      },
+      "auth_work": {
+        "p50": 13.637,
+        "p95": 17.655,
+        "max": 18.514
+      },
+      "context_work": {
+        "p50": 517.848,
+        "p95": 639.316,
+        "max": 658.488
+      },
+      "diff": {
+        "p50": 30.743,
+        "p95": 32.524,
+        "max": 32.802
+      },
+      "navigation_work": {
+        "p50": 4460.288,
+        "p95": 4735.959,
+        "max": 4763.783
+      },
+      "observation_work": {
+        "p50": 5215.542,
+        "p95": 5501.875,
+        "max": 5603.999
+      },
+      "reporting": {
+        "p50": 0.001,
+        "p95": 0.002,
+        "max": 0.002
+      },
+      "runner_total": {
+        "p50": 6027.049,
+        "p95": 6319.912,
+        "max": 6349.818
+      },
+      "screenshots_work": {
+        "p50": 2532.729,
+        "p95": 2914.593,
+        "max": 2922.854
+      },
+      "selection": {
+        "p50": 0.653,
+        "p95": 0.671,
+        "max": 0.683
+      },
+      "state_work": {
+        "p50": 2227.127,
+        "p95": 2500.058,
+        "max": 2523.206
+      },
+      "teardown_work": {
+        "p50": 275.233,
+        "p95": 333.29,
+        "max": 442.363
+      },
+      "whole_invocation": {
+        "p50": 6058.285,
+        "p95": 6351.395,
+        "max": 6382.842
+      }
+    },
+    "p95GateMs": 30000,
+    "passed": true
+  },
+  "caveats": [
+    "Absolute timing applies only to the recorded machine and pinned Chromium revision.",
+    "Per-scenario stage values are summed work time and may overlap under parallel execution.",
+    "Visual baseline calibration is setup-only and excluded from cold and warm timing samples.",
+    "Observer-negative fixtures are intentionally excluded and run in correctness tests instead."
+  ]
+}

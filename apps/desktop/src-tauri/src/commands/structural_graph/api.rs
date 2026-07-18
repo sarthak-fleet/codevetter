@@ -40,12 +40,12 @@ pub fn get_structural_graph_adapters() -> Vec<StructuralGraphAdapterDescriptor> 
 }
 
 #[tauri::command]
-pub fn preview_graphify_structural_graph(
+pub fn preview_node_link_structural_graph(
     repo_path: String,
     json_text: String,
 ) -> Result<StructuralGraphInterchangePreview, String> {
     let canonical = canonical_repo_path(&repo_path)?;
-    interchange::import_graphify_json(&canonical.to_string_lossy(), &json_text)
+    interchange::import_node_link_json(&canonical.to_string_lossy(), &json_text)
 }
 
 #[tauri::command]

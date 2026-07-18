@@ -1,0 +1,209 @@
+{
+  "authorized_claim": null,
+  "captured_at": "2026-07-17T15:18:13.111051+00:00",
+  "command": "CODEVETTER_ARCHAEOLOGY_EXTERNAL_REPO=<canonical-local-git-path> CODEVETTER_ARCHAEOLOGY_EXTERNAL_REPORT=<explicit-report-path> cargo test --release archaeology_external_repository_qualification -- --ignored --nocapture",
+  "contract_id": "codevetter.business-rule-archaeology.external-repository-qualification.v1",
+  "machine": {
+    "arch": "aarch64",
+    "cpu": "Apple M5 Pro",
+    "kernel": "Darwin 27.0.0 Darwin Kernel Version 27.0.0: Mon Jun 29 21:25:23 PDT 2026; root:xnu-13432.0.50.501.3~1/RELEASE_ARM64_T6050 arm64 arm",
+    "logical_cpus": 18,
+    "memory_bytes": 51539607552,
+    "os": "macos",
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+  },
+  "operational_gate_passed": true,
+  "qualification": {
+    "execution": {
+      "cold": {
+        "elapsed_ms": 17885.252,
+        "mode": "global_rebuild",
+        "ready": true
+      },
+      "repeat_no_op": {
+        "changed_path_count": 0,
+        "elapsed_ms": 9.625,
+        "passed": true,
+        "reused_ready_generation": true
+      },
+      "safe_parity_path": {
+        "baseline_catalog_digest": "sha256:63776978963724baff2cce19061797d5007c9ec506c6c4e7c3411562740bf151",
+        "changed_unit_path": "unavailable_without_source_mutation",
+        "differing_tables": [],
+        "elapsed_ms": 17794.101,
+        "exact_catalog_parity": true,
+        "inventory_and_coverage_parity": true,
+        "kind": "independent_clean_rebuild",
+        "rebuilt_catalog_digest": "sha256:63776978963724baff2cce19061797d5007c9ec506c6c4e7c3411562740bf151",
+        "source_mutation_performed": false
+      }
+    },
+    "inventory": {
+      "bytes": 8069763,
+      "coverage": {
+        "discovered_bytes": 8069763,
+        "discovered_source_units": 329,
+        "indexed_bytes": 3441983,
+        "indexed_source_units": 302,
+        "parser_coverage": "unavailable",
+        "reasons": ["non_regular_or_binary_source_excluded", "non_utf8_or_nul_source_excluded"],
+        "repository_coverage": "partial",
+        "state": "partial",
+        "temporal_coverage": "unavailable"
+      },
+      "facts": 23841,
+      "files": 329,
+      "lines": 59141,
+      "rules": 5563,
+      "source_units": 329
+    },
+    "model_usage": {
+      "calls": 0,
+      "cost_microusd": 0,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    "operational_gate_passed": true,
+    "parser_matrix": [
+      {
+        "bytes": 1499,
+        "classification": "source",
+        "dialect": "unavailable",
+        "language": "assembly",
+        "lines": 30,
+        "parser_id": "codevetter-assembly-fallback",
+        "parser_version": "2",
+        "source_units": 1
+      },
+      {
+        "bytes": 2494,
+        "classification": "source",
+        "dialect": "hlasm",
+        "language": "assembly",
+        "lines": 84,
+        "parser_id": "codevetter-assembly-fallback",
+        "parser_version": "2",
+        "source_units": 1
+      },
+      {
+        "bytes": 28472,
+        "classification": "source",
+        "dialect": "unavailable",
+        "language": "cobol",
+        "lines": 579,
+        "parser_id": "codevetter-cobol-fallback",
+        "parser_version": "2",
+        "source_units": 4
+      },
+      {
+        "bytes": 474905,
+        "classification": "source",
+        "dialect": "copybook",
+        "language": "cobol",
+        "lines": 10072,
+        "parser_id": "codevetter-cobol-fallback",
+        "parser_version": "2",
+        "source_units": 58
+      },
+      {
+        "bytes": 1756999,
+        "classification": "source",
+        "dialect": "fixed",
+        "language": "cobol",
+        "lines": 30175,
+        "parser_id": "codevetter-cobol-fallback",
+        "parser_version": "2",
+        "source_units": 44
+      },
+      {
+        "bytes": 4627780,
+        "classification": "opaque",
+        "dialect": "unavailable",
+        "language": "unknown",
+        "lines": 0,
+        "parser_id": "unavailable",
+        "parser_version": "unavailable",
+        "source_units": 27
+      },
+      {
+        "bytes": 1177614,
+        "classification": "source",
+        "dialect": "unavailable",
+        "language": "unknown",
+        "lines": 18201,
+        "parser_id": "unavailable",
+        "parser_version": "unavailable",
+        "source_units": 194
+      }
+    ],
+    "privacy": {
+      "absolute_source_paths_retained_in_report": false,
+      "model_calls": 0,
+      "model_cost_microusd": 0,
+      "model_input_tokens": 0,
+      "model_output_tokens": 0,
+      "passed": true,
+      "protected_source_units": 0,
+      "protected_units_retaining_relative_path": 0,
+      "raw_prompts_retained": false,
+      "raw_source_bodies_retained": false,
+      "temporary_sqlite_only": true,
+      "temporary_sqlite_removed": true
+    },
+    "production_inputs": {
+      "clean_rebuild_exact_match": true,
+      "contract": {
+        "algorithm_identity": "algorithm:v2",
+        "config_identity": "sha256:39963eda0a59a309208f752eb7bb92d1777c38a08e6b3530dfa224cd067e3519",
+        "contract_id": "codevetter.business-rule-archaeology.production-inputs.v1",
+        "exact_persisted_match": true,
+        "head_identity_digest": "sha256:1534b9f5627959bbd2f2500c8f07388f49020389443cec8faf271762705357d4",
+        "input_set_digest": "sha256:9b8273775d98517bfca2dce17bf5cedda65a7c4b9284265a06f6319f707967c8",
+        "inventory_policy_identity": "archaeology-inventory-v1",
+        "parser_manifest_identity": "parser-manifest:v1:codevetter-assembly-fallback@2,codevetter-cobol-fallback@2,codevetter-tree-sitter@1.archaeology2,unavailable@unavailable",
+        "parser_scope": "global",
+        "raw_head_identity_retained": false,
+        "raw_source_identity_retained": false,
+        "source_identity_digest": "sha256:d3b529592b1369996739e73273f3b4b25441de62a201adc0bd74184840d25113",
+        "storage_schema_identity": "schema:v2",
+        "storage_schema_version": 2,
+        "synthesis_policy_identity": "synthesis:v1",
+        "synthesis_policy_scope": "global"
+      }
+    },
+    "resources": {
+      "cpu_system_seconds": 10.07,
+      "cpu_user_seconds": 19.372,
+      "peak_rss_bytes": 437796864,
+      "sqlite_bytes_after_cleanup": 0,
+      "sqlite_bytes_before_cleanup": 453652480
+    }
+  },
+  "release_policy_blockers": [
+    "semantic_correctness_not_labeled_for_this_repository",
+    "strict_latency_storage_and_sample_thresholds_not_evaluated_by_this_gate"
+  ],
+  "release_policy_passed": false,
+  "resources": {
+    "cpu_system_seconds": 10.088,
+    "cpu_user_seconds": 19.384,
+    "elapsed_ms": 36190.805,
+    "peak_rss_bytes": 437796864
+  },
+  "runtime_blocker": null,
+  "schema_version": 1,
+  "source": {
+    "dirty_after": false,
+    "dirty_before": false,
+    "immutable": true,
+    "path_retained_in_report": false,
+    "refs_digest_after": "sha256:116efc4543fd79ff0b6e4a4adfb00b069b015f925aa07647ef2d1fec5d553536",
+    "refs_digest_before": "sha256:116efc4543fd79ff0b6e4a4adfb00b069b015f925aa07647ef2d1fec5d553536",
+    "revision_digest": "sha256:1534b9f5627959bbd2f2500c8f07388f49020389443cec8faf271762705357d4",
+    "status_digest_after": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "status_digest_before": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tree_digest": "sha256:5058d5b8c9613eb0c9eaf77d58fb41416a99c2040c3393e87bf2c24d3e4d9162",
+    "worktree_digest_after": "sha256:bb94f96abe49b24ec770b902ea9d7f5a83039a09930e94b229ce2470bf8e6f77",
+    "worktree_digest_before": "sha256:bb94f96abe49b24ec770b902ea9d7f5a83039a09930e94b229ce2470bf8e6f77"
+  }
+}

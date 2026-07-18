@@ -2,12 +2,34 @@ import { Copy } from 'lucide-react';
 import { useCallback } from 'react';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { isTauriAvailable, openInApp } from '@/lib/tauri-ipc';
+import { isTauriAvailable, openInApp, openRepositorySourceInEditor } from '@/lib/tauri-ipc';
 
-export function SourceLink({ path, repoPath }: { path: string; repoPath: string }) {
+export function SourceLink({
+  path,
+  repoPath,
+  line,
+  column,
+}: {
+  path: string;
+  repoPath: string;
+  line?: number;
+  column?: number;
+}) {
   const cleanPath = path.split('#')[0] ?? path;
   const open = useCallback(async () => {
     if (!isTauriAvailable()) return;
+    if (line && column) {
+      try {
+        await openRepositorySourceInEditor('cursor', repoPath, cleanPath, line, column);
+      } catch {
+        try {
+          await openRepositorySourceInEditor('vscode', repoPath, cleanPath, line, column);
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
     const abs = `${repoPath.replace(/\/$/, '')}/${cleanPath}`;
     try {
       await openInApp('cursor', abs);
@@ -18,7 +40,7 @@ export function SourceLink({ path, repoPath }: { path: string; repoPath: string 
         /* ignore */
       }
     }
-  }, [cleanPath, repoPath]);
+  }, [cleanPath, column, line, repoPath]);
 
   const copy = useCallback(async () => {
     try {
@@ -36,7 +58,9 @@ export function SourceLink({ path, repoPath }: { path: string; repoPath: string 
             {path}
           </button>
         </TooltipTrigger>
-        <TooltipContent side="top">Open in editor</TooltipContent>
+        <TooltipContent side="top">
+          {line && column ? `Open at line ${line}, column ${column}` : 'Open in editor'}
+        </TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>

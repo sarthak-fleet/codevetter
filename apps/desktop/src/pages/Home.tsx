@@ -2551,6 +2551,12 @@ export default function Home() {
   // ─── Load all dashboard data ────────────────────────────────────────────
 
   const loadDashboard = useCallback(async (showSpinner: boolean = true) => {
+    if (!isTauriAvailable()) {
+      setLoading(false);
+      setError('Tauri APIs not available. Run inside the desktop app to see live data.');
+      isInitialLoad.current = false;
+      return;
+    }
     if (showSpinner) {
       setLoading(true);
     }
@@ -2908,7 +2914,7 @@ export default function Home() {
             <p className="text-xs text-red-300">{error}</p>
             <button
               onClick={() => loadDashboard()}
-              className="ml-auto text-xs text-red-400/50 hover:text-red-400"
+              className="ml-auto text-xs text-red-300 hover:text-red-200"
             >
               Retry
             </button>

@@ -220,6 +220,7 @@ type Props = {
   onDrillContext?: (name: string, path?: string | null) => void;
   stableLayout?: boolean;
   nodeStates?: Record<string, 'added' | 'removed' | 'changed'>;
+  highlightPathPrefixes?: string[];
 };
 
 export function DeepGraphViewer({
@@ -232,6 +233,7 @@ export function DeepGraphViewer({
   onDrillContext,
   stableLayout = false,
   nodeStates = {},
+  highlightPathPrefixes = [],
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 720, height: 420 });
@@ -246,10 +248,13 @@ export function DeepGraphViewer({
     const ro = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       if (!rect) return;
-      setSize({
+      const next = {
         width: Math.max(320, rect.width),
         height: Math.max(280, Math.min(480, rect.width * 0.55)),
-      });
+      };
+      setSize((current) =>
+        current.width === next.width && current.height === next.height ? current : next
+      );
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -262,6 +267,10 @@ export function DeepGraphViewer({
   const layoutById = useMemo(() => new Map(layout.map((n) => [n.id, n])), [layout]);
 
   const selected = selectedId ? (graph.nodes.find((n) => n.id === selectedId) ?? null) : null;
+  const highlightedPaths = useMemo(
+    () => new Set(highlightPathPrefixes.filter(Boolean)),
+    [highlightPathPrefixes]
+  );
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
@@ -439,6 +448,13 @@ export function DeepGraphViewer({
                 const color = kindColor(item.node.kind);
                 const isCenter = item.ring === 'center';
                 const isSelected = selectedId === item.id;
+                const isHighlighted = Boolean(
+                  item.node.path &&
+                    [...highlightedPaths].some(
+                      (prefix) =>
+                        item.node.path === prefix || item.node.path?.startsWith(`${prefix}/`)
+                    )
+                );
                 const r = isCenter ? 18 : 12;
                 const changeState = nodeStates[item.id];
                 return (
@@ -447,11 +463,16 @@ export function DeepGraphViewer({
                     className="cursor-pointer"
                     role="button"
                     tabIndex={0}
-                    aria-label={`Graph node ${item.node.label}`}
+                    aria-label={`Graph node ${item.node.label}${isHighlighted ? ' in selected contributor area' : ''}`}
                     style={{
                       transform: `translate(${item.x}px, ${item.y}px)`,
                       transition: 'transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms',
-                      opacity: changeState === 'removed' ? 0.15 : 1,
+                      opacity:
+                        changeState === 'removed'
+                          ? 0.15
+                          : highlightedPaths.size && !isHighlighted
+                            ? 0.35
+                            : 1,
                       animation:
                         changeState === 'added'
                           ? 'dg-node-enter 320ms cubic-bezier(0.2, 0.8, 0.2, 1)'
@@ -476,14 +497,14 @@ export function DeepGraphViewer({
                       onSelectSymbol?.(item.node.label, item.node.path, item.id);
                     }}
                   >
-                    {isSelected && (
+                    {(isSelected || isHighlighted) && (
                       <circle r={r + 8} fill={color} opacity={0.18} filter="url(#dg-glow)" />
                     )}
                     <circle
                       r={r}
                       fill={isCenter ? '#0f2c35' : '#0f1117'}
-                      stroke={color}
-                      strokeWidth={isSelected ? 2.5 : isCenter ? 2 : 1.5}
+                      stroke={isHighlighted && !isSelected ? '#67e8f9' : color}
+                      strokeWidth={isSelected ? 2.5 : isHighlighted ? 2.25 : isCenter ? 2 : 1.5}
                     />
                     <text
                       y={r + 14}

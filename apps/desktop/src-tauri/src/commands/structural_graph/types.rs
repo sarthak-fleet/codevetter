@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -8,6 +10,7 @@ use std::sync::{
 pub const STRUCTURAL_GRAPH_SCHEMA_VERSION: i64 = 3;
 pub const BUNDLED_ENGINE_ID: &str = "codevetter-tree-sitter";
 pub const BUNDLED_ENGINE_VERSION: &str = "1";
+pub const STRUCTURAL_METRIC_SCHEMA_VERSION: i64 = 1;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -46,8 +49,11 @@ pub enum GraphOrigin {
     Resolution,
     Analysis,
     Metadata,
-    ImportedGraphify,
-    ImportedGitNexus,
+    Extracted,
+    Deterministic,
+    ModelSynthesized,
+    HumanConfirmed,
+    ImportedNodeLink,
     UserAnnotation,
     #[default]
     LegacyMetadata,
@@ -60,8 +66,11 @@ impl GraphOrigin {
             Self::Resolution => "resolution",
             Self::Analysis => "analysis",
             Self::Metadata => "metadata",
-            Self::ImportedGraphify => "imported_graphify",
-            Self::ImportedGitNexus => "imported_git_nexus",
+            Self::Extracted => "extracted",
+            Self::Deterministic => "deterministic",
+            Self::ModelSynthesized => "model_synthesized",
+            Self::HumanConfirmed => "human_confirmed",
+            Self::ImportedNodeLink => "imported_node_link",
             Self::UserAnnotation => "user_annotation",
             Self::LegacyMetadata => "legacy_metadata",
         }
@@ -73,8 +82,11 @@ impl GraphOrigin {
             "resolution" => Self::Resolution,
             "analysis" => Self::Analysis,
             "metadata" => Self::Metadata,
-            "imported_graphify" => Self::ImportedGraphify,
-            "imported_git_nexus" => Self::ImportedGitNexus,
+            "extracted" => Self::Extracted,
+            "deterministic" => Self::Deterministic,
+            "model_synthesized" => Self::ModelSynthesized,
+            "human_confirmed" => Self::HumanConfirmed,
+            "imported_node_link" => Self::ImportedNodeLink,
             "user_annotation" => Self::UserAnnotation,
             _ => Self::LegacyMetadata,
         }
@@ -219,6 +231,85 @@ pub struct StructuralGraphFileRecord {
     pub edge_count: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StructuralControlFlowFact {
+    pub id: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    pub nesting: usize,
+    pub source: GraphSourceAnchor,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StructuralBoundaryFact {
+    pub kind: String,
+    pub target: String,
+    pub source: GraphSourceAnchor,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct StructuralCodeMetrics {
+    pub line_count: usize,
+    pub statement_count: usize,
+    pub parameter_count: usize,
+    pub cyclomatic_complexity: usize,
+    pub cognitive_complexity: usize,
+    pub max_nesting: usize,
+    pub fan_in: usize,
+    pub fan_out: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cohesion: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StructuralGraphMetricFact {
+    pub schema_version: i64,
+    pub id: String,
+    pub node_id: String,
+    pub path: String,
+    pub scope_kind: String,
+    pub language: String,
+    pub public_surface: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_surface_reason: Option<String>,
+    pub syntax_fingerprint: String,
+    pub normalized_token_count: usize,
+    pub normalization_method: String,
+    pub metrics: StructuralCodeMetrics,
+    #[serde(default)]
+    pub control_flow: Vec<StructuralControlFlowFact>,
+    #[serde(default)]
+    pub definitions: Vec<String>,
+    #[serde(default)]
+    pub uses: Vec<String>,
+    #[serde(default)]
+    pub boundaries: Vec<StructuralBoundaryFact>,
+    #[serde(default)]
+    pub sources: Vec<GraphSourceAnchor>,
+    #[serde(default)]
+    pub limitations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StructuralCloneRegion {
+    pub metric_id: String,
+    pub node_id: String,
+    pub path: String,
+    pub source: GraphSourceAnchor,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StructuralCloneGroup {
+    pub id: String,
+    pub syntax_fingerprint: String,
+    pub normalization_method: String,
+    pub normalized_token_count: usize,
+    pub similarity: f64,
+    pub regions: Vec<StructuralCloneRegion>,
+    pub exclusions: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StructuralGraphSnapshot {
     pub schema_version: i64,
@@ -243,7 +334,15 @@ pub struct StructuralGraphSnapshot {
     pub nodes: Vec<StructuralGraphNode>,
     #[serde(default)]
     pub edges: Vec<StructuralGraphEdge>,
+    #[serde(default)]
+    pub metrics: Vec<StructuralGraphMetricFact>,
+    #[serde(default)]
+    pub clone_groups: Vec<StructuralCloneGroup>,
     pub truncated: bool,
+}
+
+pub fn namespaced_graph_id(repository_id: &str, local_id: &str) -> String {
+    stable_graph_id("workspace-node", &format!("{repository_id}\0{local_id}"))
 }
 
 #[derive(Debug, Clone)]
@@ -284,6 +383,10 @@ pub struct StructuralGraphProgress {
 #[derive(Debug, Clone, Default)]
 pub struct StructuralGraphCancellation {
     cancelled: Arc<AtomicBool>,
+    #[cfg(test)]
+    cancel_after_checks: Arc<AtomicUsize>,
+    #[cfg(test)]
+    checks: Arc<AtomicUsize>,
 }
 
 impl StructuralGraphCancellation {
@@ -292,7 +395,26 @@ impl StructuralGraphCancellation {
     }
 
     pub fn is_cancelled(&self) -> bool {
+        #[cfg(test)]
+        {
+            let checks = self.checks.fetch_add(1, Ordering::SeqCst) + 1;
+            let threshold = self.cancel_after_checks.load(Ordering::SeqCst);
+            if threshold > 0 && checks >= threshold {
+                self.cancel();
+            }
+        }
         self.cancelled.load(Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cancel_after_checks(&self, checks: usize) {
+        self.cancel_after_checks
+            .store(checks.max(1), Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn check_count(&self) -> usize {
+        self.checks.load(Ordering::SeqCst)
     }
 }
 
@@ -383,5 +505,15 @@ mod tests {
         let second = first.clone();
         second.cancel();
         assert!(first.is_cancelled());
+    }
+
+    #[test]
+    fn workspace_ids_namespace_matching_local_symbols_by_repository() {
+        let local = "function:shared";
+        let first = namespaced_graph_id("repo:first", local);
+        let second = namespaced_graph_id("repo:second", local);
+        assert_ne!(first, second);
+        assert_eq!(first, namespaced_graph_id("repo:first", local));
+        assert!(first.starts_with("workspace-node:"));
     }
 }

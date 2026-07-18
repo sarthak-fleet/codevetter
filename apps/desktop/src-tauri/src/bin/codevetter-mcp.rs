@@ -1,11 +1,11 @@
-use codevetter_desktop::mcp::server::CodeVetterMcpServer;
+use codevetter_desktop::mcp::{sanitize::sanitize_error_message, server::CodeVetterMcpServer};
 use rmcp::ServiceExt;
 use std::path::PathBuf;
 
 #[tokio::main]
 async fn main() {
     if let Err(error) = run().await {
-        eprintln!("codevetter-mcp: {error}");
+        eprintln!("codevetter-mcp: {}", sanitize_error_message(&error, ""));
         std::process::exit(1);
     }
 }

@@ -41,6 +41,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -57,12 +59,22 @@ jobs:
         working-directory: apps/desktop
         run: pnpm exec playwright install chromium
 
-      - name: Qualify canonical graph performance
+      - name: Qualify canonical graph and MCP performance
         working-directory: apps/desktop
+        env:
+          # Hosted runner timing is variable. Keep correctness/resource
+          # qualification here; absolute graph ceilings run on the named machine.
+          CV_GRAPH_BUDGET_MODE: report-only
         run: |
           pnpm qualify:graph
           pnpm qualify:graph:browser
           pnpm bench:mcp
+
+      - name: Prepare release MCP sidecar
+        working-directory: apps/desktop
+        env:
+          TAURI_ENV_TARGET_TRIPLE: aarch64-apple-darwin
+        run: pnpm run prepare:mcp-sidecar:release
 
       - name: Build Tauri app
         id: tauri
@@ -88,6 +100,9 @@ jobs:
           args: --target aarch64-apple-darwin --bundles app,dmg,updater --features browser-agent
           includeUpdaterJson: true
           updaterJsonPreferNsis: false
+
+      - name: Verify MCP sidecar in app bundle
+        run: test -x apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/CodeVetter.app/Contents/MacOS/codevetter-mcp
 
       # tauri-action repackages the .app -> .tar.gz AFTER tauri build signed
       # the original tarball, so the on-disk .sig is stale (or absent). Sign

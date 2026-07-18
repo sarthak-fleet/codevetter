@@ -14,7 +14,6 @@ history explanation, synthetic QA evidence, and runnable review reports.
 | --- | --- | --- | --- | --- | --- | --- |
 | ast-grep | https://github.com/ast-grep/ast-grep | MIT | Active in GitHub metadata; Rust CLI with recent pushes. | Best near-term fit for structural search over changed files and hunk-specific review rules. | Medium: add CLI detection and optional rules without bundling. | Recommended first spike. |
 | Tree-sitter | https://github.com/tree-sitter/tree-sitter | MIT | Active, widely used parser system. | Foundation for local changed-file graph and syntax-aware chunking. | Medium/high if CodeVetter owns parser integration directly. | Prefer via ast-grep first; direct integration later. |
-| Repowise | https://github.com/repowise-dev/repowise | AGPL-3.0 | Active public repo with code-health, change-risk, refactoring, docs, graph, and MCP surfaces. | Strong product reference for deterministic repo health: separate defect/maintainability/performance signals, churn-aware hotspots, concrete refactoring leads, and agent-ready evidence. | High to integrate directly because it is Python/tree-sitter/server-shaped and AGPL; low to borrow the local-first product pattern. | Do not vendor. Implement a small native heuristic artifact in Repo Unpacked and keep deeper tree-sitter/calibrated scoring as future research. |
 | Repomix | https://github.com/yamadashy/repomix | MIT | Active, high-star repo packing tool. | Useful for repeatable "repo unpacked" packets and AI-friendly context artifacts. | Low/medium as optional CLI adapter. | Watchlist for export/packet workflow, not review engine. |
 | Semgrep | https://github.com/semgrep/semgrep | LGPL-2.1 | Active and mature. | Broad static-analysis rule engine for security/bug patterns. | Medium plus license/packaging review; may be too broad for local-first wedge. | Park until specific rule packs are selected. |
 | CodeQL | https://github.com/github/codeql | MIT for repo libraries/queries | Active and mature. | Deep security analysis and query packs. | High: database extraction is heavy and language-specific. | Park for security-focused mode only. |
@@ -37,13 +36,11 @@ as an optional local collector:
 This fits the current Agent Verification Environment without turning CodeVetter
 into a generic static-analysis platform.
 
-Repowise was useful as a product reference, not as a dependency. CodeVetter now
-borrows the relevant local-first slice inside Repo Unpacked: a deterministic
-`repo_health` inventory artifact that ranks source hotspots from bounded file
-samples plus git churn, separates defect/maintainability/performance findings,
-suggests concrete refactoring leads, renders in scan-only mode, and feeds the
-synthesis prompt/export sidecars. It deliberately does not claim Repowise's
-calibrated tree-sitter health model.
+Repo Unpacked owns a deterministic `repo_health` inventory artifact that ranks
+source hotspots from bounded file samples plus git churn, separates defect,
+maintainability, and performance findings, suggests concrete refactoring leads,
+renders in scan-only mode, and feeds synthesis and export surfaces. It remains
+an intentionally heuristic review aid rather than a calibrated prediction model.
 
 ## Canonical structural graph decision (2026-07-13)
 
@@ -57,7 +54,6 @@ offline runtime contract.
 | --- | --- | --- | --- | --- | --- |
 | Direct `tree-sitter` plus selected grammar crates | In-process Rust | Exact promised matrix; independently pinned grammars | Lowest call overhead and supports per-file parallel parsing | Highest native compile/link maintenance; selected grammars add binary size | Chosen |
 | `ast-grep-language` bundled parser set | In-process Rust | Convenient but its default pack bundles languages outside the initial matrix | Similar parsing core with additional abstraction | Larger/uncontrolled grammar set in the current release | Not chosen for the canonical engine; keep optional `sg` rules |
-| Graphify subprocess | Python process | Upstream-controlled | Process/JSON overhead and runtime discovery on every boundary | Requires external Python/package lifecycle | Interchange/parity adapter only |
 | GitNexus subprocess | Node process | Upstream-controlled | Process/JSON overhead | Requires Node 22 and a separately managed index | Optional secondary adapter only |
 
 Pinned direct dependencies resolve to Tree-sitter 0.26.11 and MIT-licensed

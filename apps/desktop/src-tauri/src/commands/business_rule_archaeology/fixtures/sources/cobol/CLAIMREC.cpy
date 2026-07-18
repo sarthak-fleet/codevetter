@@ -1,0 +1,4 @@
+       01 CLAIM-RECORD.
+          05 CLAIM-AMOUNT PIC 9(7)V99.
+          05 CLAIM-ELIGIBLE PIC X.
+             88 CLAIM-IS-ELIGIBLE VALUE 'Y'.

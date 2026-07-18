@@ -13,6 +13,7 @@ import {
   buildReviewerProofMarkdown,
   buildVerificationTimeline,
   formatHistoryCommandEvidence,
+  projectDifferentialVerificationHistory,
   type HistoryFindingSummary,
   queryCodebaseHistoryExplanationForFile,
   selectTimelineSegmentFindingIndexes,
@@ -63,6 +64,51 @@ describe('formatHistoryCommandEvidence', () => {
     assert.match(text, /1 artifact/);
     assert.match(text, /context=tool: ok artifacts\/build\.log/);
     assert.match(text, /source=\/tmp\/codex\/session\.jsonl/);
+  });
+});
+
+describe('projectDifferentialVerificationHistory', () => {
+  it('keeps differential runs read-only and unable to satisfy warm verification', () => {
+    const timeline = projectDifferentialVerificationHistory([
+      {
+        id: 'older',
+        createdAt: '2026-07-17T10:00:00.000Z',
+        summary: {
+          classification: 'improved',
+          candidate_kind: 'worktree',
+          scenario_count: 4,
+          delta_count: 1,
+          blocking_delta_count: 0,
+          duration_ms: 1200,
+          reason_codes: [],
+          creates_pass_evidence: false,
+        },
+      },
+      {
+        id: 'newer',
+        createdAt: '2026-07-18T10:00:00.000Z',
+        summary: {
+          classification: 'regressed',
+          candidate_kind: 'staged',
+          scenario_count: 6,
+          delta_count: 2,
+          blocking_delta_count: 1,
+          duration_ms: 2300,
+          reason_codes: ['runtime_error'],
+          creates_pass_evidence: false,
+        },
+      },
+    ]);
+
+    assert.deepEqual(
+      timeline.map((item) => item.id),
+      ['differential-history:newer', 'differential-history:older']
+    );
+    assert.ok(timeline.every((item) => item.status === 'idle'));
+    assert.ok(timeline.every((item) => item.jump == null));
+    assert.ok(timeline.every((item) => item.anchors == null));
+    assert.match(timeline[0]!.detail, /comparison-only; warm verification still required/);
+    assert.match(timeline[1]!.detail, /improved/);
   });
 });
 

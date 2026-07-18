@@ -24,7 +24,9 @@ import ReviewMemoryGraphPanel from '@/components/quick-review/ReviewMemoryGraphP
 import ReviewSetupPanel from '@/components/quick-review/ReviewSetupPanel';
 import SyntheticQaPanel from '@/components/quick-review/SyntheticQaPanel';
 import VerificationEvidencePanel from '@/components/quick-review/VerificationEvidencePanel';
-import VerificationSummaryPanel from '@/components/quick-review/VerificationSummaryPanel';
+import VerificationSummaryPanel, {
+  type WarmExecutionFinding,
+} from '@/components/quick-review/VerificationSummaryPanel';
 import SandboxRunner from '@/components/SandboxRunner';
 import ScoreBadge from '@/components/score-badge';
 import { Badge } from '@/components/ui/badge';
@@ -83,6 +85,7 @@ import {
   buildQaPostFixComparison,
   buildReviewerProofMarkdown,
   buildVerificationTimeline,
+  projectDifferentialVerificationHistory,
   type EvidenceCandidateStatus,
   formatHistoryCommandEvidence,
   type HistoryFindingSummary,
@@ -114,6 +117,7 @@ import type {
   RepoHistoryContext,
   ReviewProcedureEvent,
   ReviewVerificationCommandSuggestion,
+  StoredDifferentialVerificationRun,
 } from '@/lib/tauri-ipc';
 import {
   analyzeBlastRadius,
@@ -135,7 +139,9 @@ import {
   listPullRequests,
   listReviewProcedureEvents,
   listReviews,
+  listDifferentialVerificationRuns,
   listSyntheticQaRuns,
+  listWarmVerificationRuns,
   mergeFix,
   openInApp,
   readFileAroundLine,
@@ -154,6 +160,10 @@ import {
   suggestReviewVerificationCommands,
 } from '@/lib/tauri-ipc';
 import { cn } from '@/lib/utils';
+import {
+  projectWarmVerification,
+  type WarmVerificationProjection,
+} from '@/lib/warm-verification/adapters';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -291,6 +301,14 @@ export default function QuickReview() {
   const [qaPresetLoaded, setQaPresetLoaded] = useState(false);
   const [qaPreferenceLoadedKey, setQaPreferenceLoadedKey] = useState('');
   const [qaRunHistory, setQaRunHistory] = useState<QaRunHistoryEntry[]>([]);
+  const [warmVerificationEvidence, setWarmVerificationEvidence] = useState<{
+    repoPath: string;
+    projections: WarmVerificationProjection[];
+  }>({ repoPath: '', projections: [] });
+  const [differentialVerificationHistory, setDifferentialVerificationHistory] = useState<{
+    repoPath: string;
+    runs: StoredDifferentialVerificationRun[];
+  }>({ repoPath: '', runs: [] });
   const [qaRunning, setQaRunning] = useState(false);
   const [postFixQaRunning, setPostFixQaRunning] = useState(false);
   const [qaLastRun, setQaLastRun] = useState<SyntheticQaRunResult | null>(null);
@@ -325,6 +343,49 @@ export default function QuickReview() {
   const qaWorkflowScopeLabel = repoPath.trim()
     ? `Repo workflow · ${repoLabelFromPath(repoPath)}`
     : 'Global QA workflow';
+  const warmVerificationProjections =
+    warmVerificationEvidence.repoPath === repoPath ? warmVerificationEvidence.projections : [];
+  const differentialTimelineHistory = useMemo(
+    () =>
+      differentialVerificationHistory.repoPath === repoPath
+        ? projectDifferentialVerificationHistory(
+            differentialVerificationHistory.runs.map((run) => ({
+              id: run.id,
+              createdAt: run.created_at,
+              summary: run.summary,
+            }))
+          )
+        : [],
+    [differentialVerificationHistory, repoPath]
+  );
+  const warmQaRunHistory = useMemo<QaRunHistoryEntry[]>(
+    () =>
+      warmVerificationProjections.map(({ comparisonRun, syntheticQa }) => ({
+        ...comparisonRun,
+        screenshotPath: syntheticQa.screenshot_path,
+      })),
+    [warmVerificationProjections]
+  );
+  const qaEvidenceHistory = useMemo(
+    () =>
+      [...qaRunHistory, ...warmQaRunHistory]
+        .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+        .slice(0, 8),
+    [qaRunHistory, warmQaRunHistory]
+  );
+  const warmExecutionFindings = useMemo<WarmExecutionFinding[]>(
+    () =>
+      warmVerificationProjections.flatMap((projection) =>
+        projection.findings.map((finding) => ({
+          runId: projection.provenance.run_id,
+          finishedAt: projection.provenance.finished_at,
+          finding,
+          artifact: projection.findingEvidence.artifact,
+          notes: projection.findingEvidence.notes,
+        }))
+      ),
+    [warmVerificationProjections]
+  );
 
   // Diff range derived from selection
   const [diffRange, setDiffRange] = useState('');
@@ -616,6 +677,8 @@ export default function QuickReview() {
 
     try {
       const res = await runCliReview(repoPath, diffRange, projectDesc, changeDesc, 'claude', {
+        // Warm rows are historical until exact-current qualification succeeds.
+        // Do not let an older pass influence a new model review.
         qaRuns: qaRunsForReviewPrompt(qaRunHistory),
       });
       setResult(res);
@@ -824,12 +887,12 @@ export default function QuickReview() {
   ]);
 
   const qaPostFixComparison = useMemo(
-    () => buildQaPostFixComparison(qaRunHistory, fixCompletedAt),
-    [fixCompletedAt, qaRunHistory]
+    () => buildQaPostFixComparison(qaEvidenceHistory, fixCompletedAt),
+    [fixCompletedAt, qaEvidenceHistory]
   );
 
   const reviewTimeline = useMemo(() => {
-    return buildVerificationTimeline({
+    const timeline = buildVerificationTimeline({
       runId: reviewId || result?.review_id || null,
       taskGoal,
       review: result
@@ -871,6 +934,16 @@ export default function QuickReview() {
         : null,
       history: historyContext,
     });
+    return [
+      ...timeline,
+      ...warmVerificationProjections.map((projection) => ({
+        ...projection.timelineProof,
+        label: 'Warm verification history',
+        detail: `recorded ${projection.provenance.finished_at} · ${projection.timelineProof.detail}`,
+        status: 'idle' as const,
+      })),
+      ...differentialTimelineHistory,
+    ];
   }, [
     evidenceCounts,
     fixPacket,
@@ -889,6 +962,8 @@ export default function QuickReview() {
     sortedFindings,
     sortedFindings.length,
     taskGoal,
+    differentialTimelineHistory,
+    warmVerificationProjections,
   ]);
 
   const uncheckedFindings = useMemo(
@@ -1525,6 +1600,45 @@ export default function QuickReview() {
     }
     setQaActiveTargetId('');
   }, [currentQaWorkflow, qaActiveTargetId, qaActiveWorkflowId, qaTargets]);
+
+  useEffect(() => {
+    let canceled = false;
+    setWarmVerificationEvidence({ repoPath, projections: [] });
+    if (!repoPath || !isTauriAvailable()) return;
+
+    void listWarmVerificationRuns({ repoPath, limit: 8 })
+      .then((rows) => {
+        if (!canceled) {
+          setWarmVerificationEvidence({
+            repoPath,
+            projections: rows.map(({ result }) => projectWarmVerification(result)),
+          });
+        }
+      })
+      .catch(() => {
+        if (!canceled) setWarmVerificationEvidence({ repoPath, projections: [] });
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [repoPath]);
+
+  useEffect(() => {
+    let canceled = false;
+    setDifferentialVerificationHistory({ repoPath, runs: [] });
+    if (!repoPath || !isTauriAvailable()) return;
+
+    void listDifferentialVerificationRuns({ repoPath, limit: 8 })
+      .then((runs) => {
+        if (!canceled) setDifferentialVerificationHistory({ repoPath, runs });
+      })
+      .catch(() => {
+        if (!canceled) setDifferentialVerificationHistory({ repoPath, runs: [] });
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [repoPath]);
 
   useEffect(() => {
     if (!reviewId) {
@@ -2837,7 +2951,7 @@ export default function QuickReview() {
                         selectedFindingIdx={selectedFindingIdx}
                         applyQaToSelectedFinding={applyQaToSelectedFinding}
                         addQaFailureFinding={addQaFailureFinding}
-                        qaRunHistory={qaRunHistory}
+                        qaRunHistory={qaEvidenceHistory}
                         qaPostFixComparison={qaPostFixComparison}
                         postFixQaRunning={postFixQaRunning}
                         handleRunPostFixQa={handleRunPostFixQa}
@@ -2976,6 +3090,7 @@ export default function QuickReview() {
                   procedureEventKey={procedureEventKey}
                   procedureEventTimeLabel={procedureEventTimeLabel}
                   uncheckedBySeverity={uncheckedBySeverity}
+                  warmExecutionFindings={warmExecutionFindings}
                 />
 
                 <div className="shrink-0 border-t border-[var(--cv-line)] bg-[#07080a] p-3">

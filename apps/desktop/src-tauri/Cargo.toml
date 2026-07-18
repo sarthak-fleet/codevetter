@@ -3,6 +3,7 @@ name = "codevetter-desktop"
 version = "0.1.0"
 edition = "2021"
 description = "CodeVetter Desktop — code review + agent management"
+default-run = "codevetter-desktop"
 
 [[bin]]
 name = "codevetter-desktop"
@@ -20,7 +21,8 @@ tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.31", features = ["bundled"] }
+sha2 = "0.10"
+rusqlite = { version = "0.31", features = ["bundled", "hooks"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
@@ -70,6 +72,9 @@ debug = 1
 
 [profile.dev.package."*"]
 opt-level = 0
+
+[profile.test]
+debug = 1
 
 [features]
 default = ["custom-protocol"]

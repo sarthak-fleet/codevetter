@@ -2,7 +2,6 @@ import {
   AlertTriangle,
   CircleDotDashed,
   ExternalLink,
-  GitCommitHorizontal,
   History,
   LoaderCircle,
   MessageSquarePlus,
@@ -19,6 +18,11 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { DeepGraphViewer } from '@/components/deep-graph-viewer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { HistoryTimelineControls } from '@/components/unpack-workspace/HistoryTimelineControls';
+import { HistoryLandmarkNavigator } from '@/components/unpack-workspace/HistoryLandmarkNavigator';
+import { HistoryContributorPanel } from '@/components/unpack-workspace/HistoryContributorPanel';
+import { HistoryReleaseNavigator } from '@/components/unpack-workspace/HistoryReleaseNavigator';
+import { useHistoryReleaseNavigation } from '@/components/unpack-workspace/useHistoryReleaseNavigation';
 import {
   deriveHistoryGraphTransition,
   filterHistoryRevisions,
@@ -31,6 +35,7 @@ import {
   explainHistoryEntity,
   getHistoryGraphStatus,
   getHistoryCausalTrace,
+  getHistoryContributorSummary,
   getHistoryEntityEvolution,
   getHistoryEvidenceAdapters,
   getHistoryStructuralDelta,
@@ -43,6 +48,7 @@ import {
   openInApp,
   type HistoryBackfillProgress,
   type HistoryCausalTrace,
+  type HistoryContributorSummary,
   type HistoryGraphStatus,
   type HistoryFacetPacket,
   type HistoryEntityEvolution,
@@ -84,9 +90,8 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
   const [timeline, setTimeline] = useState<HistoryTimeline | null>(null);
   const [historyStatus, setHistoryStatus] = useState<HistoryGraphStatus | null>(null);
   const [evidenceAdapters, setEvidenceAdapters] = useState<HistoryEvidenceAdapterDescriptor[]>([]);
-  const [index, setIndex] = useState(0);
+  const [selectedRevisionSha, setSelectedRevisionSha] = useState<string | null>(null);
   const [historySearch, setHistorySearch] = useState('');
-  const [releaseFilter, setReleaseFilter] = useState(false);
   const [structuralState, setStructuralState] = useState<HistoryStructuralState | null>(null);
   const [structuralDelta, setStructuralDelta] = useState<HistoryStructuralDelta | null>(null);
   const [loading, setLoading] = useState(false);
@@ -100,6 +105,11 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
   const [causalTrace, setCausalTrace] = useState<HistoryCausalTrace | null>(null);
   const [revisionTrace, setRevisionTrace] = useState<HistoryCausalTrace | null>(null);
   const [revisionTraceLoading, setRevisionTraceLoading] = useState(false);
+  const [contributors, setContributors] = useState<HistoryContributorSummary | null>(null);
+  const [contributorsLoading, setContributorsLoading] = useState(false);
+  const [contributorsError, setContributorsError] = useState<string | null>(null);
+  const [selectedContributorId, setSelectedContributorId] = useState<string | null>(null);
+  const [highlightedContributorAreas, setHighlightedContributorAreas] = useState<string[]>([]);
   const [entityLoading, setEntityLoading] = useState(false);
   const [entityError, setEntityError] = useState<string | null>(null);
   const [annotations, setAnnotations] = useState<HistoryAnnotation[]>([]);
@@ -110,6 +120,8 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
   const cache = useRef(new Map<string, HistoryStructuralState>());
   const inFlight = useRef(new Map<string, Promise<HistoryStructuralState>>());
   const requestFrame = useRef<number | null>(null);
+  const loadingReleaseTimer = useRef<number | null>(null);
+  const loadingVisible = useRef(false);
   const requestSerial = useRef(0);
   const foregroundActive = useRef(false);
   const pendingForeground = useRef<{
@@ -120,6 +132,7 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
   } | null>(null);
   const repoPathRef = useRef(repoPath);
   const timelineRef = useRef<HistoryTimeline | null>(null);
+  const selectedRevisionRef = useRef<string | null>(null);
   const previousGraph = useRef<UnpackRepoGraph | null>(null);
   const transitionTimer = useRef<number | null>(null);
   const [displayGraph, setDisplayGraph] = useState<UnpackRepoGraph>({
@@ -129,9 +142,36 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
     truncated: false,
   });
   const [nodeStates, setNodeStates] = useState<Record<string, 'added' | 'removed' | 'changed'>>({});
+  const releases = useHistoryReleaseNavigation({
+    repoPath,
+    timeline,
+    onTimeline: setTimeline,
+    onSelect: setSelectedRevisionSha,
+    onPause: () => setPlaying(false),
+  });
 
   repoPathRef.current = repoPath;
   timelineRef.current = timeline;
+  selectedRevisionRef.current = selectedRevisionSha;
+
+  const index = useMemo(() => {
+    const revisions = timeline?.revisions ?? [];
+    const selected = selectedRevisionSha
+      ? revisions.findIndex((item) => item.sha === selectedRevisionSha)
+      : -1;
+    return selected >= 0 ? selected : Math.max(0, revisions.length - 1);
+  }, [selectedRevisionSha, timeline]);
+  const revision = timeline?.revisions[index];
+  const activeRelease = useMemo(() => {
+    if (!revision) return null;
+    return (
+      (releases.catalog?.releases ?? [])
+        .filter((release) => release.ordinal <= revision.ordinal)
+        .sort(
+          (left, right) => right.ordinal - left.ordinal || left.tag.localeCompare(right.tag)
+        )[0] ?? null
+    );
+  }, [releases.catalog?.releases, revision]);
 
   const fetchRevision = useCallback(async (targetRepo: string, revision: string) => {
     const key = `${targetRepo}\0${revision}`;
@@ -150,20 +190,28 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
   }, []);
 
   const scheduleRevision = useCallback(
-    (nextIndex: number) => {
+    (revisionSha: string) => {
       const targetRepo = repoPathRef.current;
-      const revision = timelineRef.current?.revisions[nextIndex];
-      if (!revision) return;
+      const revisions = timelineRef.current?.revisions ?? [];
+      const nextIndex = revisions.findIndex((item) => item.sha === revisionSha);
+      if (nextIndex < 0) return;
       const serial = ++requestSerial.current;
       pendingForeground.current = {
         repoPath: targetRepo,
-        revision: revision.sha,
+        revision: revisionSha,
         index: nextIndex,
         serial,
       };
       if (foregroundActive.current) return;
+      if (loadingReleaseTimer.current != null) {
+        window.clearTimeout(loadingReleaseTimer.current);
+        loadingReleaseTimer.current = null;
+      }
       foregroundActive.current = true;
-      setLoading(true);
+      if (!loadingVisible.current) {
+        loadingVisible.current = true;
+        setLoading(true);
+      }
       void (async () => {
         while (pendingForeground.current) {
           const request = pendingForeground.current;
@@ -188,7 +236,12 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
           }
         }
         foregroundActive.current = false;
-        setLoading(false);
+        loadingReleaseTimer.current = window.setTimeout(() => {
+          loadingReleaseTimer.current = null;
+          if (foregroundActive.current || pendingForeground.current) return;
+          loadingVisible.current = false;
+          setLoading(false);
+        }, 150);
       })();
     },
     [fetchRevision]
@@ -199,7 +252,10 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
     pendingForeground.current = null;
     cache.current.clear();
     inFlight.current.clear();
+    setSelectedRevisionSha(null);
     setStructuralState(null);
+    setSelectedContributorId(null);
+    setHighlightedContributorAreas([]);
   }, [repoPath]);
 
   useEffect(() => {
@@ -216,7 +272,7 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
         setTimeline(result);
         setHistoryStatus(status);
         setEvidenceAdapters(adapters);
-        setIndex(Math.max(0, result.revisions.length - 1));
+        setSelectedRevisionSha(result.revisions.at(-1)?.sha ?? null);
       })
       .catch((cause) => alive && setError(String(cause)));
     return () => {
@@ -239,9 +295,38 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
   }, []);
 
   useEffect(() => {
-    if (!timeline?.revisions[index]) return;
-    scheduleRevision(index);
-  }, [index, scheduleRevision, timeline]);
+    if (!revision) return;
+    const timer = window.setTimeout(() => scheduleRevision(revision.sha), 0);
+    return () => window.clearTimeout(timer);
+  }, [revision?.sha, scheduleRevision]);
+
+  useEffect(() => {
+    let alive = true;
+    setContributors(null);
+    setContributorsError(null);
+    setSelectedContributorId(null);
+    setHighlightedContributorAreas([]);
+    if (!revision || !activeRelease || !isTauriAvailable()) return;
+    setContributorsLoading(true);
+    void getHistoryContributorSummary(
+      repoPath,
+      {
+        kind: 'release_cycle_through',
+        tag: activeRelease.tag,
+        to_inclusive: revision.sha,
+      },
+      { currentRevision: timeline?.head }
+    )
+      .then((summary) => alive && setContributors(summary))
+      .catch(
+        (cause) =>
+          alive && setContributorsError(cause instanceof Error ? cause.message : String(cause))
+      )
+      .finally(() => alive && setContributorsLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [activeRelease?.id, repoPath, revision?.sha, timeline?.head]);
 
   useEffect(() => {
     const current = timeline?.revisions[index];
@@ -262,12 +347,13 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
   useEffect(() => {
     if (!playing || !timeline) return;
     const timer = window.setInterval(() => {
-      setIndex((current) => {
-        if (current >= timeline.revisions.length - 1) {
+      setSelectedRevisionSha((currentSha) => {
+        const current = timeline.revisions.findIndex((item) => item.sha === currentSha);
+        if (current < 0 || current >= timeline.revisions.length - 1) {
           setPlaying(false);
-          return current;
+          return currentSha;
         }
-        return current + 1;
+        return timeline.revisions[current + 1]?.sha ?? currentSha;
       });
     }, 650);
     return () => window.clearInterval(timer);
@@ -277,16 +363,16 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
     () => () => {
       if (requestFrame.current != null) cancelAnimationFrame(requestFrame.current);
       if (transitionTimer.current != null) window.clearTimeout(transitionTimer.current);
+      if (loadingReleaseTimer.current != null) window.clearTimeout(loadingReleaseTimer.current);
     },
     []
   );
 
-  const revision = timeline?.revisions[index];
   const graph = useMemo(() => viewerGraph(structuralState), [structuralState]);
-  const releaseCount = timeline?.revisions.filter((item) => item.is_release).length ?? 0;
+  const releaseCount = releases.catalog?.releases.length ?? 0;
   const matchingRevisions = useMemo(() => {
-    return filterHistoryRevisions(timeline?.revisions ?? [], historySearch, releaseFilter);
-  }, [historySearch, releaseFilter, timeline]);
+    return filterHistoryRevisions(timeline?.revisions ?? [], historySearch, false);
+  }, [historySearch, timeline]);
 
   useEffect(() => {
     setEntityExplanation(null);
@@ -387,9 +473,11 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
   }, [graph]);
 
   function scrub(nextIndex: number) {
+    setPlaying(false);
     if (requestFrame.current != null) cancelAnimationFrame(requestFrame.current);
     requestFrame.current = requestAnimationFrame(() => {
-      setIndex(nextIndex);
+      const revisionSha = timelineRef.current?.revisions[nextIndex]?.sha;
+      if (revisionSha) setSelectedRevisionSha(revisionSha);
       requestFrame.current = null;
     });
   }
@@ -405,8 +493,11 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
       ]);
       cache.current.clear();
       inFlight.current.clear();
-      setTimeline(refreshed);
+      const preserved = await releases.refresh(refreshed, selectedRevisionRef.current);
       setHistoryStatus(status);
+      if (!preserved) return;
+      setTimeline(preserved.timeline);
+      setSelectedRevisionSha(preserved.selected);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -530,23 +621,11 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
               name="history-search"
               value={historySearch}
               onChange={(event) => setHistorySearch(event.target.value)}
-              placeholder="Find a commit, author, SHA, or release tag"
+              placeholder="Find a loaded commit, author, or SHA"
               className="h-8 w-full rounded-md border border-[var(--cv-line)] bg-black/20 pl-8 pr-24 text-[10px] text-[var(--text-primary)] outline-none placeholder:text-slate-600 focus:border-violet-400/35"
               aria-label="Search Git history"
             />
-            <button
-              type="button"
-              aria-pressed={releaseFilter}
-              onClick={() => setReleaseFilter((value) => !value)}
-              className={`absolute right-1.5 top-1.5 rounded px-2 py-1 text-[9px] transition-colors ${
-                releaseFilter
-                  ? 'bg-amber-400/15 text-amber-200'
-                  : 'text-slate-500 hover:text-slate-300'
-              }`}
-            >
-              releases
-            </button>
-            {(historySearch.trim() || releaseFilter) && (
+            {historySearch.trim() && (
               <div className="absolute left-0 right-0 top-9 z-30 max-h-64 overflow-y-auto rounded-md border border-violet-400/20 bg-[#090a0d] p-1 shadow-2xl">
                 {matchingRevisions.length === 0 ? (
                   <div className="px-2 py-3 text-[10px] text-slate-500">No matching revisions.</div>
@@ -654,93 +733,45 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
       {timeline && revision ? (
         <div className="p-4">
           <div className="rounded-xl border border-[var(--cv-line)] bg-[var(--bg-main)]/40 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <GitCommitHorizontal size={14} className="text-violet-300" />
-                  <span className="font-mono text-xs text-violet-100">{revision.short_sha}</span>
-                  {revision.tags.map((tag) => (
-                    <Badge
-                      key={tag}
-                      className="border border-amber-400/25 bg-amber-400/10 text-[9px] text-amber-200"
-                    >
-                      {tag}
-                    </Badge>
-                  ))}
-                  {revision.is_head ? <Badge className="text-[9px]">HEAD</Badge> : null}
-                </div>
-                <div className="mt-2 truncate text-sm font-medium text-[var(--text-primary)]">
-                  {revision.subject}
-                </div>
-                <div className="mt-1 text-[10px] text-[var(--text-muted)]">
-                  {revision.author} · {new Date(revision.committed_at).toLocaleString()}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={revisionTraceLoading}
-                  onClick={() => void inspectRevision()}
-                >
-                  {revisionTraceLoading ? (
-                    <LoaderCircle size={12} className="animate-spin" />
-                  ) : (
-                    <CircleDotDashed size={12} />
-                  )}
-                  Inspect change
-                </Button>
-                <div className="font-mono text-[10px] text-[var(--text-muted)]">
-                  {index + 1} / {timeline.revisions.length}
-                </div>
-              </div>
-            </div>
-            <input
-              type="range"
-              name="history-revision"
-              min={0}
-              max={Math.max(0, timeline.revisions.length - 1)}
-              value={index}
-              onChange={(event) => scrub(Number(event.target.value))}
-              className="mt-4 h-2 w-full cursor-ew-resize accent-violet-400"
-              aria-label="Git history revision"
-              aria-valuetext={`${revision.short_sha}: ${revision.subject}`}
+            <HistoryTimelineControls
+              timeline={timeline}
+              index={index}
+              revisionTraceLoading={revisionTraceLoading}
+              onInspectRevision={() => void inspectRevision()}
+              onScrub={scrub}
             />
-            <div className="mt-2 flex justify-between font-mono text-[9px] text-slate-600">
-              <span>{timeline.revisions[0]?.short_sha}</span>
-              <span>
-                {timeline.truncated
-                  ? `${timeline.total_commits} total commits`
-                  : 'complete history'}
-              </span>
-              <span>{timeline.revisions.at(-1)?.short_sha}</span>
-            </div>
-            <div className="mt-3 flex gap-2 overflow-x-auto pb-1" aria-label="Release spine">
-              {timeline.release_ranges.map((range) => {
-                const active = range.commit_shas.includes(revision.sha);
-                return (
-                  <button
-                    key={range.id}
-                    type="button"
-                    aria-pressed={active}
-                    className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] transition-colors ${
-                      active
-                        ? 'border-violet-400/50 bg-violet-400/15 text-violet-100'
-                        : 'border-[var(--cv-line)] text-[var(--text-muted)] hover:border-violet-400/30'
-                    }`}
-                    onClick={() => {
-                      const target = timeline.revisions.findIndex(
-                        (item) => item.sha === range.to_inclusive
-                      );
-                      scrub(target >= 0 ? target : timeline.revisions.length - 1);
-                    }}
-                  >
-                    {range.label} · {range.commit_shas.length}
-                  </button>
-                );
-              })}
-            </div>
+            <HistoryReleaseNavigator
+              catalog={releases.catalog}
+              revisions={timeline.revisions}
+              selectedRevisionSha={revision.sha}
+              loading={releases.loading}
+              error={releases.error}
+              onSelect={(release) => void releases.select(release)}
+              onLoadMore={() => void releases.loadMore()}
+            />
+            <HistoryLandmarkNavigator
+              catalog={releases.landmarks}
+              revisions={timeline.revisions}
+              selectedRevisionSha={revision.sha}
+              loading={releases.loading}
+              error={releases.error}
+              onSelect={(landmark) => void releases.selectLandmark(landmark)}
+            />
+            <HistoryContributorPanel
+              summary={contributors}
+              releaseTag={activeRelease?.tag ?? null}
+              loading={contributorsLoading}
+              error={contributorsError}
+              selectedContributorId={selectedContributorId}
+              onSelectContributor={(contributorId, areas) => {
+                setSelectedContributorId(contributorId);
+                setHighlightedContributorAreas(areas);
+              }}
+              onSelectRevision={(sha) => {
+                setPlaying(false);
+                setSelectedRevisionSha(sha);
+              }}
+            />
             {revisionTrace ? (
               <div className="mt-3 rounded-lg border border-violet-400/15 bg-violet-400/[0.035] p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -827,6 +858,7 @@ export function HistoryGraphSlider({ repoPath }: { repoPath: string }) {
               repoPath={repoPath}
               stableLayout
               nodeStates={nodeStates}
+              highlightPathPrefixes={highlightedContributorAreas}
               onSelectSymbol={(_name, _path, nodeId) => void explainEntity(nodeId)}
               summary={`${structuralState?.projection.nodes.length.toLocaleString() ?? 0} visible of ${structuralState?.node_count.toLocaleString() ?? 0} structural nodes · ${structuralState?.changed_paths.length.toLocaleString() ?? 0} files changed here${structuralState?.projection.truncated ? ' · bounded view' : ''}${structuralState?.cached ? ' · cached' : ''}`}
             />

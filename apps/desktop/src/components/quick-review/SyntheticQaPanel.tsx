@@ -619,7 +619,12 @@ export default function SyntheticQaPanel({
               )}
             </div>
           </div>
-          {qaPostFixComparison.status === 'needs_rerun' && (
+          {qaPostFixComparison.status === 'needs_rerun' &&
+          qaPostFixComparison.before.runnerType === 'warm_verifyd' ? (
+            <p className="mt-2 font-mono text-[10px] text-slate-500">
+              Rerun this read-only flow from T-Rex.
+            </p>
+          ) : qaPostFixComparison.status === 'needs_rerun' ? (
             <Button
               type="button"
               size="sm"
@@ -635,7 +640,7 @@ export default function SyntheticQaPanel({
               )}
               Run same flow now
             </Button>
-          )}
+          ) : null}
         </div>
       )}
     </div>

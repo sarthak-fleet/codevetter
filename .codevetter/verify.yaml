@@ -1,0 +1,47 @@
+version: 1
+target:
+  command: [pnpm, --dir, apps/desktop, exec, vite, --host, 127.0.0.1, --port, "1420", --strictPort]
+  cwd: .
+  readinessUrl: http://127.0.0.1:1420/
+  baseUrl: http://127.0.0.1:1420
+  allowedEnv: []
+  hmrSettleMs: 150
+  shutdownGraceMs: 2000
+scenarioModules:
+  - apps/desktop/verify/scenarios.mjs
+authProfiles:
+  local-developer:
+    storageState: apps/desktop/tests/fixtures/warm-verification/auth/local-developer.json
+capabilities:
+  - id: app-shell
+    paths:
+      - apps/desktop/src/App.tsx
+      - apps/desktop/src/main.tsx
+      - apps/desktop/src/components/sidebar.tsx
+      - apps/desktop/src/components/persistent-routes.tsx
+    scenarios: [shell-navigation]
+mandatorySmoke: [shell-navigation]
+sharedInfrastructure:
+  paths:
+    - apps/desktop/src/**
+    - apps/desktop/vite.config.ts
+    - apps/desktop/package.json
+    - package.json
+    - pnpm-lock.yaml
+  fallbackScenarios: [shell-navigation]
+network:
+  firstPartyOrigins: [http://127.0.0.1:1420]
+  allowedFirstPartyRequests: [GET /**]
+  blockThirdParty: true
+  allowedThirdPartyOrigins: []
+retention:
+  directory: .codevetter/verify-artifacts
+  maxRuns: 20
+  maxBytes: 104857600
+  maxAgeDays: 14
+budgets:
+  parallelism: 4
+  actionMs: 3000
+  scenarioMs: 10000
+  batchMs: 30000
+  slowInteractionMs: 750

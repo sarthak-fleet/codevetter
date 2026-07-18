@@ -260,7 +260,7 @@ pub(crate) fn render_agent_context_sidecar(
         inventory.repo_graph.schema_version, inventory.history_brief.schema_version
     ));
     out.push_str("## Use This For\n\n");
-    out.push_str("- Paste into Hunk, Graphify, or an agent session as local context.\n");
+    out.push_str("- Paste into a compatible graph viewer or agent session as local context.\n");
     out.push_str("- Treat graph edges as navigation leads, not proof by themselves.\n");
     out.push_str("- Prefer cited files and decision markers when resolving conflicts.\n\n");
 
@@ -392,7 +392,7 @@ pub(crate) fn render_agent_context_sidecar(
 
     if let Some(history) = temporal_history {
         out.push('\n');
-        out.push_str(&crate::commands::history_query::render_agent_history_context(history));
+        out.push_str(&crate::commands::history_query::render_review_history_slice(history));
     }
 
     out

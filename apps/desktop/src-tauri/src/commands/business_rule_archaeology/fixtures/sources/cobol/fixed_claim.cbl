@@ -1,0 +1,9 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CLAIMCHK.
+       PROCEDURE DIVISION.
+           COPY CLAIMREC.
+           IF CLAIM-AMOUNT > ZERO
+               MOVE 'Y' TO CLAIM-ELIGIBLE
+           ELSE
+               MOVE 'N' TO CLAIM-ELIGIBLE
+           END-IF.

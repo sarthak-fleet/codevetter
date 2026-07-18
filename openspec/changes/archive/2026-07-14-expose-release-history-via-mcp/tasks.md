@@ -28,7 +28,7 @@
 - [x] 4.4 Implement `history_get_state` and `history_lineage` with checkpoint/delta provenance, first-seen/last-changed metadata, continuity candidates, bounded evolution, confidence, and gaps.
 - [x] 4.5 Implement `history_explain`, `history_trace`, `history_compare`, and `history_get_evidence` with facets, causal hops, topology/entity/evidence deltas, annotations, citations, trust, contradictions, and external-boundary gaps.
 - [x] 4.6 Add JSON input/output schemas, read-only/idempotent annotations, structured content, compact text fallbacks, and resource links for every tool.
-- [x] 4.7 Add golden-schema and behavior tests, including Graphify parity queries, release/commit/date time travel, ambiguous lineage, regression tracing, and the analytics-event case where code emission is evidenced but provider ingestion remains unknown.
+- [x] 4.7 Add golden-schema and behavior tests, including canonical graph expected-answer queries, release/commit/date time travel, ambiguous lineage, regression tracing, and the analytics-event case where code emission is evidenced but provider ingestion remains unknown.
 
 ## 5. Efficiency, Errors, and Safety
 

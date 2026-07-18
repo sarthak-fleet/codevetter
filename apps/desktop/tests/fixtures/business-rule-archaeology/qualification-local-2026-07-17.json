@@ -1,0 +1,433 @@
+{
+  "captured_at": "2026-07-17T22:59:52.423227+00:00",
+  "claims": {
+    "evidence_traced_source_behavior_only": true,
+    "reason": "Only the exact largest passing real-pipeline gate above is qualified; the separate 100,000-row MCP pagination fixture is not a source-extraction scale claim.",
+    "supports_100000_pipeline_rules": false,
+    "supports_18_million_lines": false
+  },
+  "command": "CODEVETTER_ARCHAEOLOGY_SCALES=16,64,256 CODEVETTER_ARCHAEOLOGY_REPORT=../tests/fixtures/business-rule-archaeology/qualification-local-2026-07-17.json cargo test --release archaeology_local_scale_and_endurance_qualification -- --ignored --nocapture",
+  "contract_id": "codevetter.business-rule-archaeology.local-qualification.v1",
+  "endurance": {
+    "facts": 2048,
+    "files": 256,
+    "lines": 2560,
+    "passed": true,
+    "rules": 512,
+    "safety": {
+      "cleanup_deleted_generations": 24,
+      "cleanup_preview_generations": 24,
+      "cleanup_truncated": false,
+      "prior_ready_preserved_during_cancel": true,
+      "source_immutable_after_owned_workload": true
+    },
+    "storage": {
+      "auxiliary_cache_bytes": 0,
+      "cached_input_tokens": 0,
+      "estimated_cost_microusd": 0,
+      "input_tokens": 0,
+      "measurement": "checkpointed_file_delta_from_empty_migrated_schema",
+      "model_calls": 0,
+      "output_tokens": 0,
+      "reported_cost_microusd": 0,
+      "retained_history_two_generation": {
+        "catalog_facts": 4096,
+        "catalog_rules": 1024,
+        "facts": 7694,
+        "generations": 2,
+        "measurement": "checkpointed_file_delta_with_exactly_two_retained_compatible_generations",
+        "passed": true,
+        "rules": 1538,
+        "sqlite_baseline_bytes": 851968,
+        "sqlite_delta_bytes": 18952192,
+        "sqlite_file_bytes": 19804160,
+        "temporal": {
+          "bytes": 2781184,
+          "events": 4,
+          "fact_evidence_objects": 3598,
+          "snapshots": 514
+        },
+        "thresholds": "evaluated_from_checked_policy"
+      },
+      "sqlite_baseline_bytes": 851968,
+      "sqlite_bytes": 221708288,
+      "sqlite_file_bytes": 222560256,
+      "synthesis_attempt_rows": 0,
+      "synthesis_cache_rows": 0
+    },
+    "timing_ms": {
+      "cancellation": 0.113,
+      "changed_unit": {
+        "max_ms": 1875.762,
+        "p50_ms": 1549.149,
+        "p95_ms": 1875.762,
+        "sample_count": 20
+      },
+      "cleanup": 9756.938,
+      "detail": {
+        "max_ms": 6.683,
+        "p50_ms": 5.077,
+        "p95_ms": 6.683,
+        "sample_count": 20
+      },
+      "export_10_rules": {
+        "max_ms": 106.261,
+        "p50_ms": 94.361,
+        "p95_ms": 106.261,
+        "sample_count": 20
+      },
+      "global_rebuild": {
+        "max_ms": 4237.187,
+        "p50_ms": 4237.187,
+        "p95_ms": 4237.187,
+        "sample_count": 1
+      },
+      "history": {
+        "max_ms": 0.386,
+        "p50_ms": 0.239,
+        "p95_ms": 0.386,
+        "sample_count": 20
+      },
+      "mcp_list_rules_adapter": {
+        "max_ms": 1.937,
+        "p50_ms": 1.75,
+        "p95_ms": 1.937,
+        "sample_count": 20
+      },
+      "no_op": {
+        "max_ms": 13.649,
+        "p50_ms": 9.942,
+        "p95_ms": 13.649,
+        "sample_count": 20
+      },
+      "resume": {
+        "max_ms": 1310.195,
+        "p50_ms": 1310.195,
+        "p95_ms": 1310.195,
+        "sample_count": 1
+      },
+      "search": {
+        "max_ms": 8.69,
+        "p50_ms": 7.925,
+        "p95_ms": 8.69,
+        "sample_count": 20
+      },
+      "source_reverse": {
+        "max_ms": 0.834,
+        "p50_ms": 0.602,
+        "p95_ms": 0.834,
+        "sample_count": 20
+      },
+      "stale_owner_recovery_and_publish": 1416.871
+    }
+  },
+  "functional_passed": true,
+  "largest_observed_real_pipeline": {
+    "files": 256,
+    "lines": 2560,
+    "rules": 512
+  },
+  "largest_passing_real_pipeline": {
+    "files": 256,
+    "lines": 2560,
+    "rules": 512
+  },
+  "machine": {
+    "arch": "aarch64",
+    "cpu": "Apple M5 Pro",
+    "kernel": "Darwin 27.0.0 Darwin Kernel Version 27.0.0: Mon Jun 29 21:25:23 PDT 2026; root:xnu-13432.0.50.501.3~1/RELEASE_ARM64_T6050 arm64 arm",
+    "logical_cpus": 18,
+    "memory_bytes": 51539607552,
+    "os": "macos",
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+  },
+  "policy_evaluation": {
+    "evaluated_gate_kinds": [
+      "sample_count",
+      "latency",
+      "storage"
+    ],
+    "failures": [],
+    "policy_id": "codevetter.business-rule-archaeology.qualification",
+    "policy_sha256": "sha256:aac211d2ab2316d95bb946fdef68b034654b135ee277450588bf498ea2d31794",
+    "policy_version": 1,
+    "storage_gate_files": 256,
+    "storage_measurement": "largest_clean_scale_checkpointed_file_delta"
+  },
+  "qualification_passed": true,
+  "resources": {
+    "cpu_system_seconds": 10.997,
+    "cpu_user_seconds": 82.607,
+    "orphan_processes_detected": false,
+    "owned_child_processes_after": 0,
+    "owned_child_processes_before": 0,
+    "peak_rss_bytes": 397639680
+  },
+  "scale_gates": [
+    {
+      "cold_index": {
+        "max_ms": 234.389,
+        "p50_ms": 206.004,
+        "p95_ms": 234.389,
+        "sample_count": 20
+      },
+      "facts": 128,
+      "files": 16,
+      "lines": 160,
+      "passed": true,
+      "rules": 32,
+      "sqlite_attribution": {
+        "freelist_pages": 0,
+        "live_page_bytes": 1335296,
+        "page_count": 326,
+        "page_size_bytes": 4096,
+        "top_objects": [
+          {
+            "bytes": 110592,
+            "name": "sqlite_schema"
+          },
+          {
+            "bytes": 69632,
+            "name": "archaeology_rules"
+          },
+          {
+            "bytes": 49152,
+            "name": "archaeology_facts"
+          },
+          {
+            "bytes": 45056,
+            "name": "idx_archaeology_source_spans_unit_position"
+          },
+          {
+            "bytes": 40960,
+            "name": "archaeology_source_spans"
+          },
+          {
+            "bytes": 36864,
+            "name": "archaeology_rule_clauses"
+          },
+          {
+            "bytes": 28672,
+            "name": "sqlite_autoindex_archaeology_evidence_identities_1"
+          },
+          {
+            "bytes": 24576,
+            "name": "archaeology_evidence_identities"
+          },
+          {
+            "bytes": 20480,
+            "name": "archaeology_rule_fts_content"
+          },
+          {
+            "bytes": 20480,
+            "name": "archaeology_rule_search_manifest"
+          },
+          {
+            "bytes": 20480,
+            "name": "archaeology_source_units"
+          },
+          {
+            "bytes": 20480,
+            "name": "sqlite_autoindex_archaeology_facts_1"
+          },
+          {
+            "bytes": 20480,
+            "name": "sqlite_autoindex_archaeology_rule_clauses_1"
+          },
+          {
+            "bytes": 20480,
+            "name": "sqlite_autoindex_archaeology_rule_clauses_2"
+          },
+          {
+            "bytes": 20480,
+            "name": "sqlite_autoindex_archaeology_source_spans_1"
+          },
+          {
+            "bytes": 16384,
+            "name": "archaeology_evidence_links_compact"
+          }
+        ]
+      },
+      "sqlite_baseline_bytes": 851968,
+      "sqlite_bytes": 1368064,
+      "sqlite_delta_bytes": 516096
+    },
+    {
+      "cold_index": {
+        "max_ms": 1118.235,
+        "p50_ms": 1036.706,
+        "p95_ms": 1118.235,
+        "sample_count": 20
+      },
+      "facts": 512,
+      "files": 64,
+      "lines": 640,
+      "passed": true,
+      "rules": 128,
+      "sqlite_attribution": {
+        "freelist_pages": 0,
+        "live_page_bytes": 2883584,
+        "page_count": 704,
+        "page_size_bytes": 4096,
+        "top_objects": [
+          {
+            "bytes": 266240,
+            "name": "archaeology_rules"
+          },
+          {
+            "bytes": 180224,
+            "name": "archaeology_facts"
+          },
+          {
+            "bytes": 159744,
+            "name": "idx_archaeology_source_spans_unit_position"
+          },
+          {
+            "bytes": 151552,
+            "name": "archaeology_source_spans"
+          },
+          {
+            "bytes": 131072,
+            "name": "archaeology_rule_clauses"
+          },
+          {
+            "bytes": 110592,
+            "name": "sqlite_schema"
+          },
+          {
+            "bytes": 94208,
+            "name": "sqlite_autoindex_archaeology_evidence_identities_1"
+          },
+          {
+            "bytes": 81920,
+            "name": "archaeology_evidence_identities"
+          },
+          {
+            "bytes": 69632,
+            "name": "sqlite_autoindex_archaeology_source_spans_1"
+          },
+          {
+            "bytes": 65536,
+            "name": "archaeology_rule_fts_content"
+          },
+          {
+            "bytes": 65536,
+            "name": "archaeology_rule_search_manifest"
+          },
+          {
+            "bytes": 65536,
+            "name": "archaeology_source_units"
+          },
+          {
+            "bytes": 65536,
+            "name": "sqlite_autoindex_archaeology_facts_1"
+          },
+          {
+            "bytes": 65536,
+            "name": "sqlite_autoindex_archaeology_rule_clauses_1"
+          },
+          {
+            "bytes": 61440,
+            "name": "sqlite_autoindex_archaeology_rule_clauses_2"
+          },
+          {
+            "bytes": 49152,
+            "name": "archaeology_evidence_links_compact"
+          }
+        ]
+      },
+      "sqlite_baseline_bytes": 851968,
+      "sqlite_bytes": 2916352,
+      "sqlite_delta_bytes": 2064384
+    },
+    {
+      "cold_index": {
+        "max_ms": 4952.331,
+        "p50_ms": 3825.398,
+        "p95_ms": 4952.331,
+        "sample_count": 20
+      },
+      "facts": 2048,
+      "files": 256,
+      "lines": 2560,
+      "passed": true,
+      "rules": 512,
+      "sqlite_attribution": {
+        "freelist_pages": 0,
+        "live_page_bytes": 9027584,
+        "page_count": 2204,
+        "page_size_bytes": 4096,
+        "top_objects": [
+          {
+            "bytes": 1052672,
+            "name": "archaeology_rules"
+          },
+          {
+            "bytes": 704512,
+            "name": "archaeology_facts"
+          },
+          {
+            "bytes": 593920,
+            "name": "archaeology_source_spans"
+          },
+          {
+            "bytes": 585728,
+            "name": "idx_archaeology_source_spans_unit_position"
+          },
+          {
+            "bytes": 499712,
+            "name": "archaeology_rule_clauses"
+          },
+          {
+            "bytes": 335872,
+            "name": "sqlite_autoindex_archaeology_evidence_identities_1"
+          },
+          {
+            "bytes": 307200,
+            "name": "archaeology_evidence_identities"
+          },
+          {
+            "bytes": 266240,
+            "name": "archaeology_source_units"
+          },
+          {
+            "bytes": 266240,
+            "name": "sqlite_autoindex_archaeology_source_spans_1"
+          },
+          {
+            "bytes": 249856,
+            "name": "sqlite_autoindex_archaeology_rule_clauses_1"
+          },
+          {
+            "bytes": 245760,
+            "name": "archaeology_rule_fts_content"
+          },
+          {
+            "bytes": 245760,
+            "name": "sqlite_autoindex_archaeology_facts_1"
+          },
+          {
+            "bytes": 245760,
+            "name": "sqlite_autoindex_archaeology_rule_clauses_2"
+          },
+          {
+            "bytes": 241664,
+            "name": "archaeology_rule_search_manifest"
+          },
+          {
+            "bytes": 188416,
+            "name": "archaeology_evidence_links_compact"
+          },
+          {
+            "bytes": 188416,
+            "name": "idx_archaeology_evidence_owner"
+          }
+        ]
+      },
+      "sqlite_baseline_bytes": 851968,
+      "sqlite_bytes": 9060352,
+      "sqlite_delta_bytes": 8208384
+    }
+  ],
+  "schema_version": 1
+}

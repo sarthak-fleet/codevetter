@@ -263,7 +263,7 @@ Catch-rate benchmark v1 additions:
 
 Curated dataset of 20-30 real agent-generated PRs from public repos with known issues (regressions, intent drift, silent behavior changes). Run CodeVetter against them and measure catch rate per severity. Same dataset baselined against CodeRabbit free tier and Claude Code `/review`. Publish as a separate `codevetter-bench` repo with reproducible harness, per-task tables, and the raw data.
 
-Turns "better for agent code" from vibes into a chart. Highest-leverage marketing asset because it's the first question every prospect asks and the one competitors can't refute without running the same bench. Hardest part is curation (hand-labeling ground truth); evaluator harness is ~200 lines. Precedent: `repowise-bench` demonstrates the model works even for small projects -- paired tasks, third-party ground truth, LLM judge.
+Turns "better for agent code" from vibes into a chart. Highest-leverage marketing asset because it's the first question every prospect asks and the one competitors can't refute without running the same bench. Hardest part is curation (hand-labeling ground truth); evaluator harness is ~200 lines.
 
 ---
 

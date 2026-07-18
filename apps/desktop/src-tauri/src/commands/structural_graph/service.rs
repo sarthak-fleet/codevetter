@@ -298,6 +298,8 @@ mod tests {
             files: Vec::new(),
             nodes: Vec::new(),
             edges: Vec::new(),
+            metrics: Vec::new(),
+            clone_groups: Vec::new(),
             communities: Vec::new(),
             diagnostics: Vec::new(),
             truncated: false,

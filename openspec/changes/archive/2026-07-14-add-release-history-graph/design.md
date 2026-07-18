@@ -4,7 +4,7 @@ CodeVetter currently derives overlapping historical views from several local sou
 
 The product remains a local-first Tauri application. History construction must therefore tolerate incomplete repositories, shallow clones, rewritten Git history, rotated agent transcripts, old SQLite rows, and repositories with no release tags. Commit subjects and temporal correlation are useful leads but are not reliable proof of intent.
 
-The active `add-graph-trust-paths` change now defines a Graphify-grade canonical structural graph. Release history uses its stable node identities, trust/source contract, snapshots, and query service while remaining a separate temporal graph.
+The active `add-graph-trust-paths` change defines the canonical structural graph. Release history uses its stable node identities, trust/source contract, snapshots, and query service while remaining a separate temporal graph.
 
 ## Goals / Non-Goals
 

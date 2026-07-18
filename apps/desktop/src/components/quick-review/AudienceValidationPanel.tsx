@@ -3,14 +3,20 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { audienceModeLabel, audienceValidationWarning } from '@/lib/audience-validation';
+import {
+  audienceModeLabel,
+  audienceValidationWarning,
+  qualifyAudienceBundleWithWarmEvidence,
+} from '@/lib/audience-validation';
 import {
   addAudienceValidationResponse,
   type AudienceResponseProvenance,
   type AudienceValidationBundle,
   createAudienceValidationRun,
+  getCurrentWarmVerificationIdentity,
   getAudienceValidation,
   isTauriAvailable,
+  listWarmVerificationRuns,
   waiveAudienceValidation,
 } from '@/lib/tauri-ipc';
 
@@ -35,6 +41,27 @@ function stageTone(status: string): string {
   if (status === 'failed' || status === 'blocked') return 'text-red-300';
   if (status === 'waived') return 'text-slate-400';
   return 'text-amber-300';
+}
+
+async function qualifyWithCurrentWarmEvidence(
+  value: AudienceValidationBundle,
+  repoPath: string
+): Promise<AudienceValidationBundle> {
+  const [runs, current] = await Promise.allSettled([
+    listWarmVerificationRuns({ repoPath, limit: 1 }),
+    getCurrentWarmVerificationIdentity(repoPath),
+  ]);
+  return qualifyAudienceBundleWithWarmEvidence(
+    value,
+    runs.status === 'fulfilled' ? (runs.value[0] ?? null) : null,
+    current.status === 'fulfilled' ? current.value : null,
+    [
+      ...(runs.status === 'rejected' ? ['Warm verification history could not be read.'] : []),
+      ...(current.status === 'rejected'
+        ? ['Current verification identity lookup failed; prior evidence remains unverified.']
+        : []),
+    ]
+  );
 }
 
 export default function AudienceValidationPanel({
@@ -81,6 +108,7 @@ export default function AudienceValidationPanel({
     setLoading(true);
     setError(null);
     void getAudienceValidation(reviewId)
+      .then((value) => qualifyWithCurrentWarmEvidence(value, repoPath))
       .then((value) => {
         if (canceled) return;
         setBundle(value);
@@ -99,7 +127,7 @@ export default function AudienceValidationPanel({
     return () => {
       canceled = true;
     };
-  }, [onBundleChange, reviewId]);
+  }, [onBundleChange, repoPath, reviewId]);
 
   const warning = bundle ? audienceValidationWarning(bundle) : null;
   const stageRows = useMemo(
@@ -118,6 +146,14 @@ export default function AudienceValidationPanel({
     setBundle(value);
     onBundleChange(value);
     setError(null);
+  }
+
+  async function acceptQualifiedBundle(
+    value: AudienceValidationBundle
+  ): Promise<AudienceValidationBundle> {
+    const qualified = await qualifyWithCurrentWarmEvidence(value, repoPath);
+    acceptBundle(qualified);
+    return qualified;
   }
 
   async function handleCreateRun() {
@@ -140,9 +176,9 @@ export default function AudienceValidationPanel({
         minResponses,
         required,
       });
-      acceptBundle(value);
-      setCriterion(value.run?.criteria[0] ?? 'task completion');
-      setPreferred(value.run?.candidate_a ?? candidateA);
+      const qualified = await acceptQualifiedBundle(value);
+      setCriterion(qualified.run?.criteria[0] ?? 'task completion');
+      setPreferred(qualified.run?.candidate_a ?? candidateA);
     } catch (cause) {
       setError(String(cause));
     } finally {
@@ -168,7 +204,7 @@ export default function AudienceValidationPanel({
         feedback,
         evidenceRef,
       });
-      acceptBundle(value);
+      await acceptQualifiedBundle(value);
       setFeedback('');
       setEvidenceRef('');
       setReversePreferred('');
@@ -183,7 +219,7 @@ export default function AudienceValidationPanel({
     setSaving(true);
     setError(null);
     try {
-      acceptBundle(await waiveAudienceValidation(reviewId, waiverReason));
+      await acceptQualifiedBundle(await waiveAudienceValidation(reviewId, waiverReason));
       setWaiverReason('');
     } catch (cause) {
       setError(String(cause));

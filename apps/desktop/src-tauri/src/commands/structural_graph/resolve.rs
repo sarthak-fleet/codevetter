@@ -74,13 +74,13 @@ pub fn resolve_cross_file(nodes: &[StructuralGraphNode], edges: &mut Vec<Structu
     files.sort_by(|left, right| left.id.cmp(&right.id));
     let file_index = FileIndex::new(&files);
 
-    let syntax_edges = edges
+    let reference_edges = edges
         .iter()
-        .filter(|edge| edge.origin == GraphOrigin::Syntax)
+        .filter(|edge| matches!(edge.origin, GraphOrigin::Syntax | GraphOrigin::Metadata))
         .cloned()
         .collect::<Vec<_>>();
     let mut imports_by_source_path: HashMap<String, Vec<ImportContext>> = HashMap::new();
-    for edge in syntax_edges.iter().filter(|edge| edge.kind == "imports") {
+    for edge in reference_edges.iter().filter(|edge| edge.kind == "imports") {
         let Some(reference) = node_by_id.get(edge.to.as_str()).copied() else {
             continue;
         };
@@ -100,7 +100,7 @@ pub fn resolve_cross_file(nodes: &[StructuralGraphNode], edges: &mut Vec<Structu
             });
     }
     let mut additions = Vec::new();
-    for edge in syntax_edges {
+    for edge in reference_edges {
         let Some(reference) = node_by_id.get(edge.to.as_str()).copied() else {
             continue;
         };
@@ -114,6 +114,31 @@ pub fn resolve_cross_file(nodes: &[StructuralGraphNode], edges: &mut Vec<Structu
         };
         candidates.sort_by(|left, right| left.id.cmp(&right.id));
         candidates.dedup_by(|left, right| left.id == right.id);
+
+        if reference.kind == "dynamic_reference" && !candidates.is_empty() {
+            additions.push(StructuralGraphEdge {
+                id: stable_graph_id(
+                    "edge",
+                    &format!("dynamic_candidate_for\0{}\0{}", edge.from, reference.id),
+                ),
+                from: edge.from.clone(),
+                to: reference.id.clone(),
+                kind: "candidate_for".to_string(),
+                evidence: format!(
+                    "Runtime lookup `{}` may resolve to {} source-backed candidate(s); none was promoted to a verified edge",
+                    reference.label,
+                    candidates.len()
+                ),
+                trust: GraphTrust::Ambiguous,
+                origin: GraphOrigin::Resolution,
+                sources: edge.sources.clone(),
+                candidates: candidates
+                    .into_iter()
+                    .map(|candidate| candidate.id.clone())
+                    .collect(),
+            });
+            continue;
+        }
 
         if candidates.len() == 1 {
             let target = candidates[0];

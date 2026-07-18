@@ -12,6 +12,7 @@
     "bench:new-case": "node scripts/create-benchmark-case.mjs",
     "test:benchmark": "node --test scripts/run-catch-rate-benchmark.test.mjs",
     "test:coverage": "pnpm --filter @code-reviewer/desktop test:coverage",
+    "verify": "pnpm --filter @code-reviewer/desktop verify",
     "prepare": "husky || true",
     "lint": "biome check .",
     "format": "biome format --write .",
@@ -31,6 +32,14 @@
   "optionalDependencies": {
     "@tailwindcss/oxide-linux-x64-gnu": "^4.2.4",
     "lightningcss-linux-x64-gnu": "^1.32.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@babel/core": "7.29.6",
+      "astro>esbuild": "0.28.1",
+      "brace-expansion": "5.0.7",
+      "tsx>esbuild": "0.28.1"
+    }
   },
   "packageManager": "pnpm@10.33.2"
 }

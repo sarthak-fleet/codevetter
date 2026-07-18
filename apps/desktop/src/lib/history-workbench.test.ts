@@ -11,6 +11,7 @@ import type { HistoryRevision, UnpackRepoGraph } from '@/lib/tauri-ipc';
 function revision(index: number, tags: string[] = []): HistoryRevision {
   const sha = `${index}`.padStart(40, '0');
   return {
+    ordinal: index,
     sha,
     short_sha: sha.slice(0, 8),
     parents: index === 0 ? [] : [`${index - 1}`.padStart(40, '0')],
@@ -42,7 +43,6 @@ describe('history workbench revision navigation', () => {
     assert.equal(filterHistoryRevisions(noTags, 'commit', false).length, 12);
   });
 });
-
 describe('history workbench topology transitions', () => {
   it('keeps removed nodes for exit animation and marks added and changed nodes', () => {
     const previous: UnpackRepoGraph = {

@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "policy_id": "codevetter.business-rule-archaeology.qualification",
+  "policy_version": 1,
+  "status": "provisional",
+  "evidence_references": [
+    "openspec/changes/archive/2026-07-18-add-evidence-traced-business-rule-archaeology/design.md",
+    "openspec/changes/archive/2026-07-18-add-evidence-traced-business-rule-archaeology/specs/business-rule-archaeology/spec.md",
+    "apps/desktop/tests/fixtures/warm-verification/qualification-2026-07-17.json",
+    "apps/desktop/tests/fixtures/warm-verification/stability-2026-07-17.json",
+    "apps/desktop/scripts/mcp-benchmark.mjs",
+    "docs/PERFORMANCE.md"
+  ],
+  "required_dialect_constructs": {
+    "modern-typescript": ["predicate", "mutation", "call"],
+    "cobol-fixed": ["data-layout", "condition-name", "if", "evaluate", "perform", "io"],
+    "cobol-free": ["data-layout", "condition-name", "if", "evaluate", "perform", "io"],
+    "cobol-copybook": ["data-layout", "include-lineage"],
+    "hlasm": [
+      "label",
+      "data-definition",
+      "branch",
+      "call",
+      "comparison",
+      "arithmetic",
+      "memory-io",
+      "macro-include"
+    ],
+    "x86-gas": [
+      "label",
+      "data-definition",
+      "branch",
+      "call",
+      "comparison",
+      "arithmetic",
+      "memory-io",
+      "macro-include"
+    ]
+  },
+  "semantic_hard_gates": {
+    "minimum_labeled_positives_per_construct": 3,
+    "exact_span": { "precision_min": 1, "recall_min": 0.95 },
+    "fact": { "precision_min": 0.98, "recall_min": 0.95 },
+    "clause_support_rate_min": 0.98,
+    "unsupported_clause_rate_max": 0.02,
+    "contradiction": { "precision_min": 0.95, "recall_min": 1 },
+    "duplicate_clustering": { "precision_min": 0.98, "recall_min": 0.95 },
+    "retrieval": { "precision_min": 0.95, "recall_min": 0.95 },
+    "reverse_lookup": { "precision_min": 0.95, "recall_min": 0.95 },
+    "incremental_parity_min": 1
+  },
+  "named_machine_budgets": {
+    "provisional": true,
+    "profile": {
+      "platform": "darwin",
+      "architecture": "arm64",
+      "cpu_model": "Apple M5 Pro",
+      "logical_cpu_count": 18,
+      "memory_gib": 48
+    },
+    "minimum_samples": 20,
+    "maximums": {
+      "cold_index_batch_p95_ms": 30000,
+      "changed_unit_update_p95_ms": 2000,
+      "no_op_update_p95_ms": 15,
+      "query_p95_ms": 15,
+      "reverse_lookup_p95_ms": 15,
+      "cpu_peak_logical_cores": 4,
+      "rss_peak_growth_bytes": 134217728,
+      "rss_second_half_growth_bytes": 67108864,
+      "database_bytes_per_fact": 4096,
+      "cache_bytes_per_fact": 1024,
+      "database_bytes_per_rule": 16384,
+      "cache_bytes_per_rule": 4096,
+      "cancellation_latency_ms": 2000
+    }
+  },
+  "safety_hard_gates": {
+    "normal_read_model_calls": 0,
+    "orphan_owned_processes": 0,
+    "cleanup_owned_bytes_remaining": 0,
+    "source_mutation_count": 0,
+    "privacy_leak_count": 0
+  },
+  "claim_ceiling": {
+    "allowed_claim_kinds": ["evidence-traced-source-behavior"],
+    "denied_claim_kinds": [
+      "organizational-intent",
+      "legal-correctness",
+      "real-world-impact",
+      "causation",
+      "ownership",
+      "quality"
+    ],
+    "require_largest_passing_gate": true
+  },
+  "change_control": {
+    "loosen_requires_policy_version_bump": true,
+    "loosen_requires_new_evidence": true
+  }
+}

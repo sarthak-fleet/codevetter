@@ -1,181 +1,170 @@
-<!-- generated-by: gsd-doc-writer -->
 # Testing
 
-## Test Framework and Setup
+CodeVetter uses four focused layers: TypeScript unit tests, Rust unit and
+command-boundary tests, Playwright Chromium UI tests, and named-machine warm
+verification benchmarks. Run the smallest relevant layer first.
 
-CodeVetter uses two distinct test stacks depending on the layer being tested.
+## TypeScript unit tests
 
-### Playwright — desktop e2e (`apps/desktop`)
-
-- **Package**: `@playwright/test` ^1.58.2
-- **Config**: `apps/desktop/playwright.config.ts`
-- **Browser**: Chromium only (single project in CI)
-- **Base URL**: `http://localhost:1420` — the Vite dev server
-
-**Required setup for Playwright tests**
+From `apps/desktop/`:
 
 ```bash
-# Install Playwright browsers (first time only)
-cd apps/desktop && npx playwright install chromium
+pnpm test:unit
+pnpm test:verify
 ```
 
-### Node built-in test runner — package unit tests
+Both use Node's built-in `node:test` runner with `tsx`. General product tests
+live beside source as `*.test.ts`; warm-verifier contract, selection, lifecycle,
+observer, persistence-adapter, retention, and benchmark-contract tests live in
+`src/lib/warm-verification/`.
 
-- **Runner**: Node.js `node:test` (no extra dependency)
-- **TypeScript**: executed via `tsx` ^4.x
-- **Packages with tests**: `packages/ai-gateway-client`, `packages/db`
-- **No test runner installed as a devDependency** — `node --test` is used directly
-
----
-
-## Running Tests
-
-### Desktop app — Playwright (against Vite dev server)
+Useful focused forms:
 
 ```bash
-# Full Playwright suite (starts Vite dev server automatically)
-cd apps/desktop && npm test
-
-# Equivalent explicit form
-cd apps/desktop && npx playwright test
-
-# Interactive UI mode (watch + visual trace)
-cd apps/desktop && npm run test:e2e:ui
-
-# Single spec file
-cd apps/desktop && npx playwright test tests/e2e/smoke.spec.ts
-
-# Single test by title pattern
-cd apps/desktop && npx playwright test -g "App loads without crashing"
+node --import tsx --test src/lib/audience-validation.test.ts
+node --import tsx --test src/lib/warm-verification/adapters.test.ts
+node --import tsx --test src/lib/warm-verification/cli.test.ts
 ```
 
-### Package unit tests (`packages/ai-gateway-client`)
+## Rust tests
+
+The Tauri backend uses Cargo tests for SQLite migrations, command contracts,
+bridge safety, protocol validation, and other backend behavior:
 
 ```bash
-cd packages/ai-gateway-client && npm test
-# runs: node --test --import tsx src/**/*.test.ts
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml warm_verification
+cargo test --manifest-path src-tauri/Cargo.toml warm_verification_bridge
 ```
 
-### Package unit tests (`packages/db`)
+Rust targets can grow into tens of gigabytes across repeated feature/target
+combinations. During local qualification, point `CARGO_TARGET_DIR` at one
+temporary directory shared by the checks you intend to run, then remove it with
+`cargo clean` (or remove that temporary directory) after the handoff so parallel
+worktrees do not retain duplicate builds.
+
+## Playwright Chromium tests
+
+The desktop configuration is `apps/desktop/playwright.config.ts`. It starts the
+Vite webview on `http://localhost:1420`, uses one Chromium project, and retains
+screenshots/traces on failure.
 
 ```bash
-cd packages/db && npm test
-# runs: node --test --import tsx src/**/*.test.ts
+cd apps/desktop
+pnpm exec playwright install chromium   # first setup only
+pnpm test                               # full browser suite
+pnpm test -- tests/e2e/warm-verification.spec.ts
+pnpm test -- tests/e2e/review-warm-evidence.spec.ts
 ```
 
----
+The warm T-Rex spec mocks the Tauri boundary and covers health, owned run
+controls, cancellation, evidence, failures, and cleanup. The Review warm-evidence
+spec proves the audience panel is read-only, requests only the newest repository
+run plus current identity, accepts exact-current passing evidence, and rejects
+stale or missing identity.
 
-## Writing New Tests
+## Warm local verification qualification
 
-### File naming convention
+The checked-in qualification target is a real React/Vite app with target-owned,
+client-scoped named MSW state. Each recorded invocation includes Git identity
+collection, changed-capability selection, fresh isolated browser contexts,
+automatic observations, reporting, and teardown while reusing the same warm
+server and Chromium process. Intentional observer-negative fixtures stay in
+correctness tests and are excluded from timing samples.
 
-| Layer | Location | Pattern |
-|---|---|---|
-| Playwright e2e (dev-server) | `apps/desktop/tests/e2e/` | `*.spec.ts` |
-| Playwright e2e (Tauri native) | `apps/desktop/tests/e2e/` | `*.pw.spec.ts` |
-| Legacy UI smoke | `apps/desktop/tests/` | `*.spec.ts` (e.g. `linear-ui.spec.ts`) |
-| Node unit tests | `packages/*/src/` | `*.test.ts` |
-| Tauri Node runner | `apps/desktop/tests/e2e/` | `*.tauri-spec.ts` |
-
-### Shared test helpers
-
-**`apps/desktop/tests/e2e/helpers.ts`** — Playwright utilities:
-- `ConsoleErrorCollector` — attaches to a `Page`, filters Tauri/Vite noise, asserts no unexpected console errors.
-- `navigateTo(page, path)` — `page.goto` + waits for `main` selector.
-- `waitForNoSpinners(page, timeout?)` — waits until `.animate-spin` elements are hidden.
-- `showNavBar(page)` — moves mouse to top of viewport to reveal the auto-hiding nav bar.
-
-**`apps/desktop/tests/e2e/setup.ts`** — Tauri WebDriver lifecycle:
-- `getAppBinaryPath()` — resolves the built `.app` bundle path for the current arch.
-- `getTauriCapabilities()` — returns W3C capabilities object for a WebDriver session.
-
-**Node unit tests** use only `node:test` and `node:assert/strict` — no shared helper file exists.
-
-### Pattern for Playwright specs
-
-```ts
-import { test, expect } from "@playwright/test";
-import { ConsoleErrorCollector, navigateTo, waitForNoSpinners } from "./helpers";
-
-test.describe("My feature", () => {
-  const consoleErrors = new ConsoleErrorCollector();
-
-  test.beforeEach(async ({ page }) => {
-    consoleErrors.reset();
-    consoleErrors.attach(page);
-  });
-
-  test.afterEach(() => {
-    consoleErrors.assertNoErrors();
-  });
-
-  test("does something", async ({ page }) => {
-    await navigateTo(page, "/my-route");
-    await waitForNoSpinners(page);
-    await expect(page.locator("h1")).toBeVisible();
-  });
-});
-```
-
-### Pattern for Node unit tests
-
-```ts
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
-import { myFunction } from "./myModule";
-
-describe("myFunction", () => {
-  it("handles the happy path", () => {
-    assert.equal(myFunction("input"), "expected");
-  });
-});
-```
-
----
-
-## Coverage Requirements
-
-No coverage thresholds are configured in any workspace. There is no `coverageThreshold` in any Jest config and no `coverage` section in any Vitest config (neither framework is used). Coverage collection is not part of any CI step.
-
----
-
-## CI Integration
-
-Tests run in the **`CI`** workflow (`.github/workflows/ci.yml`), triggered on `push` and `pull_request` to `main`.
-
-### Job: `lint-and-test` (ubuntu-latest)
-
-Does not execute unit or Playwright tests. Runs lint, type-check, and frontend build only.
+Run from `apps/desktop/`:
 
 ```bash
-cd apps/desktop && npx eslint src/ --max-warnings 50
-cd apps/desktop && npx tsc --noEmit
-cd apps/desktop && npx vite build
+pnpm bench:verify
+pnpm bench:verify:stability
 ```
 
-### Job: `rust-check` (macos-latest)
+### Mandatory 20-scenario gate
 
-Runs `cargo check` against `apps/desktop/src-tauri`. Does not execute tests.
+On the recorded Apple M5 Pro profile, after two excluded warm-ups and at
+parallelism four, 20 measured whole invocations recorded:
 
-### Job: `playwright` (ubuntu-latest)
+| Metric | Time |
+|---|---:|
+| p50 | 3605.560 ms |
+| p95 | 4792.196 ms |
+| max | 5320.379 ms |
 
-Installs Playwright, installs Chromium, then runs the full Playwright suite against the desktop app.
+This is comfortably below the 30-second full-corpus objective. The machine-
+readable evidence is
+`apps/desktop/tests/fixtures/warm-verification/qualification-2026-07-17.json`.
 
-| Field | Value |
+### Small changed-capability hot path
+
+The focused one-scenario path, measured separately so it cannot replace the full
+gate, recorded:
+
+| Metric | Time |
+|---|---:|
+| p50 | 506.426 ms |
+| p95 | 512.035 ms |
+| max | 515.900 ms |
+
+Its regression budget is 2000 ms.
+
+### Stability and resource gate
+
+The stability command then ran 100 additional warm batches:
+
+- 80 passes;
+- 10 intentional deterministic regressions;
+- 10 cancellations triggered after scenario execution began;
+- no leaked contexts;
+- stable target-server and Chromium reuse;
+- RSS growth of 13.6 MB against a 128 MB cap, with no second-half median growth;
+- retained data bounded to 20 runs / 4470 bytes;
+- zero Cargo, Tauri, or production-build invocations.
+
+Raw samples, source hashes, resource gates, command audit, and temporary-root
+cleanup proof are in
+`apps/desktop/tests/fixtures/warm-verification/stability-2026-07-17.json`.
+The source-bound report used by the current contract gate is maintained at
+`apps/desktop/tests/fixtures/warm-verification/stability-current.json` so reruns
+replace one artifact instead of accumulating date-named copies.
+
+Absolute time gates apply only to one developer, one configured React app, one
+Mac, and one Chromium. Other machines must still pass correctness, isolation,
+identity, retention, and resource-shape checks, but these results do not claim
+CI, cloud, team, mobile, cross-browser, or arbitrary-repository performance.
+
+## Evidence acceptance matrix
+
+| Evidence | Can pass Review executable stage? |
 |---|---|
-| Workflow file | `.github/workflows/ci.yml` |
-| Job name | `playwright` |
-| Runner | `ubuntu-latest` |
-| Trigger | push/PR to `main` |
-| Test command | `npx playwright test --reporter=list` |
+| Newest warm run, exact current identities, completed pass | Yes |
+| Deterministic regression | No; blocks the aggregate outcome |
+| Cancelled, stale, incomplete, or `no_confidence` | No |
+| Missing current identity | No |
+| Older warm pass | No |
+| Legacy synthetic-QA pass alone | No |
+| Scenario candidate validation or dry run | No; authoring qualification only |
 
-```yaml
-- name: Install Playwright browsers
-  run: cd apps/desktop && npx playwright install chromium
-- name: Run Playwright tests
-  run: cd apps/desktop && npx playwright test --reporter=list
-```
+Review is a read-only consumer. T-Rex owns daemon start/stop, run/cancel, and
+cleanup controls.
 
-The Tauri native e2e tests and Node package unit tests are **not** run in CI — they have no corresponding workflow steps.
+## CI coverage
 
-The **`Release Desktop App`** workflow (`.github/workflows/release.yml`) triggers on GitHub release creation and builds the macOS `.app` bundle via `tauri-apps/tauri-action`. It does not run any tests.
+`.github/workflows/ci.yml` runs:
+
+- Biome lint and TypeScript type-check;
+- all desktop TypeScript unit tests;
+- MCP sidecar preparation and focused Rust MCP tests;
+- focused Chromium tests for MCP Settings and Repo Unpacked.
+
+The workflow does not currently run the full desktop Playwright suite, the full
+Rust suite, or the named-machine warm-verifier benchmarks. Run those explicitly
+for release qualification.
+
+## Release qualification status
+
+The warm runtime, repository-owned CLI/Tauri bridge, T-Rex controls, exact-
+current Review qualification, and measured stability gates have focused test
+coverage. Local whole-product release qualification passed on 2026-07-15,
+including fresh-install unit/browser checks, full Rust tests, strict Clippy,
+dependency and license review, and production desktop/landing builds. The
+explicit release workflow has not run, so this is qualified but not shipped.

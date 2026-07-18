@@ -19,6 +19,7 @@ target/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/binaries/codevetter-mcp-*
 apps/desktop/src-tauri/sidecar/
+apps/desktop/src-tauri/binaries/codevetter-mcp-*
 apps/desktop/out/
 apps/desktop/.next/
 
@@ -61,6 +62,13 @@ apps/desktop/coverage/
 # fallow cache
 .fallow/
 cache.bin
+
+# Warm local verification artifacts (redacted but intentionally ephemeral)
+.codevetter/verify-artifacts/
+
+# Model-assisted scenario candidates remain private until explicit acceptance.
+.codevetter/scenario-candidates/
+.codevetter/private-notes/
 
 # codex CLI project dir
 .codex/

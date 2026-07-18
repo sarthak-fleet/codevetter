@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 /// Read the first N lines of a file and detect language from extension.
 #[tauri::command]
@@ -122,6 +122,77 @@ pub async fn open_in_app(app_name: String, path: String) -> Result<Value, String
     }
 }
 
+/// Open one repository-confined source coordinate in Cursor or VS Code.
+///
+/// The UI supplies the repository root separately from the persisted relative
+/// path. Canonicalization rejects traversal and symlink escapes before any
+/// external process receives a path.
+#[tauri::command]
+pub async fn open_repository_source_in_editor(
+    app_name: String,
+    repo_path: String,
+    relative_path: String,
+    line: u32,
+    column: u32,
+) -> Result<Value, String> {
+    let app = match app_name.as_str() {
+        "cursor" => "Cursor",
+        "vscode" => "Visual Studio Code",
+        _ => return Err("Unsupported source editor".to_string()),
+    };
+    let source = resolve_repository_source(&repo_path, &relative_path)?;
+    let target = editor_goto_target(&source, line, column)?;
+    let output = std::process::Command::new("open")
+        .args(["-a", app, "--args", "--goto"])
+        .arg(target)
+        .output()
+        .map_err(|_| "Failed to launch source editor".to_string())?;
+    if !output.status.success() {
+        return Err("Failed to open source coordinate in editor".to_string());
+    }
+    Ok(json!({ "success": true }))
+}
+
+fn resolve_repository_source(repo_path: &str, relative_path: &str) -> Result<PathBuf, String> {
+    let root = Path::new(repo_path.trim())
+        .canonicalize()
+        .map_err(|_| "Repository source is unavailable".to_string())?;
+    if !root.is_dir() {
+        return Err("Repository source is unavailable".to_string());
+    }
+    let relative = Path::new(relative_path);
+    if relative_path.is_empty()
+        || relative_path.contains('\0')
+        || relative.is_absolute()
+        || relative.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err("Repository source coordinate is invalid".to_string());
+    }
+    let source = root
+        .join(relative)
+        .canonicalize()
+        .map_err(|_| "Repository source is unavailable".to_string())?;
+    if !source.starts_with(&root) || !source.is_file() {
+        return Err("Repository source is unavailable".to_string());
+    }
+    Ok(source)
+}
+
+fn editor_goto_target(source: &Path, line: u32, column: u32) -> Result<String, String> {
+    if line == 0 || column == 0 {
+        return Err("Source coordinates must be one-based".to_string());
+    }
+    let source = source
+        .to_str()
+        .ok_or_else(|| "Repository source is unavailable".to_string())?;
+    Ok(format!("{source}:{line}:{column}"))
+}
+
 // ─── Internal helpers ───────────────────────────────────────────────────────
 
 /// Detect programming language from file extension.
@@ -168,4 +239,53 @@ fn detect_language(path: &Path) -> String {
         _ => "plaintext",
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn exact_source_target_is_repository_confined_and_one_based() {
+        let repository = tempdir().expect("repository");
+        let source = repository.path().join("legacy").join("PAYMENTS.cbl");
+        fs::create_dir_all(source.parent().expect("source parent")).expect("source parent");
+        fs::write(&source, "       IDENTIFICATION DIVISION.\n").expect("source");
+
+        let resolved = resolve_repository_source(
+            repository.path().to_str().expect("repository path"),
+            "legacy/PAYMENTS.cbl",
+        )
+        .expect("confined source");
+        assert_eq!(resolved, source.canonicalize().expect("canonical source"));
+        assert_eq!(
+            editor_goto_target(&resolved, 42, 8).expect("exact target"),
+            format!("{}:42:8", resolved.to_string_lossy())
+        );
+        assert!(editor_goto_target(&resolved, 0, 8).is_err());
+        assert!(resolve_repository_source(
+            repository.path().to_str().expect("repository path"),
+            "../outside.cbl"
+        )
+        .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exact_source_target_rejects_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let repository = tempdir().expect("repository");
+        let outside = tempdir().expect("outside");
+        let outside_source = outside.path().join("PAYMENTS.cbl");
+        fs::write(&outside_source, "source\n").expect("outside source");
+        symlink(&outside_source, repository.path().join("PAYMENTS.cbl")).expect("source link");
+
+        assert!(resolve_repository_source(
+            repository.path().to_str().expect("repository path"),
+            "PAYMENTS.cbl"
+        )
+        .is_err());
+    }
 }

@@ -7,36 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::State;
 
-const MCP_RESOURCE_KINDS: &[&str] = &[
-    "repository",
-    "graph",
-    "snapshot",
-    "community",
-    "release",
-    "commit",
-    "episode",
-    "entity-lineage",
-    "causal-thread",
-    "annotation",
-    "evidence",
-];
-
-const MCP_TOOL_NAMES: &[&str] = &[
-    "graph_query",
-    "graph_get_node",
-    "graph_get_neighbors",
-    "graph_path",
-    "graph_impact",
-    "history_list_releases",
-    "history_search",
-    "history_get_state",
-    "history_lineage",
-    "history_explain",
-    "history_trace",
-    "history_compare",
-    "history_get_evidence",
-];
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpRepositoryScope {
     pub repo_path: String,
@@ -137,6 +107,19 @@ pub fn require_enabled_scope(
     Ok(scope)
 }
 
+fn validate_audit_label(field: &str, value: &str) -> Result<(), String> {
+    let valid = !value.is_empty()
+        && value.len() <= 96
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b':' | b'/')
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(format!("Invalid MCP audit {field}"))
+    }
+}
+
 pub fn record_mcp_audit(
     connection: &Connection,
     repo_id: &str,
@@ -147,6 +130,10 @@ pub fn record_mcp_audit(
     result_count: usize,
     response_bytes: usize,
 ) -> Result<(), String> {
+    validate_audit_label("repository", repo_id)?;
+    validate_audit_label("session", server_session)?;
+    validate_audit_label("operation", operation)?;
+    validate_audit_label("status", status)?;
     connection
         .execute(
             "INSERT INTO mcp_access_audit (
@@ -250,10 +237,9 @@ fn git_head(repo_path: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-#[tauri::command]
-pub async fn get_mcp_repository_settings(
+fn load_mcp_repository_settings(
     repo_path: String,
-    db: State<'_, DbState>,
+    db: &DbState,
 ) -> Result<McpRepositorySettings, String> {
     let canonical = canonical_repo_path(&repo_path)?;
     let current_head = git_head(&canonical);
@@ -275,6 +261,18 @@ pub async fn get_mcp_repository_settings(
         )
         .optional()
         .map_err(|error| format!("Load repository history status: {error}"))?;
+    // A disabled scope is safe to preview and gives the user an exact,
+    // credential-free client command before they opt into exposure.
+    let now = Utc::now().to_rfc3339();
+    connection
+        .execute(
+            "INSERT INTO mcp_repository_scopes (
+                repo_path, repo_id, enabled, created_at, updated_at
+             ) VALUES (?1, ?2, 0, ?3, ?3)
+             ON CONFLICT(repo_path) DO NOTHING",
+            params![canonical, uuid::Uuid::new_v4().to_string(), now],
+        )
+        .map_err(|error| format!("Prepare MCP settings preview: {error}"))?;
     let scope = connection
         .query_row(
             "SELECT repo_id, enabled FROM mcp_repository_scopes WHERE repo_path = ?1",
@@ -312,13 +310,13 @@ pub async fn get_mcp_repository_settings(
         current_head,
         server_path,
         client_config: config,
-        resource_kinds: MCP_RESOURCE_KINDS
+        resource_kinds: crate::mcp::uri::RESOURCE_KINDS
             .iter()
             .map(|value| (*value).to_string())
             .collect(),
-        tool_names: MCP_TOOL_NAMES
-            .iter()
-            .map(|value| (*value).to_string())
+        tool_names: crate::mcp::contracts::tool_definitions()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
             .collect(),
         redaction_rules: vec![
             "No raw transcripts, credentials, environment files, or arbitrary file reads"
@@ -342,10 +340,20 @@ pub async fn get_mcp_repository_settings(
 }
 
 #[tauri::command]
-pub async fn set_mcp_repository_enabled(
+pub async fn get_mcp_repository_settings(
+    repo_path: String,
+    db: State<'_, DbState>,
+) -> Result<McpRepositorySettings, String> {
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || load_mcp_repository_settings(repo_path, &db))
+        .await
+        .map_err(|_| "MCP settings worker failed".to_string())?
+}
+
+fn update_mcp_repository_enabled(
     repo_path: String,
     enabled: bool,
-    db: State<'_, DbState>,
+    db: &DbState,
 ) -> Result<McpRepositorySettings, String> {
     let canonical = canonical_repo_path(&repo_path)?;
     {
@@ -382,7 +390,34 @@ pub async fn set_mcp_repository_enabled(
             )
             .map_err(|error| format!("Update MCP repository access: {error}"))?;
     }
-    get_mcp_repository_settings(repo_path, db).await
+    load_mcp_repository_settings(repo_path, db)
+}
+
+#[tauri::command]
+pub async fn set_mcp_repository_enabled(
+    repo_path: String,
+    enabled: bool,
+    db: State<'_, DbState>,
+) -> Result<McpRepositorySettings, String> {
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || update_mcp_repository_enabled(repo_path, enabled, &db))
+        .await
+        .map_err(|_| "MCP settings worker failed".to_string())?
+}
+
+fn delete_mcp_access_audit(repo_path: String, db: &DbState) -> Result<usize, String> {
+    let canonical = canonical_repo_path(&repo_path)?;
+    let connection =
+        db.0.lock()
+            .map_err(|_| "CodeVetter database is unavailable".to_string())?;
+    connection
+        .execute(
+            "DELETE FROM mcp_access_audit WHERE repo_id = (
+                SELECT repo_id FROM mcp_repository_scopes WHERE repo_path = ?1
+             )",
+            [&canonical],
+        )
+        .map_err(|error| format!("Clear MCP access metadata: {error}"))
 }
 
 #[tauri::command]
@@ -390,100 +425,11 @@ pub async fn clear_mcp_access_audit(
     repo_path: String,
     db: State<'_, DbState>,
 ) -> Result<usize, String> {
-    let canonical = canonical_repo_path(&repo_path)?;
-    let connection =
-        db.0.lock()
-            .map_err(|_| "CodeVetter database is unavailable".to_string())?;
-    let deleted = connection
-        .execute(
-            "DELETE FROM mcp_access_audit WHERE repo_id = (
-                SELECT repo_id FROM mcp_repository_scopes WHERE repo_path = ?1
-             )",
-            [&canonical],
-        )
-        .map_err(|error| format!("Clear MCP access metadata: {error}"))?;
-    Ok(deleted)
+    let db = db.inner().clone();
+    tokio::task::spawn_blocking(move || delete_mcp_access_audit(repo_path, &db))
+        .await
+        .map_err(|_| "MCP settings worker failed".to_string())?
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn fixture() -> Connection {
-        let connection = Connection::open_in_memory().expect("database");
-        crate::db::schema::run_migrations(&connection).expect("schema");
-        connection
-            .execute(
-                "INSERT INTO history_graph_repositories (
-                    repo_path, repository_fingerprint, indexed_head, status,
-                    created_at, updated_at
-                 ) VALUES ('/fixture', 'fixture', 'head', 'ready', ?1, ?1)",
-                [Utc::now().to_rfc3339()],
-            )
-            .expect("history");
-        connection
-            .execute(
-                "INSERT INTO mcp_repository_scopes (
-                    repo_path, repo_id, enabled, created_at, updated_at
-                 ) VALUES ('/fixture', 'opaque-repo', 1, ?1, ?1)",
-                [Utc::now().to_rfc3339()],
-            )
-            .expect("scope");
-        connection
-    }
-
-    #[test]
-    fn scope_is_opaque_and_live_disable_is_observed() {
-        let connection = fixture();
-        let scope = require_enabled_scope(&connection, "opaque-repo").expect("enabled");
-        assert_eq!(scope.repo_path, "/fixture");
-        assert!(!scope.repo_id.contains("fixture"));
-        connection
-            .execute(
-                "UPDATE mcp_repository_scopes SET enabled = 0 WHERE repo_id = 'opaque-repo'",
-                [],
-            )
-            .expect("disable");
-        assert!(require_enabled_scope(&connection, "opaque-repo")
-            .unwrap_err()
-            .contains("disabled"));
-        assert!(require_enabled_scope(&connection, "unknown")
-            .unwrap_err()
-            .contains("missing"));
-    }
-
-    #[test]
-    fn audit_is_bounded_and_never_accepts_content_fields() {
-        let connection = fixture();
-        for index in 0..=MAX_AUDIT_ROWS {
-            record_mcp_audit(
-                &connection,
-                "opaque-repo",
-                "session",
-                "history_search",
-                "ok",
-                index as u64,
-                1,
-                100,
-            )
-            .expect("audit");
-        }
-        let count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM mcp_access_audit", [], |row| {
-                row.get(0)
-            })
-            .expect("count");
-        assert_eq!(count, MAX_AUDIT_ROWS as i64);
-        let schema = connection
-            .prepare("PRAGMA table_info(mcp_access_audit)")
-            .and_then(|mut statement| {
-                statement
-                    .query_map([], |row| row.get::<_, String>(1))?
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .expect("columns");
-        assert!(!schema.iter().any(|column| {
-            ["arguments", "query", "prompt", "content", "evidence"].contains(&column.as_str())
-        }));
-    }
-}
+mod tests;

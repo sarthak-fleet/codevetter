@@ -1,9 +1,11 @@
 pub mod analysis;
 pub mod api;
+mod contracts;
 pub mod extract;
 pub mod interchange;
 pub mod language;
 pub mod legacy;
+pub(crate) mod metrics;
 pub mod query;
 pub mod resolve;
 pub mod service;

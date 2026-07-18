@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "corpus_id": "business-rule-archaeology-hand-labeled-v1",
+  "revisions": {
+    "previous": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "current": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "source_units": [
+    { "id": "unit:modern", "path": "modern/payment.ts", "revision": "current", "language": "typescript", "dialect": "typescript", "parser_id": "modern-reference-v1", "classification": "reference", "generated": false, "protected": false },
+    { "id": "unit:history", "path": "history/payment_v1.ts", "revision": "previous", "language": "typescript", "dialect": "typescript", "parser_id": "modern-reference-v1", "classification": "historical", "generated": false, "protected": false },
+    { "id": "unit:cobol-fixed", "path": "cobol/fixed_claim.cbl", "revision": "current", "language": "cobol", "dialect": "ibm-fixed", "parser_id": "cobol-fixture-v1", "classification": "source", "generated": false, "protected": false },
+    { "id": "unit:copybook", "path": "cobol/CLAIMREC.cpy", "revision": "current", "language": "cobol", "dialect": "ibm-copybook", "parser_id": "cobol-fixture-v1", "classification": "copybook", "generated": false, "protected": false },
+    { "id": "unit:cobol-free", "path": "cobol/free_route.cbl", "revision": "current", "language": "cobol", "dialect": "free", "parser_id": "cobol-fixture-v1", "classification": "source", "generated": false, "protected": false },
+    { "id": "unit:hlasm", "path": "asm/billing_hlasm.asm", "revision": "current", "language": "assembly", "dialect": "hlasm", "parser_id": "hlasm-fixture-v1", "classification": "source", "generated": false, "protected": false },
+    { "id": "unit:x86", "path": "asm/route_x86.s", "revision": "current", "language": "assembly", "dialect": "x86-64-gas-att", "parser_id": "gas-fixture-v1", "classification": "source", "generated": false, "protected": false },
+    { "id": "unit:ambiguous", "path": "asm/ambiguous.asm", "revision": "current", "language": "assembly", "dialect": "ambiguous", "parser_id": "assembly-lexical-fixture-v1", "classification": "ambiguous", "generated": false, "protected": false },
+    { "id": "unit:generated", "path": "generated/claim_listing.lst", "revision": "current", "language": "cobol", "dialect": "generated-listing", "parser_id": "listing-fixture-v1", "classification": "generated_listing", "generated": true, "protected": false },
+    { "id": "unit:duplicate", "path": "duplicate/claim_duplicate.cbl", "revision": "current", "language": "cobol", "dialect": "ibm-fixed", "parser_id": "cobol-fixture-v1", "classification": "source", "generated": false, "protected": false },
+    { "id": "unit:recovery", "path": "recovery/broken_claim.cbl", "revision": "current", "language": "cobol", "dialect": "ibm-fixed", "parser_id": "cobol-recovery-fixture-v1", "classification": "error_recovery", "generated": false, "protected": false },
+    { "id": "unit:conflict", "path": "conflict/override.cbl", "revision": "current", "language": "cobol", "dialect": "ibm-fixed", "parser_id": "cobol-fixture-v1", "classification": "conflicting_source", "generated": false, "protected": false },
+    { "id": "unit:protected", "path": "protected/private_rules.env", "revision": "current", "language": "config", "dialect": "env", "parser_id": "protected-sentinel-v1", "classification": "protected", "generated": false, "protected": true }
+  ],
+  "spans": [
+    { "id": "span:modern:entry", "source_unit_id": "unit:modern", "start": [16, 1, 17], "end": [30, 1, 31], "text": "approvePayment" },
+    { "id": "span:modern:predicate", "source_unit_id": "unit:modern", "start": [72, 2, 7], "end": [103, 2, 38], "text": "amount > 0 && balance >= amount" },
+    { "id": "span:modern:approved", "source_unit_id": "unit:modern", "start": [120, 3, 14], "end": [138, 3, 32], "text": "status: 'approved'" },
+    { "id": "span:modern:calculation", "source_unit_id": "unit:modern", "start": [151, 3, 45], "end": [167, 3, 61], "text": "balance - amount" },
+    { "id": "span:history:predicate", "source_unit_id": "unit:history", "start": [72, 2, 7], "end": [104, 2, 39], "text": "amount >= 0 && balance >= amount" },
+    { "id": "span:history:approved", "source_unit_id": "unit:history", "start": [121, 3, 14], "end": [139, 3, 32], "text": "status: 'approved'" },
+    { "id": "span:history:calculation", "source_unit_id": "unit:history", "start": [152, 3, 45], "end": [168, 3, 61], "text": "balance - amount" },
+    { "id": "span:fixed:include", "source_unit_id": "unit:cobol-fixed", "start": [99, 4, 12], "end": [113, 4, 26], "text": "COPY CLAIMREC." },
+    { "id": "span:fixed:predicate", "source_unit_id": "unit:cobol-fixed", "start": [128, 5, 15], "end": [147, 5, 34], "text": "CLAIM-AMOUNT > ZERO" },
+    { "id": "span:fixed:eligible", "source_unit_id": "unit:cobol-fixed", "start": [163, 6, 16], "end": [189, 6, 42], "text": "MOVE 'Y' TO CLAIM-ELIGIBLE" },
+    { "id": "span:fixed:ineligible", "source_unit_id": "unit:cobol-fixed", "start": [221, 8, 16], "end": [247, 8, 42], "text": "MOVE 'N' TO CLAIM-ELIGIBLE" },
+    { "id": "span:copybook:amount", "source_unit_id": "unit:copybook", "start": [37, 2, 14], "end": [62, 2, 39], "text": "CLAIM-AMOUNT PIC 9(7)V99." },
+    { "id": "span:copybook:eligible", "source_unit_id": "unit:copybook", "start": [76, 3, 14], "end": [97, 3, 35], "text": "CLAIM-ELIGIBLE PIC X." },
+    { "id": "span:copybook:condition", "source_unit_id": "unit:copybook", "start": [111, 4, 14], "end": [142, 4, 45], "text": "88 CLAIM-IS-ELIGIBLE VALUE 'Y'." },
+    { "id": "span:free:evaluate", "source_unit_id": "unit:cobol-free", "start": [90, 5, 1], "end": [109, 5, 20], "text": "EVALUATE CLAIM-TYPE" },
+    { "id": "span:free:urgent", "source_unit_id": "unit:cobol-free", "start": [112, 6, 3], "end": [152, 6, 43], "text": "WHEN \"URGENT\" MOVE \"FAST\" TO CLAIM-QUEUE" },
+    { "id": "span:free:other", "source_unit_id": "unit:cobol-free", "start": [155, 7, 3], "end": [196, 7, 44], "text": "WHEN OTHER MOVE \"STANDARD\" TO CLAIM-QUEUE" },
+    { "id": "span:hlasm:compare", "source_unit_id": "unit:hlasm", "start": [24, 2, 10], "end": [41, 2, 27], "text": "CLC   AMOUNT,ZERO" },
+    { "id": "span:hlasm:branch", "source_unit_id": "unit:hlasm", "start": [51, 3, 10], "end": [63, 3, 22], "text": "BNH   REJECT" },
+    { "id": "span:hlasm:approve", "source_unit_id": "unit:hlasm", "start": [73, 4, 10], "end": [94, 4, 31], "text": "MVC   STATUS,APPROVED" },
+    { "id": "span:hlasm:deny", "source_unit_id": "unit:hlasm", "start": [123, 6, 10], "end": [142, 6, 29], "text": "MVC   STATUS,DENIED" },
+    { "id": "span:x86:entry", "source_unit_id": "unit:x86", "start": [21, 2, 1], "end": [35, 2, 15], "text": "route_payment:" },
+    { "id": "span:x86:compare", "source_unit_id": "unit:x86", "start": [38, 3, 3], "end": [51, 3, 16], "text": "cmpq $0, %rdi" },
+    { "id": "span:x86:branch", "source_unit_id": "unit:x86", "start": [54, 4, 3], "end": [66, 4, 15], "text": "jle .Lreject" },
+    { "id": "span:x86:submit", "source_unit_id": "unit:x86", "start": [69, 5, 3], "end": [88, 5, 22], "text": "call submit_payment" },
+    { "id": "span:x86:reject", "source_unit_id": "unit:x86", "start": [107, 8, 3], "end": [126, 8, 22], "text": "call reject_payment" },
+    { "id": "span:ambiguous:unit", "source_unit_id": "unit:ambiguous", "start": [0, 1, 1], "end": [50, 3, 15], "text": "START MOV AX,VALUE\n      JNZ ACCEPT\nACCEPT DC F'1'" },
+    { "id": "span:generated:predicate", "source_unit_id": "unit:generated", "start": [7, 1, 8], "end": [29, 1, 30], "text": "IF CLAIM-AMOUNT > ZERO" },
+    { "id": "span:generated:eligible", "source_unit_id": "unit:generated", "start": [37, 2, 8], "end": [63, 2, 34], "text": "MOVE 'Y' TO CLAIM-ELIGIBLE" },
+    { "id": "span:duplicate:predicate", "source_unit_id": "unit:duplicate", "start": [10, 1, 11], "end": [29, 1, 30], "text": "CLAIM-AMOUNT > ZERO" },
+    { "id": "span:duplicate:eligible", "source_unit_id": "unit:duplicate", "start": [41, 2, 12], "end": [67, 2, 38], "text": "MOVE 'Y' TO CLAIM-ELIGIBLE" },
+    { "id": "span:recovery:predicate", "source_unit_id": "unit:recovery", "start": [7, 1, 8], "end": [29, 1, 30], "text": "IF CLAIM-AMOUNT > ZERO" },
+    { "id": "span:recovery:eligible", "source_unit_id": "unit:recovery", "start": [41, 2, 12], "end": [67, 2, 38], "text": "MOVE 'Y' TO CLAIM-ELIGIBLE" },
+    { "id": "span:recovery:error", "source_unit_id": "unit:recovery", "start": [75, 3, 8], "end": [120, 4, 28], "text": "IF CLAIM-AMOUNT >\n           DISPLAY 'BROKEN'" },
+    { "id": "span:recovery:after", "source_unit_id": "unit:recovery", "start": [128, 5, 8], "end": [155, 5, 35], "text": "MOVE 'N' TO CLAIM-ELIGIBLE." },
+    { "id": "span:conflict:predicate", "source_unit_id": "unit:conflict", "start": [10, 1, 11], "end": [30, 1, 31], "text": "CLAIM-AMOUNT <= ZERO" },
+    { "id": "span:conflict:eligible", "source_unit_id": "unit:conflict", "start": [42, 2, 12], "end": [68, 2, 38], "text": "MOVE 'Y' TO CLAIM-ELIGIBLE" },
+    { "id": "span:protected:unit", "source_unit_id": "unit:protected", "start": [0, 1, 1], "end": [48, 2, 1], "protected": true }
+  ],
+  "facts": [
+    { "id": "fact:modern:entry", "kind": "entry_point", "label": "approvePayment", "span_ids": ["span:modern:entry"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:modern:predicate", "kind": "predicate", "label": "positive amount within balance", "span_ids": ["span:modern:predicate"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:modern:calculation", "kind": "calculation", "label": "remaining balance calculation", "span_ids": ["span:modern:calculation"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:modern:approve", "kind": "mutation", "label": "approved status result", "span_ids": ["span:modern:approved"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:history:predicate", "kind": "predicate", "label": "non-negative amount within balance", "span_ids": ["span:history:predicate"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:history:approve", "kind": "mutation", "label": "approved status result", "span_ids": ["span:history:approved"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:history:calculation", "kind": "calculation", "label": "remaining balance calculation", "span_ids": ["span:history:calculation"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:fixed:include", "kind": "include", "label": "CLAIMREC copybook", "span_ids": ["span:fixed:include"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:fixed:predicate", "kind": "predicate", "label": "claim amount above zero", "span_ids": ["span:fixed:predicate"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:fixed:eligible", "kind": "mutation", "label": "eligible flag Y", "span_ids": ["span:fixed:eligible"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:fixed:ineligible", "kind": "mutation", "label": "eligible flag N", "span_ids": ["span:fixed:ineligible"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:copybook:amount", "kind": "data_field", "label": "CLAIM-AMOUNT", "span_ids": ["span:copybook:amount"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:copybook:eligible", "kind": "data_field", "label": "CLAIM-ELIGIBLE", "span_ids": ["span:copybook:eligible"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:copybook:condition", "kind": "constant", "label": "CLAIM-IS-ELIGIBLE value Y", "span_ids": ["span:copybook:condition"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:free:evaluate", "kind": "decision", "label": "route by claim type", "span_ids": ["span:free:evaluate"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:free:urgent", "kind": "mutation", "label": "urgent claims use FAST queue", "span_ids": ["span:free:urgent"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:free:other", "kind": "mutation", "label": "other claims use STANDARD queue", "span_ids": ["span:free:other"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:hlasm:compare", "kind": "predicate", "label": "compare amount with zero", "span_ids": ["span:hlasm:compare"], "trust": "extracted", "confidence": "medium" },
+    { "id": "fact:hlasm:branch", "kind": "control_flow", "label": "branch to reject", "span_ids": ["span:hlasm:branch"], "trust": "extracted", "confidence": "medium" },
+    { "id": "fact:hlasm:approve", "kind": "mutation", "label": "write approved status", "span_ids": ["span:hlasm:approve"], "trust": "extracted", "confidence": "medium" },
+    { "id": "fact:hlasm:deny", "kind": "mutation", "label": "write denied status", "span_ids": ["span:hlasm:deny"], "trust": "extracted", "confidence": "medium" },
+    { "id": "fact:x86:entry", "kind": "entry_point", "label": "route_payment", "span_ids": ["span:x86:entry"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:x86:compare", "kind": "predicate", "label": "amount is non-positive", "span_ids": ["span:x86:compare"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:x86:branch", "kind": "control_flow", "label": "branch to reject path", "span_ids": ["span:x86:branch"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:x86:submit", "kind": "call", "label": "submit_payment", "span_ids": ["span:x86:submit"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:x86:reject", "kind": "call", "label": "reject_payment", "span_ids": ["span:x86:reject"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:ambiguous", "kind": "unresolved", "label": "assembly dialect unresolved", "span_ids": ["span:ambiguous:unit"], "trust": "extracted", "confidence": "low" },
+    { "id": "fact:generated:predicate", "kind": "predicate", "label": "claim amount above zero listing", "span_ids": ["span:generated:predicate"], "trust": "extracted", "confidence": "low" },
+    { "id": "fact:generated:eligible", "kind": "mutation", "label": "eligible flag Y listing", "span_ids": ["span:generated:eligible"], "trust": "extracted", "confidence": "low" },
+    { "id": "fact:duplicate:predicate", "kind": "predicate", "label": "claim amount above zero duplicate source", "span_ids": ["span:duplicate:predicate"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:duplicate:eligible", "kind": "mutation", "label": "eligible flag Y duplicate source", "span_ids": ["span:duplicate:eligible"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:recovery:predicate", "kind": "predicate", "label": "claim amount above zero before recovery", "span_ids": ["span:recovery:predicate"], "trust": "extracted", "confidence": "medium" },
+    { "id": "fact:recovery:eligible", "kind": "mutation", "label": "eligible flag before recovery", "span_ids": ["span:recovery:eligible"], "trust": "extracted", "confidence": "medium" },
+    { "id": "fact:recovery:after", "kind": "mutation", "label": "ineligible flag after recovery", "span_ids": ["span:recovery:after"], "trust": "extracted", "confidence": "low" },
+    { "id": "fact:conflict:predicate", "kind": "predicate", "label": "claim amount at or below zero", "span_ids": ["span:conflict:predicate"], "trust": "extracted", "confidence": "high" },
+    { "id": "fact:conflict:eligible", "kind": "mutation", "label": "eligible flag Y for non-positive claim", "span_ids": ["span:conflict:eligible"], "trust": "extracted", "confidence": "high" }
+  ],
+  "edges": [
+    { "id": "edge:modern:controls", "from": "fact:modern:predicate", "to": "fact:modern:approve", "kind": "controls", "span_ids": ["span:modern:predicate", "span:modern:approved"] },
+    { "id": "edge:modern:calculates", "from": "fact:modern:calculation", "to": "fact:modern:approve", "kind": "calculates", "span_ids": ["span:modern:calculation", "span:modern:approved"] },
+    { "id": "edge:fixed:reads", "from": "fact:fixed:predicate", "to": "fact:copybook:amount", "kind": "reads", "span_ids": ["span:fixed:predicate", "span:copybook:amount"] },
+    { "id": "edge:fixed:eligible", "from": "fact:fixed:predicate", "to": "fact:fixed:eligible", "kind": "controls", "span_ids": ["span:fixed:predicate", "span:fixed:eligible"] },
+    { "id": "edge:fixed:ineligible", "from": "fact:fixed:predicate", "to": "fact:fixed:ineligible", "kind": "controls", "span_ids": ["span:fixed:predicate", "span:fixed:ineligible"] },
+    { "id": "edge:copybook:defines", "from": "fact:copybook:condition", "to": "fact:copybook:eligible", "kind": "defines", "span_ids": ["span:copybook:condition", "span:copybook:eligible"] },
+    { "id": "edge:free:urgent", "from": "fact:free:evaluate", "to": "fact:free:urgent", "kind": "controls", "span_ids": ["span:free:evaluate", "span:free:urgent"] },
+    { "id": "edge:free:other", "from": "fact:free:evaluate", "to": "fact:free:other", "kind": "controls", "span_ids": ["span:free:evaluate", "span:free:other"] },
+    { "id": "edge:hlasm:branch", "from": "fact:hlasm:compare", "to": "fact:hlasm:branch", "kind": "controls", "span_ids": ["span:hlasm:compare", "span:hlasm:branch"] },
+    { "id": "edge:hlasm:deny", "from": "fact:hlasm:branch", "to": "fact:hlasm:deny", "kind": "branches_to", "span_ids": ["span:hlasm:branch", "span:hlasm:deny"] },
+    { "id": "edge:x86:branch", "from": "fact:x86:compare", "to": "fact:x86:branch", "kind": "controls", "span_ids": ["span:x86:compare", "span:x86:branch"] },
+    { "id": "edge:x86:reject", "from": "fact:x86:branch", "to": "fact:x86:reject", "kind": "branches_to", "span_ids": ["span:x86:branch", "span:x86:reject"] },
+    { "id": "edge:generated:controls", "from": "fact:generated:predicate", "to": "fact:generated:eligible", "kind": "controls", "span_ids": ["span:generated:predicate", "span:generated:eligible"] },
+    { "id": "edge:duplicate:controls", "from": "fact:duplicate:predicate", "to": "fact:duplicate:eligible", "kind": "controls", "span_ids": ["span:duplicate:predicate", "span:duplicate:eligible"] },
+    { "id": "edge:recovery:controls", "from": "fact:recovery:predicate", "to": "fact:recovery:eligible", "kind": "controls", "span_ids": ["span:recovery:predicate", "span:recovery:eligible"] },
+    { "id": "edge:conflict:controls", "from": "fact:conflict:predicate", "to": "fact:conflict:eligible", "kind": "controls", "span_ids": ["span:conflict:predicate", "span:conflict:eligible"] }
+  ],
+  "rules": [
+    { "id": "rule:payment:current", "revision": "current", "kind": "eligibility", "lifecycle": "review_needed", "primary": true, "alias_of": null, "clauses": [
+      { "id": "clause:payment:subject", "kind": "subject", "text": "Payment approval is evaluated from amount and available balance.", "supporting_fact_ids": ["fact:modern:entry", "fact:modern:predicate"], "contradicting_fact_ids": [], "span_ids": ["span:modern:entry", "span:modern:predicate"] },
+      { "id": "clause:payment:condition", "kind": "condition", "text": "The amount must be positive and no greater than the balance.", "supporting_fact_ids": ["fact:modern:predicate"], "contradicting_fact_ids": ["fact:history:predicate"], "span_ids": ["span:modern:predicate", "span:history:predicate"] },
+      { "id": "clause:payment:action", "kind": "action", "text": "A qualifying payment is approved and subtracted from the balance.", "supporting_fact_ids": ["fact:modern:approve", "fact:modern:calculation"], "contradicting_fact_ids": [], "span_ids": ["span:modern:approved", "span:modern:calculation"] }
+    ] },
+    { "id": "rule:payment:previous", "revision": "previous", "kind": "eligibility", "lifecycle": "superseded", "primary": true, "alias_of": null, "clauses": [
+      { "id": "clause:payment:previous-condition", "kind": "condition", "text": "The amount may be zero and must not exceed the balance.", "supporting_fact_ids": ["fact:history:predicate"], "contradicting_fact_ids": ["fact:modern:predicate"], "span_ids": ["span:history:predicate", "span:modern:predicate"] },
+      { "id": "clause:payment:previous-action", "kind": "action", "text": "A qualifying payment is approved and subtracted from the balance.", "supporting_fact_ids": ["fact:history:approve", "fact:history:calculation"], "contradicting_fact_ids": [], "span_ids": ["span:history:approved", "span:history:calculation"] }
+    ] },
+    { "id": "rule:claim:eligible", "revision": "current", "kind": "eligibility", "lifecycle": "conflicted", "primary": false, "alias_of": "rule:claim:duplicate", "clauses": [
+      { "id": "clause:claim:condition", "kind": "condition", "text": "A claim is eligible when its amount is above zero.", "supporting_fact_ids": ["fact:fixed:predicate", "fact:copybook:amount"], "contradicting_fact_ids": ["fact:conflict:predicate"], "span_ids": ["span:fixed:predicate", "span:copybook:amount", "span:conflict:predicate"] },
+      { "id": "clause:claim:action", "kind": "action", "text": "The eligible flag is set to Y for the qualifying branch.", "supporting_fact_ids": ["fact:fixed:eligible", "fact:copybook:eligible", "fact:copybook:condition"], "contradicting_fact_ids": [], "span_ids": ["span:fixed:eligible", "span:copybook:eligible", "span:copybook:condition"] }
+    ] },
+    { "id": "rule:claim:generated", "revision": "current", "kind": "eligibility", "lifecycle": "candidate", "primary": false, "alias_of": "rule:claim:eligible", "clauses": [
+      { "id": "clause:claim:generated-condition", "kind": "condition", "text": "The listing repeats the above-zero claim condition.", "supporting_fact_ids": ["fact:generated:predicate"], "contradicting_fact_ids": [], "span_ids": ["span:generated:predicate"] },
+      { "id": "clause:claim:generated-action", "kind": "action", "text": "The listing repeats the eligible flag assignment.", "supporting_fact_ids": ["fact:generated:eligible"], "contradicting_fact_ids": [], "span_ids": ["span:generated:eligible"] }
+    ] },
+    { "id": "rule:claim:duplicate", "revision": "current", "kind": "eligibility", "lifecycle": "candidate", "primary": true, "alias_of": null, "clauses": [
+      { "id": "clause:claim:duplicate-condition", "kind": "condition", "text": "A second source repeats the above-zero claim condition.", "supporting_fact_ids": ["fact:duplicate:predicate"], "contradicting_fact_ids": [], "span_ids": ["span:duplicate:predicate"] },
+      { "id": "clause:claim:duplicate-action", "kind": "action", "text": "The second source repeats the eligible flag assignment.", "supporting_fact_ids": ["fact:duplicate:eligible"], "contradicting_fact_ids": [], "span_ids": ["span:duplicate:eligible"] }
+    ] },
+    { "id": "rule:claim:conflict", "revision": "current", "kind": "eligibility", "lifecycle": "conflicted", "primary": true, "alias_of": null, "clauses": [
+      { "id": "clause:claim:conflict-condition", "kind": "condition", "text": "A conflicting path marks non-positive claims eligible.", "supporting_fact_ids": ["fact:conflict:predicate", "fact:conflict:eligible"], "contradicting_fact_ids": ["fact:fixed:predicate"], "span_ids": ["span:conflict:predicate", "span:conflict:eligible", "span:fixed:predicate"] }
+    ] },
+    { "id": "rule:route:cobol", "revision": "current", "kind": "routing", "lifecycle": "candidate", "primary": true, "alias_of": null, "clauses": [
+      { "id": "clause:route:cobol-condition", "kind": "condition", "text": "Urgent claims are routed to the FAST queue.", "supporting_fact_ids": ["fact:free:evaluate", "fact:free:urgent"], "contradicting_fact_ids": [], "span_ids": ["span:free:evaluate", "span:free:urgent"] },
+      { "id": "clause:route:cobol-exception", "kind": "exception", "text": "Other claims are routed to the STANDARD queue.", "supporting_fact_ids": ["fact:free:other"], "contradicting_fact_ids": [], "span_ids": ["span:free:other"] }
+    ] },
+    { "id": "rule:route:hlasm", "revision": "current", "kind": "routing", "lifecycle": "candidate", "primary": true, "alias_of": null, "clauses": [
+      { "id": "clause:route:hlasm-condition", "kind": "condition", "text": "The amount is compared with zero before routing to rejection.", "supporting_fact_ids": ["fact:hlasm:compare", "fact:hlasm:branch"], "contradicting_fact_ids": [], "span_ids": ["span:hlasm:compare", "span:hlasm:branch"] },
+      { "id": "clause:route:hlasm-action", "kind": "action", "text": "The paths write either approved or denied status.", "supporting_fact_ids": ["fact:hlasm:approve", "fact:hlasm:deny"], "contradicting_fact_ids": [], "span_ids": ["span:hlasm:approve", "span:hlasm:deny"] }
+    ] },
+    { "id": "rule:route:x86", "revision": "current", "kind": "routing", "lifecycle": "candidate", "primary": true, "alias_of": null, "clauses": [
+      { "id": "clause:route:x86-condition", "kind": "condition", "text": "Non-positive amounts branch to the rejection call.", "supporting_fact_ids": ["fact:x86:compare", "fact:x86:branch", "fact:x86:reject"], "contradicting_fact_ids": [], "span_ids": ["span:x86:compare", "span:x86:branch", "span:x86:reject"] },
+      { "id": "clause:route:x86-action", "kind": "action", "text": "Other amounts call the submission routine.", "supporting_fact_ids": ["fact:x86:submit"], "contradicting_fact_ids": [], "span_ids": ["span:x86:submit"] }
+    ] }
+  ],
+  "duplicate_groups": [
+    { "id": "duplicate:claim-eligibility", "primary_rule_id": "rule:claim:duplicate", "rule_ids": ["rule:claim:duplicate", "rule:claim:eligible"], "reason": "independent source files repeat the same claim eligibility behavior" }
+  ],
+  "conflicts": [
+    { "id": "conflict:claim-eligibility", "rule_ids": ["rule:claim:eligible", "rule:claim:conflict"], "fact_ids": ["fact:fixed:predicate", "fact:conflict:predicate"], "reason": "positive and non-positive amount paths both assign eligibility" }
+  ],
+  "gaps": [
+    { "id": "gap:ambiguous-dialect", "source_unit_id": "unit:ambiguous", "kind": "ambiguous_dialect", "span_id": "span:ambiguous:unit", "reason": "syntax does not safely distinguish HLASM, MASM, or another family" },
+    { "id": "gap:generated-listing", "source_unit_id": "unit:generated", "kind": "generated_source", "span_id": null, "reason": "listing evidence is retained as a duplicate, never primary" },
+    { "id": "gap:parser-recovery", "source_unit_id": "unit:recovery", "kind": "parser_error_region", "span_id": "span:recovery:error", "reason": "malformed predicate is unsupported while facts before and after retain exact spans" },
+    { "id": "gap:protected-content", "source_unit_id": "unit:protected", "kind": "protected_content", "span_id": "span:protected:unit", "reason": "content is excluded from facts, rules, excerpts, prompts, exports, logs, and MCP" }
+  ],
+  "history_changes": [
+    { "id": "history:payment-zero-boundary", "from_revision": "previous", "to_revision": "current", "before_rule_id": "rule:payment:previous", "after_rule_id": "rule:payment:current", "classification": "condition_changed", "span_ids": ["span:history:predicate", "span:modern:predicate"] }
+  ],
+  "negative_cases": [
+    { "id": "negative:ambiguous-semantic", "assertion": "ambiguous_semantics_suppressed", "target_id": "unit:ambiguous", "expected_error": "ambiguous dialect cannot emit semantic rules" },
+    { "id": "negative:protected-facts", "assertion": "protected_content_excluded", "target_id": "unit:protected", "expected_error": "protected content cannot support facts or clauses" },
+    { "id": "negative:recovery-overlap", "assertion": "error_region_not_evidence", "target_id": "span:recovery:error", "expected_error": "facts cannot overlap parser error regions" },
+    { "id": "negative:generated-primary", "assertion": "generated_duplicate_not_primary", "target_id": "rule:claim:generated", "expected_error": "generated duplicate cannot become primary" },
+    { "id": "negative:unsupported-clause", "assertion": "unsupported_clause_rejected", "target_id": "clause:payment:subject", "expected_error": "unsupported clause kind" },
+    { "id": "negative:dangling-reference", "assertion": "dangling_reference_rejected", "target_id": "edge:modern:controls", "expected_error": "dangling fact identity" },
+    { "id": "negative:secret-retention", "assertion": "secret_value_not_retained", "target_id": "unit:protected", "expected_error": "protected literal must not enter expected output" }
+  ]
+}

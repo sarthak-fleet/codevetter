@@ -1,227 +1,158 @@
 # Synthetic user QA
 
-Product brief for the smallest CodeVetter workflow that exercises a changed web surface and stores evidence next to review findings.
+Synthetic user QA is CodeVetter's runtime proof layer for agent-written code.
+Static review asks whether a diff looks risky; runtime verification asks whether
+an affected user capability still works and preserves the evidence needed to
+trust that answer.
 
-## Product direction
+There are two compatible paths:
 
-Synthetic User QA should become CodeVetter's runtime proof layer for agent-written code. Static review asks "does this diff look suspicious?" Synthetic QA asks "can a user still complete the intended workflow, and what evidence proves it?"
+- legacy synthetic-QA runners for built-in, repository Playwright, external, and
+  fixture workflows;
+- the warm deterministic verifier for fast changed-capability checks.
 
-The right boundary is orchestration plus evidence normalization, not owning every browser-testing technique. CodeVetter should be able to run:
+Both can project evidence into Review, but warm results have a stronger exact-
+current identity contract. Legacy rows remain readable and are never rewritten
+or silently promoted into current warm evidence.
 
-- a built-in deterministic Playwright loop,
-- a user-authored QA script from the reviewed repo,
-- a Claude skill that logs in, navigates, clicks, fills forms, and validates outcomes,
-- a Stagehand-backed natural-language browser flow when the target app is hard to script,
-- a replay fixture for deterministic regression checks.
+## Warm deterministic path
 
-All runners should return the same `SyntheticQaRunResult` contract so QuickReview can attach evidence to findings, promote reproduced bugs, and export reviewer proof.
+The warm verifier supports one developer, one explicitly configured React web
+app, one Mac, and one Chromium. `verifyd` keeps the declared target server and
+browser process alive while creating a fresh isolated context for every
+scenario. Checked-in mappings select deterministic scenarios from the exact Git
+change set. Target-owned MSW state, copied authentication state, frozen time and
+flags, request policy, direct route entry, automatic observation, and teardown
+run with zero model calls.
 
-## What first-class Synthetic QA should include
+Results preserve the exact change-set, config, manifest, verifier-source, and
+target identities. Outcomes are:
 
-### 1. Target and environment discovery
+- `passed`: every required selected scenario completed with qualifying evidence;
+- `regression`: deterministic application behavior or an invariant failed;
+- `no_confidence`: selection, setup, execution, identity, cancellation, or
+  operational state was insufficient to make a product claim.
 
-- Base URL and route, with detection from `package.json`, `vite.config.*`, `playwright.config.*`, Repo Unpacked, or recent dev-server history.
-- App command hints such as `npm run dev`, `npm run preview`, or repo-local Playwright setup, shown as prerequisites rather than auto-run by default.
-- Auth mode: none, saved local session, user-provided test credentials reference, existing browser storage state, or external skill-managed login.
-- Safe scope controls: loopback URLs by default, explicit opt-in for remote targets.
+Stale, cancelled, incomplete, and operational results never become passes.
 
-### 2. Goal-oriented loop definitions
+## Product surfaces
 
-Each QA loop should have:
+### T-Rex owns execution
 
-- user goal,
-- route or entry URL,
-- setup/preconditions,
-- steps attempted,
-- expected outcome,
-- selectors or natural-language targets,
-- data used,
-- cleanup expectation,
-- linked finding or changed surface.
+T-Rex is the operational warm-verification console. For the selected repository
+it can:
 
-The useful unit is not "visit route"; it is "complete a user task that the diff may have broken."
+- inspect daemon health;
+- start and stop the repository daemon;
+- run the changed-capability selection with a UI-owned run ID;
+- cancel only that exact owned run;
+- show recent immutable evidence;
+- request bounded artifact cleanup.
 
-### 3. Runner types
+The Tauri bridge finds exactly one repository-owned `verify` script, selects its
+package manager from the repository lockfile, invokes it without a shell, limits
+time and output, validates its JSON contract, and persists accepted results. It
+does not bundle Node, a package manager, Playwright, or Chromium.
 
-CodeVetter should support these in order:
+### Review consumes evidence
 
-1. **Built-in Playwright loops** for deterministic smoke checks and visual proof.
-2. **Repo-local Playwright tests** selected from touched routes/files.
-3. **Claude skill runner** for login-heavy or exploratory user flows where the skill can use Playwright/Stagehand and adapt to UI changes.
-4. **Stagehand runner** for natural-language flows where selectors are unstable or unknown.
-5. **Fixture replay** for deterministic offline regression checks.
+Review is deliberately read-only. Audience validation requests only the newest
+stored warm run for the repository and independently collects the current
+identity. Executable evidence qualifies only when every identity matches and the
+newest run passed. A previous pass, legacy synthetic-QA pass, stale run,
+regression, cancellation, missing identity, or `no_confidence` result cannot
+satisfy the executable stage.
 
-The Claude skill should be treated as a high-capability runner, not as the storage format. CodeVetter owns the run record, artifacts, and finding mapping.
+This keeps "the test passed earlier" separate from "the exact code under review
+passed now."
 
-### 4. Evidence captured
+## Automatic observations
 
-Minimum evidence:
+Every warm scenario captures the declared assertions plus automatic invariants:
 
-- pass/fail,
-- notes in human-readable form,
-- step log with status per step,
-- final URL and page title,
-- screenshot on failure,
-- console errors,
-- duration,
-- runner error vs app failure distinction.
+- uncaught exceptions and console errors;
+- failed and unexpected requests;
+- duplicate or unexpected mutations;
+- route changes;
+- accessibility violations;
+- exact visual-baseline differences;
+- slow interactions;
+- scenario and batch timing;
+- source invalidation and cancellation state.
 
-Better evidence:
+Unexpected third-party traffic is blocked by default. Authentication state,
+cookies, bearer tokens, and environment values must never enter persisted
+evidence.
 
-- screenshots at key steps,
-- Playwright trace zip,
-- video on failure,
-- network errors and failed responses,
-- DOM snapshot or accessibility snapshot,
-- storage-state/auth summary without secrets,
-- retry count and flaky-step marker,
-- exact command/skill invocation used,
-- changed files/routes suspected to be related.
+## Persistence and retention
 
-Never store secrets, raw cookies, bearer tokens, or full credential material in the evidence record.
+`warm_verification_runs` is an additive immutable SQLite table. Each accepted
+record contains the complete versioned result. Bounded adapters may project the
+same run into existing synthetic-QA and Review evidence shapes without changing
+its source meaning.
 
-### 5. Finding integration
+Passing runs keep only `run-summary.json` unless detailed capture was requested.
+Regression and `no_confidence` runs may keep redacted artifacts. Retention
+applies configured run-count, byte, and age caps, removes only owner-marked data,
+and never follows symlinks. The shared Playwright browser cache is reported but
+never deleted automatically.
 
-Synthetic QA should not become a separate dashboard first. It should feed the Review workflow:
+Legacy synthetic-QA records and storage keys remain compatible:
 
-- passing loop: mark selected finding `not_reproduced` or add proof to a fixed finding,
-- failing loop: mark selected finding `browser` + `reproduced`, or create a QA finding,
-- runner/setup failure: show operational error, do not create an app bug finding,
-- fixed finding: require re-run or artifact before "fixed" counts as verified,
-- handoff export: include goal, step summary, artifact paths, and remaining unchecked flows.
+- reusable QA presets and workflows;
+- review-scoped QA history;
+- Playwright JSON reports, logs, screenshots, traces, and videos;
+- `SyntheticQaRunResult.screenshot_path` plus the multi-artifact `artifacts[]`
+  contract.
 
-### 6. Suggested first implementation slice
+## Measured qualification
 
-Add a runner registry with a common input/output contract:
+The 2026-07-15 named-machine qualification used a checked-in React/Vite/MSW
+target and real Playwright Chromium.
 
-- `playwright_builtin`: current built-in loop,
-- `repo_playwright`: runs a selected repo-local Playwright spec with the repo's local Playwright binary,
-- `external_skill`: runs a user-configured command, including the Claude QA skill, and expects JSON on stdout,
-- `fixture`: current deterministic replay path.
+The mandatory 20-scenario gate measured **3605.560 ms p50, 4792.196 ms p95,
+and 5320.379 ms max** over whole invocations after warm-up. The separate small
+changed-capability path measured **506.426 ms p50, 512.035 ms p95, and 515.900
+ms max**.
 
-Then extend the UI from "Base URL + Loop" to "Target + Runner + Goal + Evidence." Keep the first UI small: one configured external command, one base URL, one goal field, and a run result mapped to the selected finding.
+A further 100 warm batches completed 80 passes, 10 intentional regressions, and
+10 cancellations with no leaked contexts, stable target/browser reuse, RSS
+growth of 13.6 MB against a 128 MB cap, retention at 20 runs / 4470 bytes, and
+zero production builds.
 
-External runner invocation:
+These figures apply only to one developer, one configured React app, one Mac,
+and one Chromium. They are not CI, cloud, team, mobile, Safari, Firefox, or
+arbitrary-repository claims. Local release qualification passed on 2026-07-15;
+the explicit release workflow has not run and no release is claimed here.
 
-```bash
-<command> --base-url <url> --loop-id <id> --route <path> --goal <goal> --artifact-dir <dir> --auth-mode <none|storage_state> [--storage-state <path>]
-```
-
-The command must print one JSON line matching `SyntheticQaRunResult`. If it cannot complete because the dev server is down, auth is missing, or the runner itself fails, it should set `error` and CodeVetter will treat the result as an operational failure rather than an app bug.
-
-Implemented v1 storage:
-
-- `quick_review_qa_preset`: one local reusable preset for base URL, target route, auth mode, storage-state path, loop, runner, repo Playwright spec, repo trace mode, goal, and external command.
-- `quick_review_qa_workflows`: named local workflows for reusable base URL, route/goal target matrices, auth mode, storage-state path, remote-target opt-in, loop, runner, repo Playwright spec, repo trace mode, goal, and external command presets.
-- `quick_review_qa_runs_<review_id>`: recent QA run history for a review, capped in the UI.
-- Repo-local Playwright spec discovery is available from the Review QA panel.
-- Repo-local Playwright runs use Playwright's JSON reporter, save the raw log plus parsed report under the run artifact directory, run with a selected trace mode (`retain-on-failure` by default), force Playwright output into the QA artifact directory, map failing test titles/error messages into `trace.console_errors`, and surface Playwright attachment paths such as screenshots, traces, and videos in notes/evidence. The saved JSON report and raw log are retained in `artifacts[]` even when the repo spec does not emit screenshots/videos.
-- `SyntheticQaRunResult` now carries both `screenshot_path` for backward-compatible primary artifact display and `artifacts[]` for all captured screenshots, traces, videos, logs, or reports. The Review panel labels common artifact types, can open local artifacts through the desktop shell, and can preview text-like artifacts with a bounded 60-line read.
-
-Repo Playwright runner detail: CodeVetter prefers `<repo>/node_modules/.bin/playwright test <spec> --reporter=json --trace <mode> --output <artifact-dir>/repo-playwright-output` and only falls back to `npx playwright` when no local binary exists. The spec path must be repository-relative.
-
-Repo Playwright specs receive run context through environment variables:
-
-| Env var | Meaning |
-|---------|---------|
-| `CODEVETTER_SYNTHETIC_QA_BASE_URL` | Selected base URL, without a trailing slash |
-| `CODEVETTER_SYNTHETIC_QA_ROUTE` | Selected target route |
-| `CODEVETTER_SYNTHETIC_QA_LOOP_ID` | Selected loop id |
-| `CODEVETTER_SYNTHETIC_QA_GOAL` | User goal text |
-| `CODEVETTER_SYNTHETIC_QA_AUTH_MODE` | `none` or `storage_state` |
-| `CODEVETTER_SYNTHETIC_QA_STORAGE_STATE` | Storage-state path when auth mode uses one |
-| `CODEVETTER_SYNTHETIC_QA_ARTIFACT_DIR` | Directory where the spec can write screenshots, traces, logs, or videos |
-| `CODEVETTER_SYNTHETIC_QA_TRACE_MODE` | Repo Playwright trace mode: `off`, `retain-on-failure`, or `on` |
-| `CODEVETTER_SYNTHETIC_QA_PLAYWRIGHT_OUTPUT_DIR` | Playwright output directory used for traces, screenshots, videos, and attachments |
-
-## Current prototype
-
-## Target repo / app input
-
-| Field | First loop value |
-|-------|------------------|
-| **Target app** | CodeVetter desktop Vite shell (`apps/desktop`) |
-| **Base URL** | `http://localhost:1420` (user must run `npm run dev` in `apps/desktop`) |
-| **Route** | `/review` |
-| **Loop id** | `codevetter-review-shell` |
-| **Changed surface** | Review page shell after UI/layout work on `/review` |
-
-Future loops will take `baseUrl` + `route` from the reviewed repo (detected via Repo Unpacked / `playwright.config.ts`). This prototype hard-codes the CodeVetter self-check so we can dogfood the pipeline.
-
-## User goal
-
-> As a developer who changed the Review UI, confirm a real browser can open `/review`, render the page heading, and finish without unexpected console errors — without manually clicking through the app.
-
-## Browser / test runner path
-
-1. User opens a past review in **Review → view mode** (or stays on the review result).
-2. In **Synthetic user QA**, leaves base URL at `http://localhost:1420` and runs **Run QA loop**.
-3. Tauri command `run_synthetic_qa` spawns `apps/desktop/scripts/run-synthetic-qa.mjs` with Playwright (Chromium).
-4. Script navigates to `{baseUrl}/review`, waits for `main`, asserts `h1` contains `Review`, collects console errors, captures screenshot on failure.
-5. JSON result returns to the webview; **Apply to selected finding** maps it into **Verification evidence** (level `browser`, status `reproduced` or `not_reproduced`, artifact path, QA notes).
-
-CLI-only (no UI):
-
-```bash
-cd apps/desktop
-npm run dev   # separate terminal
-npm run synthetic-qa:run
-```
-
-## Evidence captured
-
-| Artifact | Location | Purpose |
-|----------|----------|---------|
-| Pass/fail + step notes | `SyntheticQaRunResult.notes` | Human-readable QA log |
-| Screenshot (on failure) | `{app_data}/synthetic-qa/<run_id>/failure.png` | Visual proof |
-| Trace metadata | `SyntheticQaRunResult.trace` | URL, title, console errors, duration |
-| Loop metadata | `loop_id`, `route`, `goal` | Repro context |
-
-Evidence is **not** a separate dashboard. It lands in the existing **Verification evidence** block on QuickReview (same persistence key as manual evidence: `quick_review_evidence_{review_id}`).
-
-## What becomes a finding
-
-| Outcome | Finding behavior |
-|---------|------------------|
-| **Loop pass** | No new finding. Optional: mark selected finding evidence as `not_reproduced` if user was verifying a UI suspicion. |
-| **Loop fail** | **Apply to selected finding** sets evidence to `browser` + `reproduced` with notes and screenshot path. User can also **Add QA finding** — inserts a `warning` finding titled from the loop goal with summary = failure notes (handoff/export includes it). |
-| **Runner error** (dev server down, Playwright missing) | Shown inline; no finding. Recorded as operational failure, not app bug. |
-
-Static review findings stay separate; synthetic QA only **elevates** or **refutes** them via evidence level/status.
-
-## Unsupported app types (follow-up)
-
-| App type | Status | Follow-up |
-|----------|--------|-----------|
-| Local Vite/React (HTTP) | **Supported** (first loop) | — |
-| Tauri webview-only (no HTTP server) | Not supported | Detect `tauri dev` URL or drive WebDriver |
-| Native mobile | Not supported | Maestro / XCTest bridge |
-| CLI-only repos | Not supported | Command-runner evidence (`test` level) |
-| Production HTTPS behind auth | Storage state supported | Login capture, credentials references, and target matrices |
-| Packaged app without Node/Playwright | Not supported | Bundle Playwright or Rust headless WebView |
-
-Track these in SaaS Maker under project `codevetter` when prioritising the next loop.
-
-## Architecture (prototype)
+## Architecture
 
 ```mermaid
 flowchart LR
-  UI[QuickReview Synthetic QA panel]
-  IPC[run_synthetic_qa]
-  Script[run-synthetic-qa.mjs]
-  PW[Playwright Chromium]
-  App[Target localhost app]
-  Ev[Verification evidence store]
+  TREX[T-Rex controls]
+  REVIEW[Review read-only evidence]
+  TAURI[Tauri bridge]
+  DB[(SQLite)]
+  CLI[Repository-owned verify CLI]
+  DAEMON[verifyd]
+  BROWSER[Warm Chromium]
+  APP[Configured React/MSW app]
 
-  UI --> IPC --> Script --> PW --> App
-  Script --> Ev
-  UI --> Ev
+  TREX --> TAURI
+  REVIEW --> TAURI
+  TAURI --> DB
+  TAURI --> CLI --> DAEMON --> BROWSER --> APP
 ```
 
-## Related code
+## Related implementation
 
-- `apps/desktop/scripts/run-synthetic-qa.mjs` — runner
-- `apps/desktop/src/lib/synthetic-qa/` — loop defs + evidence mapping
-- `apps/desktop/src-tauri/src/commands/synthetic_qa.rs` — Tauri entry
-- `apps/desktop/src/pages/QuickReview.tsx` — UI + handoff
-- `apps/desktop/tests/e2e/evidence.spec.ts` — manual evidence persistence (existing)
+- `apps/desktop/src/lib/warm-verification/` — verifier contracts, selection,
+  daemon, observers, adapters, and retention
+- `apps/desktop/src-tauri/src/commands/warm_verification_bridge.rs` — safe
+  repository CLI bridge
+- `apps/desktop/src-tauri/src/commands/warm_verification.rs` — validation and
+  immutable persistence
+- `apps/desktop/src/pages/TRex.tsx` — operational controls and evidence
+- `apps/desktop/src/lib/audience-validation.ts` — exact-current Review policy
+- `apps/desktop/src/lib/synthetic-qa/` — legacy QA runners and evidence mapping
+- `docs/WARM-VERIFICATION.md` — target configuration and operator guide

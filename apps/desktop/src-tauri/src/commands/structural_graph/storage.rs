@@ -1,8 +1,8 @@
 use super::types::{
-    GraphOrigin, GraphSourceAnchor, GraphTrust, StructuralGraphCommunity, StructuralGraphCoverage,
-    StructuralGraphDiagnostic, StructuralGraphEdge, StructuralGraphError,
-    StructuralGraphFileRecord, StructuralGraphNode, StructuralGraphSnapshot,
-    STRUCTURAL_GRAPH_SCHEMA_VERSION,
+    GraphOrigin, GraphSourceAnchor, GraphTrust, StructuralCloneGroup, StructuralGraphCommunity,
+    StructuralGraphCoverage, StructuralGraphDiagnostic, StructuralGraphEdge, StructuralGraphError,
+    StructuralGraphFileRecord, StructuralGraphMetricFact, StructuralGraphNode,
+    StructuralGraphSnapshot, STRUCTURAL_GRAPH_SCHEMA_VERSION,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
@@ -76,6 +76,8 @@ pub fn persist_snapshot(
     for table in [
         "structural_graph_sources",
         "structural_graph_edges",
+        "structural_graph_clone_groups",
+        "structural_graph_metric_facts",
         "structural_graph_nodes",
         "structural_graph_snapshot_files",
         "structural_graph_communities",
@@ -213,6 +215,52 @@ pub fn persist_snapshot(
                 &edge.id,
                 &edge.sources,
             )?;
+        }
+    }
+
+    {
+        let mut statement = transaction
+            .prepare(
+                "INSERT INTO structural_graph_clone_groups (
+                    snapshot_id, id, syntax_fingerprint, normalized_tokens, group_json
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .map_err(storage_error("prepare structural graph clone groups"))?;
+        for group in &snapshot.clone_groups {
+            statement
+                .execute(params![
+                    snapshot.id,
+                    group.id,
+                    group.syntax_fingerprint,
+                    group.normalized_token_count as i64,
+                    to_json(group)?,
+                ])
+                .map_err(storage_error("write structural graph clone group"))?;
+        }
+    }
+
+    {
+        let mut statement = transaction
+            .prepare(
+                "INSERT INTO structural_graph_metric_facts (
+                    snapshot_id, id, node_id, path, scope_kind, language,
+                    public_surface, fact_json
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            )
+            .map_err(storage_error("prepare structural graph metric facts"))?;
+        for fact in &snapshot.metrics {
+            statement
+                .execute(params![
+                    snapshot.id,
+                    fact.id,
+                    fact.node_id,
+                    fact.path,
+                    fact.scope_kind,
+                    fact.language,
+                    i64::from(fact.public_surface),
+                    to_json(fact)?,
+                ])
+                .map_err(storage_error("write structural graph metric fact"))?;
         }
     }
 
@@ -396,6 +444,8 @@ fn hydrate_snapshot(
         schema_version,
         nodes: load_nodes(connection, &id, &mut sources)?,
         edges: load_edges(connection, &id, &mut sources)?,
+        metrics: load_metrics(connection, &id)?,
+        clone_groups: load_clone_groups(connection, &id)?,
         communities: load_communities(connection, &id)?,
         files: load_snapshot_files(connection, &id)?,
         diagnostics: load_diagnostics(connection, &id)?,
@@ -781,6 +831,48 @@ fn load_edges(
         .collect()
 }
 
+fn load_metrics(
+    connection: &Connection,
+    snapshot_id: &str,
+) -> Result<Vec<StructuralGraphMetricFact>, StructuralGraphError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT fact_json FROM structural_graph_metric_facts
+             WHERE snapshot_id = ?1 ORDER BY path, node_id, id",
+        )
+        .map_err(storage_error("prepare structural graph metric facts"))?;
+    let facts = statement
+        .query_map(params![snapshot_id], |row| row.get::<_, String>(0))
+        .map_err(storage_error("query structural graph metric facts"))?
+        .map(|row| {
+            let json = row.map_err(storage_error("read structural graph metric fact"))?;
+            from_json(&json, "structural graph metric fact")
+        })
+        .collect();
+    facts
+}
+
+fn load_clone_groups(
+    connection: &Connection,
+    snapshot_id: &str,
+) -> Result<Vec<StructuralCloneGroup>, StructuralGraphError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT group_json FROM structural_graph_clone_groups
+             WHERE snapshot_id = ?1 ORDER BY id",
+        )
+        .map_err(storage_error("prepare structural graph clone groups"))?;
+    let groups = statement
+        .query_map(params![snapshot_id], |row| row.get::<_, String>(0))
+        .map_err(storage_error("query structural graph clone groups"))?
+        .map(|row| {
+            let json = row.map_err(storage_error("read structural graph clone group"))?;
+            from_json(&json, "structural graph clone group")
+        })
+        .collect();
+    groups
+}
+
 fn load_communities(
     connection: &Connection,
     snapshot_id: &str,
@@ -869,9 +961,10 @@ fn storage_error(action: &'static str) -> impl FnOnce(rusqlite::Error) -> Struct
 mod tests {
     use super::*;
     use crate::commands::structural_graph::types::{
-        stable_graph_id, LanguageCoverage, StructuralGraphCommunity, StructuralGraphCoverage,
+        stable_graph_id, LanguageCoverage, StructuralCloneGroup, StructuralCloneRegion,
+        StructuralCodeMetrics, StructuralGraphCommunity, StructuralGraphCoverage,
         StructuralGraphDiagnostic, StructuralGraphEdge, StructuralGraphEngineInfo,
-        StructuralGraphNode,
+        StructuralGraphMetricFact, StructuralGraphNode, STRUCTURAL_METRIC_SCHEMA_VERSION,
     };
 
     #[test]
@@ -959,8 +1052,54 @@ mod tests {
                 evidence: "function declaration".to_string(),
                 trust: GraphTrust::Extracted,
                 origin: GraphOrigin::Syntax,
-                sources: vec![source],
+                sources: vec![source.clone()],
                 candidates: Vec::new(),
+            }],
+            metrics: vec![StructuralGraphMetricFact {
+                schema_version: STRUCTURAL_METRIC_SCHEMA_VERSION,
+                id: stable_graph_id("metric", "function:run"),
+                node_id: "function:run".to_string(),
+                path: "src/lib.rs".to_string(),
+                scope_kind: "function".to_string(),
+                language: "rust".to_string(),
+                public_surface: true,
+                public_surface_reason: Some("explicit public visibility".to_string()),
+                syntax_fingerprint: "syntax:test".to_string(),
+                normalized_token_count: 8,
+                normalization_method: "tree-sitter-leaf-kinds-v1".to_string(),
+                metrics: StructuralCodeMetrics {
+                    line_count: 3,
+                    cyclomatic_complexity: 1,
+                    ..StructuralCodeMetrics::default()
+                },
+                control_flow: Vec::new(),
+                definitions: Vec::new(),
+                uses: Vec::new(),
+                boundaries: Vec::new(),
+                sources: vec![source.clone()],
+                limitations: Vec::new(),
+            }],
+            clone_groups: vec![StructuralCloneGroup {
+                id: "clone:test".to_string(),
+                syntax_fingerprint: "syntax:test".to_string(),
+                normalization_method: "tree-sitter-leaf-kinds-v1".to_string(),
+                normalized_token_count: 30,
+                similarity: 1.0,
+                regions: vec![
+                    StructuralCloneRegion {
+                        metric_id: stable_graph_id("metric", "function:run"),
+                        node_id: "function:run".to_string(),
+                        path: "src/lib.rs".to_string(),
+                        source: source.clone(),
+                    },
+                    StructuralCloneRegion {
+                        metric_id: "metric:other".to_string(),
+                        node_id: "function:other".to_string(),
+                        path: "src/other.rs".to_string(),
+                        source,
+                    },
+                ],
+                exclusions: vec!["comments".to_string()],
             }],
             truncated: false,
         };

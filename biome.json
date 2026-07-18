@@ -20,6 +20,10 @@
       "!**/tsconfig.tsbuildinfo",
       "!**/.claude/worktrees",
       "!apps/desktop/src-tauri/gen/schemas",
+      "!apps/desktop/tests/fixtures/business-rule-archaeology/correctness-report-v1.json",
+      "!apps/desktop/tests/fixtures/business-rule-archaeology/model-comparison-report-v1.json",
+      "!apps/desktop/tests/fixtures/business-rule-archaeology/qualification-local-2026-07-17.json",
+      "!apps/desktop/tests/fixtures/business-rule-archaeology/real-pipeline-correctness-v1.json",
       "!**/*.css",
       "!**/*.astro",
       "!benchmark/cases"

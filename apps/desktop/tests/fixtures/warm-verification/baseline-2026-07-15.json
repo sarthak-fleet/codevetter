@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "1.0.0",
+  "capturedAt": "2026-07-15",
+  "purpose": "Before-state for replacing CodeVetter's spawn-per-run Synthetic QA path with verifyd. This is not the release qualification result.",
+  "machine": {
+    "model": "MacBook Pro Mac17,8",
+    "chip": "Apple M5 Pro",
+    "cpuCores": 18,
+    "memoryGiB": 48,
+    "os": "macOS 27.0 (26A5378j)"
+  },
+  "target": {
+    "repositoryHead": "f6ec5bd314963ea492877cb07503fe19fc61b2bc",
+    "baseUrl": "http://127.0.0.1:1420",
+    "route": "/",
+    "viteVersion": "6.4.2",
+    "viteCommand": [
+      "pnpm",
+      "exec",
+      "vite",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "1420",
+      "--strictPort"
+    ],
+    "viteReadyMs": 94,
+    "hmrSettled": true,
+    "viteRssBytesAfterWarmup": 560398336
+  },
+  "browser": {
+    "playwrightVersion": "1.59.1",
+    "engine": "chromium",
+    "revision": "1217",
+    "headless": true
+  },
+  "coldOneShot": {
+    "sampleCount": 1,
+    "serverWarm": true,
+    "dependencyPreoptimizationOccurred": true,
+    "runnerDurationMs": 1012,
+    "wallDurationMs": 1170,
+    "runnerMaxRssBytes": 92192768,
+    "passingArtifactBytes": 0,
+    "notes": "The original one-shot runner did not expose per-stage timings for this first preoptimization sample. The additive timing fields were installed before the recorded warm samples."
+  },
+  "warmServerOneShotRunner": {
+    "sampleCount": 5,
+    "browserPersistentAcrossRuns": false,
+    "serverPersistentAcrossRuns": true,
+    "runnerDurationsMs": [189, 198, 201, 196, 199],
+    "wallDurationsMs": [300, 310, 320, 310, 310],
+    "medianRunnerDurationMs": 198,
+    "maxRunnerDurationMs": 201,
+    "medianWallDurationMs": 310,
+    "maxWallDurationMs": 320,
+    "medianStageTimingsMs": {
+      "browserLaunch": 60.701,
+      "contextCreate": 3.372,
+      "pageCreate": 30.408,
+      "navigation": 60.397,
+      "assertion": 41.56
+    },
+    "runnerRssBytes": [91815936, 92995584, 92684288, 92864512, 93650944],
+    "maxRunnerRssBytes": 93650944,
+    "passingArtifactBytes": 0
+  },
+  "interpretation": [
+    "The existing path launches and closes Chromium for every invocation even when the frontend server is warm.",
+    "Fresh context creation is approximately three milliseconds and should remain the isolation boundary.",
+    "Browser persistence removes about sixty milliseconds in this warmed-cache smoke, but deterministic direct state and bounded interactions remain the larger product-level wins.",
+    "The current smoke does not represent the required 20 meaningful scenarios and cannot be used to claim the under-30-second release gate."
+  ]
+}

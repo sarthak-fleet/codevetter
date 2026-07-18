@@ -2192,7 +2192,7 @@ fn recent_codex_session_files(max_age: chrono::Duration, limit: usize) -> Vec<st
             (modified_utc >= cutoff).then_some((modified, path))
         })
         .collect();
-    files.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+    files.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
     files
         .into_iter()
         .take(limit)
@@ -2426,6 +2426,25 @@ fn json_find_i64(value: &Value, key: &str) -> Option<i64> {
     }
 }
 
+fn record_turn_local_day(
+    turn_days: &mut std::collections::BTreeMap<i64, String>,
+    turn_millis: i64,
+) {
+    if let std::collections::btree_map::Entry::Vacant(entry) = turn_days.entry(turn_millis) {
+        if let Some(timestamp) = chrono::DateTime::<chrono::Utc>::from_timestamp(
+            turn_millis / 1000,
+            ((turn_millis % 1000) * 1_000_000) as u32,
+        ) {
+            entry.insert(
+                timestamp
+                    .with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d")
+                    .to_string(),
+            );
+        }
+    }
+}
+
 /// Estimate a Grok session's usage from its on-disk logs. Grok records only a
 /// per-turn *context-window size* (`totalTokens` in updates.jsonl), not
 /// cumulative billing — so summing the peak context per turn approximates the
@@ -2500,18 +2519,7 @@ fn parse_grok_session_dir(
                     }
                     // Record the day for this turn (local timezone, matching
                     // the cc_session_days convention used by other adapters).
-                    if let std::collections::btree_map::Entry::Vacant(e) = turn_days.entry(turn) {
-                        if let Some(dt) = chrono::DateTime::<chrono::Utc>::from_timestamp(
-                            turn / 1000,
-                            ((turn % 1000) * 1_000_000) as u32,
-                        ) {
-                            let day = dt
-                                .with_timezone(&chrono::Local)
-                                .format("%Y-%m-%d")
-                                .to_string();
-                            e.insert(day);
-                        }
-                    }
+                    record_turn_local_day(&mut turn_days, turn);
                 }
             }
         }
@@ -4400,6 +4408,26 @@ mod tests {
         assert!(!session_fully_indexed(&meta(5, 1000), 500));
         // No messages yet (quick-startup stub) → must do a full parse.
         assert!(!session_fully_indexed(&meta(0, 1000), 1000));
+    }
+
+    #[test]
+    fn grok_turn_days_keep_first_valid_timestamp_attribution() {
+        let turn_millis = 1_700_000_000_123;
+        let mut turn_days = std::collections::BTreeMap::new();
+
+        record_turn_local_day(&mut turn_days, turn_millis);
+        let recorded = turn_days
+            .get(&turn_millis)
+            .expect("valid millisecond timestamp should be attributed")
+            .clone();
+        assert_eq!(recorded.len(), 10);
+
+        turn_days.insert(turn_millis, "existing-day".to_string());
+        record_turn_local_day(&mut turn_days, turn_millis);
+        assert_eq!(turn_days.get(&turn_millis).unwrap(), "existing-day");
+
+        record_turn_local_day(&mut turn_days, -1);
+        assert!(!turn_days.contains_key(&-1));
     }
 
     #[test]

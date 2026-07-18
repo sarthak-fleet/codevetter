@@ -8,21 +8,21 @@ CodeVetter currently has three related graph shapes:
 
 The persisted `RepoGraph` is the right integration point because it is local, already feeds Repo/Review/export surfaces, and works without an external engine. Its schema-v1 edges contain `kind`, free-text `evidence`, and `sources`, but no origin or categorical trust contract. The current Repo UI also lacks the explicit graph-import action described by the archived Review Memory Graph PRD, and neither the native nor deep graph surface offers a two-endpoint path trace.
 
-Graphify’s current node-link JSON uses `source`, `target`, `relation`, categorical `confidence`, source file/location, and community metadata. CodeVetter should consume that interchange shape explicitly and borrow its trust/path semantics, not adopt Graphify’s full extraction/runtime product.
+The supported node-link JSON uses `source`, `target`, `relation`, categorical `confidence`, source file/location, and community metadata. CodeVetter consumes that interchange shape explicitly without adopting another extraction/runtime product.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
 - Make every persisted relationship honest about where it came from and how strongly it is supported.
-- Support current Graphify JSON as an explicit, non-mutating preview input.
+- Support generic node-link JSON as an explicit, non-mutating preview input.
 - Provide a bounded, source-backed path query over native and imported graphs.
 - Feed only compact and clearly qualified path evidence into Review and proof export.
 - Preserve saved schema-v1 snapshots and keep the feature useful without optional CLIs.
 
 **Non-Goals:**
 
-- Installing or invoking Graphify automatically.
+- Installing or invoking a third-party graph runtime automatically.
 - Replacing GitNexus in this change.
 - Adding document/media ingestion, wikis, assistant hooks, MCP, hosted graph stores, or semantic learning.
 - Treating graph topology or imported relationships as sufficient evidence for a finding.
@@ -35,18 +35,18 @@ Graphify’s current node-link JSON uses `source`, `target`, `relation`, categor
 `RepoGraph` moves to schema v2. Each edge gains:
 
 - `trust`: `extracted | inferred | ambiguous | legacy`;
-- `origin`: `codevetter | graphify | imported`;
+- `origin`: `codevetter | imported`;
 - existing `evidence` and `sources` remain authoritative display fields.
 
 Imported node metadata adds optional `source_location` and `community` fields to the existing node shape. Unknown fields are ignored. `legacy` is intentionally separate from `inferred`: old snapshots did contain evidence strings, but CodeVetter cannot retroactively prove how each relationship was produced.
 
-Alternative considered: reuse the review graph’s numeric confidence. Rejected because numeric scores imply calibration that the persisted scanners and third-party imports do not share. Categorical trust is more honest and maps directly to Graphify’s contract.
+Alternative considered: reuse the review graph’s numeric confidence. Rejected because numeric scores imply calibration that persisted scanners and imported formats do not share. Categorical trust is more honest across sources.
 
-### Normalize Graphify only at an explicit import boundary
+### Normalize external graphs only at an explicit import boundary
 
-A Tauri command reads a user-selected JSON file with a fixed byte cap, parses `nodes` plus `links` or `edges`, validates endpoint references, sanitizes bounded labels/metadata, and returns a transient `RepoGraph` preview. The command does not persist the import or mutate the target repo. Graphify confidence values map case-insensitively to CodeVetter trust; missing/unknown values map to `ambiguous`.
+A Tauri command reads a user-selected JSON file with a fixed byte cap, parses `nodes` plus `links` or `edges`, validates endpoint references, sanitizes bounded labels/metadata, and returns a transient `RepoGraph` preview. The command does not persist the import or mutate the target repo. Confidence labels map case-insensitively to CodeVetter trust; missing or unknown values map to `ambiguous`.
 
-Alternative considered: detect and execute `graphify` or `uvx graphifyy`. Rejected for this slice because it adds Python/runtime/download variability and duplicates the existing optional deep-index engine. Explicit import proves value with a smaller security and support surface.
+Alternative considered: detect and execute a third-party graph CLI. Rejected because it adds runtime/download variability and duplicates the existing optional deep-index engine. Explicit import proves value with a smaller security and support surface.
 
 ### Use trust-weighted bounded path search
 
@@ -64,7 +64,7 @@ No path independently raises a finding, changes severity, or upgrades evidence s
 
 ## Risks / Trade-offs
 
-- [Graphify’s JSON schema changes] → Accept both `links` and `edges`, ignore unknown fields, validate fixtures copied from the current documented schema, and fail with an actionable version-neutral error.
+- [Imported JSON shapes vary] → Accept both `links` and `edges`, ignore unknown fields, validate version-neutral fixtures, and fail with an actionable error.
 - [Large graphs cause slow parsing or traversal] → Enforce file, node, edge, hop, and visited-node caps; run parsing/search off the UI thread; report truncation.
 - [Legacy defaults overstate trust] → Use a dedicated `legacy` state and never coerce old edges to extracted.
 - [Undirected traversal obscures runtime direction] → Preserve and render the stored direction on every hop and label the path as connectivity, not execution order.
@@ -82,4 +82,4 @@ No path independently raises a finding, changes severity, or upgrades evidence s
 ## Open Questions
 
 - Choose exact byte/node/edge bounds from fixtures during implementation; initial targets should favor predictable desktop responsiveness over exhaustive traversal.
-- Decide whether a later change should add a user-installed Graphify engine adapter after imported graphs demonstrate relationships that materially improve review outcomes over the native and GitNexus paths.
+- Decide whether a later change should add an optional parser adapter after imported graphs demonstrate relationships that materially improve review outcomes over native paths.

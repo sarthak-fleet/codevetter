@@ -1,116 +1,184 @@
-<!-- generated-by: gsd-doc-writer -->
 # Architecture
 
-## System Overview
+## System overview
 
-CodeVetter is a macOS desktop application for AI-driven code review of agent-generated code. It accepts a local git diff or a GitHub pull request as input and produces a scored findings report plus optional inline PR comments as output. The architectural style is a Tauri desktop shell (Rust backend + React/Vite webview frontend) with a companion set of shared TypeScript packages used by both the desktop app and a pair of Cloudflare Workers that handle GitHub App webhooks for automated PR review.
+CodeVetter is a local-first macOS desktop application for reviewing and verifying
+agent-generated code. The active product is `apps/desktop`: a React 19/Vite
+webview inside a Tauri 2 shell. Rust owns local Git and process operations, local
+SQLite persistence, and the typed IPC boundary. The webview owns the product UI
+and review orchestration. User-configured AI providers are contacted only for
+AI-assisted review; deterministic warm browser verification makes no model calls.
+An independently packaged Rust stdio sidecar exposes explicitly enabled local
+graph and history scopes to MCP clients without opening a network listener.
 
----
+The warm verifier deliberately supports one developer, one explicitly configured
+React web app, one Mac, and one Chromium browser. It is not a CI service, cloud
+browser platform, team runner, mobile runner, cross-browser service, or arbitrary
+repository orchestrator.
 
-## Component Diagram
+## Component diagram
 
 ```mermaid
-graph TD
-    UI[React UI\napps/desktop/src]
-    SVC[review-service\n+ review-loop\n+ orchestrator]
-    CORE[review-core\npackages/review-core]
-    GW[ai-gateway-client\npackages/ai-gateway-client]
-    TYPES[shared-types\npackages/shared-types]
-    DB_PKG[db package\npackages/db]
-    TAURI[Tauri Rust Backend\nsrc-tauri/src]
-    WORKER_REVIEW[workers/review\nCloudflare Worker]
-    WORKER_API[workers/api\nCloudflare Worker]
-    AIAPI[AI Provider\nAnthropic / OpenAI / OpenRouter]
-    GITHUB[GitHub API]
+flowchart LR
+  UI[React/Vite desktop UI]
+  REVIEW[Review orchestration]
+  TREX[T-Rex controls and evidence]
+  TAURI[Tauri Rust IPC]
+  SQLITE[(Local SQLite)]
+  MCP[codevetter-mcp stdio sidecar]
+  AGENT[Local MCP client]
+  VERIFYD[verifyd: Node + Playwright]
+  TARGET[Configured React/MSW target]
+  AI[Anthropic / OpenAI / OpenRouter]
 
-    UI --> SVC
-    SVC --> CORE
-    SVC --> GW
-    SVC --> TAURI
-    GW --> TYPES
-    CORE --> TYPES
-    CORE --> GITHUB
-    GW --> AIAPI
-    TAURI --> WORKER_REVIEW
-    WORKER_REVIEW --> DB_PKG
-    WORKER_REVIEW --> GITHUB
-    WORKER_REVIEW --> AIAPI
-    WORKER_API --> DB_PKG
+  UI --> REVIEW
+  UI --> TREX
+  REVIEW --> TAURI
+  REVIEW --> AI
+  TREX --> TAURI
+  TAURI --> SQLITE
+  UI -->|enable or revoke opaque scope| TAURI
+  AGENT -->|stdio JSON-RPC| MCP
+  MCP -->|read-only scoped queries| SQLITE
+  TAURI -->|repository-owned verify CLI| VERIFYD
+  VERIFYD --> TARGET
 ```
 
----
+The Tauri bridge does not bundle Node or Chromium. It finds exactly one
+repository-owned `verify` script, selects `pnpm`, `npm`, `yarn`, or `bun` from
+the repository lockfile, and invokes it with direct arguments. The target
+repository therefore owns its JavaScript runtime, Playwright installation,
+scenario code, and app command.
 
-## Data Flow
+## Primary data flows
 
-### Local diff review (primary path)
+### Local review
 
-1. The user opens the **QuickReview** or **Workspaces** page in the React UI (`apps/desktop/src/pages/`).
-2. The UI calls `reviewLocalDiff()` in `review-service.ts`, passing a repo path and config.
-3. `review-service` calls the Tauri IPC command `get_local_diff` (Rust: `commands/review.rs`), which shells out to `git diff` and returns the patch text plus changed file list.
-4. `review-service` constructs a `GatewayReviewRequest` (typed in `packages/shared-types`) and passes it to `AIGatewayClient.reviewDiff()` (`packages/ai-gateway-client`).
-5. `ai-gateway-client` calls the configured AI provider (Anthropic, OpenAI, or OpenRouter) via an OpenAI-compatible chat completions endpoint, injecting a structured prompt built by `packages/review-core/src/prompt.ts`.
-6. The raw JSON response is parsed back into `ReviewFinding[]`. `review-core` computes a composite score (0–100) via `computeScore()` and a stable fingerprint per finding via `computeFindingFingerprint()`.
-7. Results are saved to the local SQLite database via the Tauri IPC command `save_review` (Rust: `commands/review.rs`).
-8. The UI renders findings through `finding-card.tsx`, `score-badge.tsx`, and `merged-review.tsx`.
+1. Review selects a local repository and exact diff through typed Tauri IPC.
+2. The review pipeline combines the diff with local history, graph, intent,
+   verification, and rubric evidence.
+3. The configured provider evaluates the bounded prompt.
+4. Findings, evidence, dispositions, and verification artifacts are persisted
+   in local SQLite and rendered in Review.
+5. Fix and re-review workflows keep their worktrees and evidence linked to the
+   original review.
 
-### Review feedback loop (agent orchestration path)
+### Warm changed-capability verification
 
-1. When a task on the Kanban board (`pages/Agents.tsx`) moves to the "Review" column, `review-loop.ts` calls `startReviewLoop()`.
-2. The loop runs `reviewLocalDiff()` (or `reviewPullRequest()` if a workspace has a linked PR).
-3. If `score < 80`, `review-loop.ts` builds a fix prompt from findings and calls the Tauri IPC command `launch_agent` to spawn a `claude-code` or `codex` agent subprocess.
-4. `agent_monitor.rs` polls running agent PIDs; `git_watcher.rs` polls for new commits from the agent. When the agent finishes, the task returns to "Review" and the loop iterates (max 3 attempts).
-5. On pass or exhaustion, the task status is updated to "done" via `update_task` IPC.
+1. `verify changed` collects an exact worktree, staged, commit, or range
+   identity and validates `.codevetter/verify.yaml`.
+2. Explicit path mappings select capability scenarios. Mandatory smoke and
+   shared-infrastructure fallback rules preserve safe coverage. Graph, import,
+   and runtime hints may add or rank work but cannot remove explicit coverage or
+   create passing evidence.
+3. `verifyd` reuses one owned target server and one Playwright Chromium process.
+   Each scenario still receives a fresh isolated browser context with copied
+   authentication state, named target-owned MSW state, frozen time and flags,
+   strict request policy, and direct route entry.
+4. Deterministic scenarios and automatic observers collect runtime, console,
+   network, mutation, route, accessibility, visual, and interaction evidence
+   with zero model calls.
+5. Results are `passed`, `regression`, or `no_confidence`. Stale, cancelled,
+   incomplete, operational, or identity-mismatched results cannot pass.
+6. The Tauri bridge persists complete versioned results immutably in
+   `warm_verification_runs`. The older `synthetic_qa_runs` records remain
+   readable and unchanged.
 
-### GitHub App webhook path (serverless)
+### T-Rex control plane
 
-1. A GitHub `pull_request` event hits `workers/review` (`/webhook` endpoint).
-2. The worker verifies the HMAC signature, inserts a `review_job` row into Cloudflare D1 via the `packages/db` control-plane helpers, and returns HTTP 202.
-3. The Cloudflare scheduled trigger fires every few seconds, pulls queued jobs via `D1QueueAdapter`, and dispatches them to `handleJob()` in `workers/review/src/handlers.ts`.
-4. The handler fetches the PR diff from GitHub, calls the AI gateway, and posts inline review comments back to GitHub using `packages/review-core/src/github.ts`.
+T-Rex is the operational surface for the selected repository. It starts and
+stops the daemon, launches a changed-capability run with a UI-owned run ID,
+polls health only while that owned run is pending, cancels only the exact owned
+run, lists recent immutable results, and requests bounded artifact cleanup.
+Commands cross typed IPC into the Rust bridge, which validates repository
+containment, manifest shape, output size, timeouts, and the verifier's JSON
+contract before accepting or persisting anything.
 
----
+### Review exact-current qualification
 
-## Key Abstractions
+Review does not start, stop, cancel, or clean the verifier. Its audience
+validation panel is read-only: it loads only the newest stored warm run for the
+repository and independently collects the current worktree/config/manifest/
+source identity. Executable evidence qualifies only when every identity matches
+and the run completed with the required passing observations. A legacy QA pass,
+older pass, stale run, cancellation, regression, missing identity, or
+`no_confidence` result cannot satisfy the executable stage.
 
-| Abstraction | File | Purpose |
+### Local history MCP
+
+1. Settings prepares a disabled opaque repository scope and shows the exact
+   credential-free client command. Nothing is exposed until the user enables
+   that indexed scope.
+2. The packaged `codevetter-mcp` sidecar serves versioned JSON-RPC over stdio.
+   It opens no TCP listener and rechecks scope enablement on every request, so
+   revocation affects an already-running client.
+3. Thirteen read-only tools and versioned resources share the same structural
+   graph, release, history, lineage, causal-trace, comparison, annotation, and
+   evidence read services used by the desktop product.
+4. Opaque IDs, protected-path and secret-shape filtering, response and traversal
+   bounds, strict schemas, paginated evidence hydration, redacted errors, and
+   metadata-only audit rows apply before a response leaves the process.
+5. Disabling the scope rejects later requests without disclosing repository
+   availability. Setup and reads never modify the protected repository.
+
+## Persistence and retention
+
+SQLite is embedded through `rusqlite`; there is no application server. The
+`warm_verification_runs` table is additive and immutable. It stores the complete
+versioned result contract, while adapters project bounded evidence into existing
+Review and synthetic-QA models without rewriting legacy rows.
+
+Passing runs retain a summary by default. Failure or explicitly detailed runs
+may retain redacted artifacts under configured count, byte, and age limits.
+Cleanup follows no symlinks and deletes only owner-marked run data. The shared
+Playwright browser cache is reported for storage visibility but is never deleted
+automatically.
+
+## Key implementation boundaries
+
+| Boundary | Location | Responsibility |
 |---|---|---|
-| `AIGatewayClient` | `packages/ai-gateway-client/src/index.ts` | Single-method wrapper that calls any OpenAI-compatible endpoint |
-| `AgentAdapter` interface | `packages/shared-types/src/agent.ts` | Contract for pluggable agent backends (Claude Code, Codex) |
-| `ReviewFinding` type | `packages/shared-types/src/review.ts` | Core finding shape: severity, title, summary, filePath, line |
-| `GatewayReviewRequest/Response` | `packages/shared-types/src/gateway.ts` | Input/output contract between review-service and ai-gateway-client |
-| `computeScore()` | `packages/review-core/src/scoring.ts` | Weighted penalty model → composite 0–100 score |
-| `computeFindingFingerprint()` | `packages/review-core/src/scoring.ts` | Stable hash for deduplicating findings across re-reviews |
-| `buildPrompt()` / `parseReviewResponse()` | `packages/review-core/src/prompt.ts` | Structured prompt construction and JSON response parsing |
-| `reviewLocalDiff()` / `reviewPullRequest()` | `apps/desktop/src/lib/review-service.ts` | Orchestrates the diff → AI → score → save pipeline |
-| `startReviewLoop()` / `continueReviewLoop()` | `apps/desktop/src/lib/review-loop.ts` | Agent feedback loop: review → fix → re-review cycle |
-| `startOrchestration()` | `apps/desktop/src/lib/orchestrator.ts` | Multi-step workflow runner (plan → code → review) |
-| `DbState` | `apps/desktop/src-tauri/src/main.rs` | Arc-wrapped SQLite connection shared across Tauri commands |
-| `createControlPlaneDatabase()` | `packages/db/src/index.ts` | Factory for the D1-backed control-plane used by workers |
+| React application | `apps/desktop/src/` | Product UI, review flow, T-Rex, read-only evidence qualification |
+| Typed IPC client | `apps/desktop/src/lib/tauri-ipc.ts` | Browser-safe wrappers for Tauri commands |
+| Tauri backend | `apps/desktop/src-tauri/src/` | Local Git/process/filesystem operations and SQLite |
+| Warm verifier core | `apps/desktop/src/lib/warm-verification/` | Config, selection, daemon, scenario runtime, observers, evidence, retention |
+| Differential verifier | `apps/desktop/src/lib/warm-verification/differential-*` | Exact target preparation, paired runtime, normalization, comparison, and cleanup |
+| Repository bridge | `apps/desktop/src-tauri/src/commands/warm_verification_bridge.rs` | Safe discovery and invocation of the repository-owned verifier |
+| Warm persistence | `apps/desktop/src-tauri/src/commands/warm_verification.rs` | Strict validation and immutable SQLite insert/list operations |
+| Differential persistence | `apps/desktop/src-tauri/src/commands/differential_verification.rs` | Additive pair summaries that cannot create pass evidence |
+| T-Rex surface | `apps/desktop/src/pages/TRex.tsx` | Owned run control and evidence display |
+| Review qualification | `apps/desktop/src/lib/audience-validation.ts` | Exact-current executable-evidence policy |
+| MCP sidecar | `apps/desktop/src-tauri/src/bin/codevetter-mcp.rs` | Private stdio server bootstrap and bounded protocol lifecycle |
+| MCP protocol | `apps/desktop/src-tauri/src/mcp/` | Strict tools/resources, scoped access, redaction, pagination, and audit |
+| MCP setup | `apps/desktop/src-tauri/src/commands/mcp_access.rs` | Repository enablement, revocation, client config, and audit controls |
 
----
+## Repository layout
 
-## Directory Structure Rationale
-
-```
-CodeVetter/
-├── apps/
-│   ├── desktop/          # Primary product — Tauri + React desktop app
-│   │   ├── src/          # React/TypeScript frontend (pages, components, lib)
-│   │   └── src-tauri/    # Rust Tauri backend (IPC commands, SQLite, agents)
-│   ├── landing-page/     # Next.js marketing site, deployed to Vercel
-│   └── dashboard/        # Next.js web dashboard (on hold)
-│
-├── packages/             # Shared library code consumed by apps and workers
-│   ├── review-core/      # Review engine: prompts, scoring, GitHub API, semantic dedup
-│   ├── ai-gateway-client/# Thin OpenAI-compatible HTTP client
-│   ├── shared-types/     # TypeScript types shared across all workspaces
-│   └── db/               # D1/SQLite control-plane schema, migrations, query helpers
-│
-├── workers/              # Cloudflare Workers (edge, serverless)
-│   ├── review/           # GitHub App webhook receiver + async review job processor
-│   └── api/              # REST API worker (on hold)
-│
-└── docs/                 # Project documentation and architecture records
+```text
+apps/
+  desktop/             active Tauri + React product
+  landing-page-astro/  marketing site
+docs/                  product and operator documentation
+openspec/              accepted specs and in-progress changes
+scripts/               repository maintenance and benchmark helpers
 ```
 
-**Why this layout:** The monorepo separates concerns by deployment target. `packages/` contains all pure TypeScript logic with no runtime assumptions, making it safe to import in both the browser webview (desktop app) and Node-less Cloudflare Workers. `apps/desktop` is the only workspace that depends on Tauri APIs; `workers/` is the only workspace that depends on Cloudflare primitives. This boundary prevents accidental coupling between desktop-only and edge-only APIs.
+The root pnpm workspace contains `apps/*` only; earlier shared-library and edge
+service workspaces are no longer part of the product repository.
+
+## Qualification state
+
+The mandatory 20-scenario named-machine gate measured **3605.560 ms p50,
+4792.196 ms p95, and 5320.379 ms max**. The normal small changed-capability path
+measured **506.426 ms p50, 512.035 ms p95, and 515.900 ms max**. A separate
+100-batch stability run completed 80 passes, 10 intentional regressions, and 10
+cancellations with no leaked contexts, stable browser/server identities, RSS
+growth of 13.6 MB against a 128 MB cap, retention at 20 runs / 4470 bytes, and
+zero production builds. Local release qualification passed on 2026-07-15; the
+release workflow remains a separate explicit action and has not run.
+
+The packaged MCP qualification used 65 commits, 64 releases, 10,000 history
+events, 512 nodes, and 1,024 edges. Process initialization measured 7.17 ms p95;
+graph queries 5.82 ms p95; broad history search 6.45 ms p95; and four-request
+mixed concurrency 12.87 ms p95. The 7.39 MiB sidecar opened no network listener,
+stayed within its 32 MiB RSS gate, and left the protected repository unchanged.

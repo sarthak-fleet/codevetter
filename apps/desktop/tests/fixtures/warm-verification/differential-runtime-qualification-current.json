@@ -1,0 +1,2162 @@
+{
+  "schemaVersion": "1.0.0",
+  "capturedAt": "2026-07-18T04:26:01.688Z",
+  "scope": "Differential service and scheduler qualification over deterministic local React fixture",
+  "executionPath": {
+    "service": "DifferentialVerificationService",
+    "scheduler": "DifferentialPairScheduler",
+    "browserWorkload": "real Chromium via the checked qualification ScenarioRunner",
+    "productionComposition": "One separate default composition run uses immutable source materialization, dependency cache, writable targets, dual supervised Node servers, DifferentialContextFactory, scheduler, installed Chrome, and owned cleanup.",
+    "injectedMixedWorkloadBoundary": "The 100-pair workload uses real service/scheduler/Chromium execution with deterministic fixture-side regression and cancellation injection; it does not claim to re-run source materialization per pair."
+  },
+  "machine": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "cpuModel": "Apple M5 Pro",
+    "logicalCpuCount": 18,
+    "totalMemoryBytes": 51539607552,
+    "nodeVersion": "v26.5.0"
+  },
+  "coldPreparation": {
+    "reference": {
+      "totalMs": 1100.814625,
+      "serverReadyMs": 816.6597080000001,
+      "browserLaunchMs": 224.20141599999988
+    },
+    "candidate": {
+      "totalMs": 345.1232089999994,
+      "serverReadyMs": 289.73199999999997,
+      "browserLaunchMs": 0.0004169999992882367
+    },
+    "separatelyMeasured": true
+  },
+  "productionComposition": {
+    "passed": true,
+    "reasonCodes": [],
+    "cold": {
+      "schema_version": 1,
+      "run_id": "production-cold-prepare",
+      "status": "ready",
+      "reference_sha": "2fd584cf435eeb799f77af2267a2c153f1e8336f",
+      "candidate_kind": "worktree",
+      "candidate_identity": "76555e991e0c1f9610c38e81fe983c2b441814979384037ceeae8aa0993a51b5",
+      "selection_identity": "aee26af1da46f83a52d2c265503c456e615eb19173842e5ec498f0d077c6ce77",
+      "scenario_count": 1,
+      "source_cache_hits": 0,
+      "dependency_cache_hit": false,
+      "prepared_bytes": 8304,
+      "reason_codes": [],
+      "model_call_count": 0,
+      "cleanup_complete": true
+    },
+    "warm": {
+      "schema_version": 1,
+      "run_id": "production-warm-prepare",
+      "status": "ready",
+      "reference_sha": "2fd584cf435eeb799f77af2267a2c153f1e8336f",
+      "candidate_kind": "worktree",
+      "candidate_identity": "76555e991e0c1f9610c38e81fe983c2b441814979384037ceeae8aa0993a51b5",
+      "selection_identity": "aee26af1da46f83a52d2c265503c456e615eb19173842e5ec498f0d077c6ce77",
+      "scenario_count": 1,
+      "source_cache_hits": 2,
+      "dependency_cache_hit": true,
+      "prepared_bytes": 8304,
+      "reason_codes": [],
+      "model_call_count": 0,
+      "cleanup_complete": true
+    },
+    "run": {
+      "schema_version": 1,
+      "run_id": "production-composition-run",
+      "status": "complete",
+      "classification": "unchanged",
+      "plan_identity": "d09c707d000339842e478258eaf6289c140e2dc6b479c603b2d77c7af45a0c6b",
+      "reference_sha": "2fd584cf435eeb799f77af2267a2c153f1e8336f",
+      "candidate_kind": "worktree",
+      "candidate_identity": "76555e991e0c1f9610c38e81fe983c2b441814979384037ceeae8aa0993a51b5",
+      "scenario_count": 1,
+      "delta_count": 3,
+      "blocking_delta_count": 0,
+      "delta_previews": [
+        {
+          "id": "delta-64e8bf6fd59f39e4",
+          "scenario_id": "portfolio-empty",
+          "kind": "accessibility",
+          "direction": "shared_failure",
+          "blocking": false,
+          "policy_id": "additive-four-way-classification-v1.accessibility-identity-v1"
+        },
+        {
+          "id": "delta-8db1aab90d597c7e",
+          "scenario_id": "portfolio-empty",
+          "kind": "accessibility",
+          "direction": "shared_failure",
+          "blocking": false,
+          "policy_id": "additive-four-way-classification-v1.accessibility-identity-v1"
+        },
+        {
+          "id": "delta-8d5e742b46077691",
+          "scenario_id": "portfolio-empty",
+          "kind": "accessibility",
+          "direction": "shared_failure",
+          "blocking": false,
+          "policy_id": "additive-four-way-classification-v1.accessibility-identity-v1"
+        }
+      ],
+      "delta_previews_truncated": false,
+      "reason_codes": ["equivalent-known-failure"],
+      "comparison_policy_identities": [
+        "8b732bad0095a80ebc199352b87c98e1927b6d948bda75802b163ed4b064bb70"
+      ],
+      "duration_ms": 1196.99,
+      "cleanup_complete": true,
+      "creates_pass_evidence": false,
+      "model_call_count": 0
+    },
+    "cache": {
+      "schema_version": 1,
+      "dry_run": true,
+      "complete": true,
+      "removed_source_cache_keys": [],
+      "removed_dependency_cache_keys": [],
+      "removed_targets": 0,
+      "removed_staging": 0,
+      "retained_entries": 3,
+      "retained_logical_bytes": 8304,
+      "retained_allocated_bytes": 94208,
+      "skipped_entries": 0,
+      "warm_artifact_reclaimed_bytes": 0,
+      "warm_artifact_removed_files": 0,
+      "shared_playwright_cache_bytes": 1232937884,
+      "error_codes": []
+    },
+    "artifactBytes": 0,
+    "sourceUnchanged": true,
+    "browserAfterRun": {
+      "state": "ready",
+      "owned": true,
+      "connected": true,
+      "generation": 1,
+      "recoveryAttempts": 0,
+      "revision": "1217",
+      "version": "150.0.7871.127",
+      "lastDisconnectedAt": null
+    },
+    "cleanupComplete": true,
+    "resources": {
+      "samples": 34,
+      "initialRssBytes": 256278528,
+      "peakRssBytes": 1586905088,
+      "finalRssBytes": 315506688,
+      "growthBytes": 1330626560,
+      "retainedGrowthBytes": 59228160,
+      "cpuTimeDeltaMs": 2180,
+      "initialProcessCount": 3,
+      "peakProcessCount": 13,
+      "finalProcessCount": 3,
+      "absoluteRssBudgetBytes": 2147483648,
+      "wallMs": 2126.435,
+      "coreUtilizationPercent": 102.519,
+      "machineUtilizationPercent": 5.695,
+      "passed": true
+    },
+    "ownership": {
+      "sourceDependencyCache": true,
+      "writableTargets": true,
+      "serverSupervisor": true,
+      "contextFactory": true,
+      "scheduler": true,
+      "browser": true
+    }
+  },
+  "benchmark": {
+    "warmupBatches": 2,
+    "supportedPairConcurrency": [1],
+    "configEnforcedPairConcurrency": 1,
+    "requestedParallelismProfiles": [1],
+    "recordedProfiles": [
+      {
+        "pairConcurrency": 1,
+        "warmupBatches": 2,
+        "measuredBatches": 3,
+        "samples": [1114.998, 1119, 1114.603],
+        "timingMs": {
+          "p50": 1114.998,
+          "p95": 1119,
+          "max": 1119
+        },
+        "stageTimingMs": {
+          "pairTotal": {
+            "p50": 1085.513,
+            "p95": 1088.949,
+            "max": 1088.949
+          }
+        },
+        "schedulerGenerations": [
+          {
+            "server": 1,
+            "browser": 1
+          },
+          {
+            "server": 1,
+            "browser": 1
+          },
+          {
+            "server": 1,
+            "browser": 1
+          }
+        ]
+      }
+    ]
+  },
+  "resources": {
+    "ownedProcessTreeRss": {
+      "measured": true,
+      "initialBytes": 1173766144,
+      "peakBytes": 1860255744,
+      "finalBytes": 520552448,
+      "peakGrowthBytes": 686489600,
+      "retainedGrowthBytes": 0,
+      "absoluteBudgetBytes": 2147483648,
+      "growthBudgetBytes": 134217728,
+      "passed": true
+    },
+    "ownedProcessTreeCpu": {
+      "measured": true,
+      "cumulativeMs": 165510,
+      "wallMs": 125752.479,
+      "coreUtilizationPercent": 131.616,
+      "machineUtilizationPercent": 7.312
+    },
+    "processTopology": {
+      "measured": true,
+      "samples": 1876,
+      "initialCount": 10,
+      "peakCount": 14,
+      "finalCount": 4,
+      "stable": true
+    },
+    "cacheBytes": {
+      "measured": true,
+      "retainedAllocatedBytes": 94208,
+      "budgetBytes": 134217728,
+      "passed": true
+    },
+    "artifactBytes": {
+      "measured": true,
+      "retainedBytes": 0,
+      "budgetBytes": 16777216,
+      "passed": true
+    },
+    "logicalRuntimeIdentities": {
+      "targetServerCount": 2,
+      "browserCount": 1,
+      "contextsAfterEveryPair": [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0
+      ]
+    }
+  },
+  "qualification100": {
+    "pairCount": 100,
+    "mix": {
+      "pass": 80,
+      "regression": 10,
+      "cancellation": 10
+    },
+    "samples": [
+      {
+        "index": 1,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1109.64,
+        "processTreeRssBytes": 1523236864,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 2,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1120.328,
+        "processTreeRssBytes": 1198850048,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 3,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1137.366,
+        "processTreeRssBytes": 1648623616,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 4,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1126.543,
+        "processTreeRssBytes": 1679048704,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 5,
+        "kind": "regression",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 2768.424,
+        "processTreeRssBytes": 1512194048,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["timing-identity-mismatch"]
+      },
+      {
+        "index": 6,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1110.824,
+        "processTreeRssBytes": 1571258368,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 7,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1098.408,
+        "processTreeRssBytes": 1726251008,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 8,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1117.021,
+        "processTreeRssBytes": 1734803456,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 9,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1111.58,
+        "processTreeRssBytes": 1741324288,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 10,
+        "kind": "cancellation",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 174.605,
+        "processTreeRssBytes": 1497317376,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["incomplete-evidence"]
+      },
+      {
+        "index": 11,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1129.656,
+        "processTreeRssBytes": 1599471616,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 12,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1144.722,
+        "processTreeRssBytes": 1754595328,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 13,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1128.05,
+        "processTreeRssBytes": 1600880640,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 14,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1107.679,
+        "processTreeRssBytes": 1756069888,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 15,
+        "kind": "regression",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 2771.709,
+        "processTreeRssBytes": 1565687808,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["timing-identity-mismatch"]
+      },
+      {
+        "index": 16,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1114.351,
+        "processTreeRssBytes": 1763377152,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 17,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1095.546,
+        "processTreeRssBytes": 1774518272,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 18,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1098.647,
+        "processTreeRssBytes": 1629175808,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 19,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1144.481,
+        "processTreeRssBytes": 1613955072,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 20,
+        "kind": "cancellation",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 183.834,
+        "processTreeRssBytes": 1523908608,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["incomplete-evidence"]
+      },
+      {
+        "index": 21,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1132.809,
+        "processTreeRssBytes": 1611857920,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 22,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1122.082,
+        "processTreeRssBytes": 1610301440,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 23,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1098.914,
+        "processTreeRssBytes": 1762017280,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 24,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1124.762,
+        "processTreeRssBytes": 1625669632,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 25,
+        "kind": "regression",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 2760.071,
+        "processTreeRssBytes": 1577238528,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["timing-identity-mismatch"]
+      },
+      {
+        "index": 26,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1099.747,
+        "processTreeRssBytes": 1776500736,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 27,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1109.742,
+        "processTreeRssBytes": 1624506368,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 28,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1173.61,
+        "processTreeRssBytes": 1780187136,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 29,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1118.65,
+        "processTreeRssBytes": 1793671168,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 30,
+        "kind": "cancellation",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 183.975,
+        "processTreeRssBytes": 1584775168,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["incomplete-evidence"]
+      },
+      {
+        "index": 31,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1138.898,
+        "processTreeRssBytes": 1794031616,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 32,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1102.735,
+        "processTreeRssBytes": 1318518784,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 33,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1101.167,
+        "processTreeRssBytes": 1790459904,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 34,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1141.539,
+        "processTreeRssBytes": 1801502720,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 35,
+        "kind": "regression",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 2770.966,
+        "processTreeRssBytes": 1611628544,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["timing-identity-mismatch"]
+      },
+      {
+        "index": 36,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1108.153,
+        "processTreeRssBytes": 1665089536,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 37,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1113.786,
+        "processTreeRssBytes": 1666007040,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 38,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1098.798,
+        "processTreeRssBytes": 1822457856,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 39,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1149.022,
+        "processTreeRssBytes": 1827684352,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 40,
+        "kind": "cancellation",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 172.168,
+        "processTreeRssBytes": 1628487680,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["incomplete-evidence"]
+      },
+      {
+        "index": 41,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1165.969,
+        "processTreeRssBytes": 1831813120,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 42,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1125.663,
+        "processTreeRssBytes": 1843019776,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 43,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1113.554,
+        "processTreeRssBytes": 1684537344,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 44,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1126.13,
+        "processTreeRssBytes": 1839939584,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 45,
+        "kind": "regression",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 2743.216,
+        "processTreeRssBytes": 1376714752,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["timing-identity-mismatch"]
+      },
+      {
+        "index": 46,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1090.225,
+        "processTreeRssBytes": 1860255744,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 47,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1108.131,
+        "processTreeRssBytes": 1859829760,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 48,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1093.648,
+        "processTreeRssBytes": 1854652416,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 49,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1140.389,
+        "processTreeRssBytes": 1852309504,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 50,
+        "kind": "cancellation",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 173.65,
+        "processTreeRssBytes": 1375780864,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["incomplete-evidence"]
+      },
+      {
+        "index": 51,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1172.693,
+        "processTreeRssBytes": 1859534848,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 52,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1118.551,
+        "processTreeRssBytes": 1858224128,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 53,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1114.974,
+        "processTreeRssBytes": 1703362560,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 54,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1106.484,
+        "processTreeRssBytes": 1716518912,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 55,
+        "kind": "regression",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 2735.343,
+        "processTreeRssBytes": 1531166720,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["timing-identity-mismatch"]
+      },
+      {
+        "index": 56,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1110.992,
+        "processTreeRssBytes": 1732083712,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 57,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1172.488,
+        "processTreeRssBytes": 1728446464,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 58,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1138.934,
+        "processTreeRssBytes": 1579827200,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 59,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1146.173,
+        "processTreeRssBytes": 1733787648,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 60,
+        "kind": "cancellation",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 177.258,
+        "processTreeRssBytes": 1482784768,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["incomplete-evidence"]
+      },
+      {
+        "index": 61,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1122.682,
+        "processTreeRssBytes": 1727873024,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 62,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1136.98,
+        "processTreeRssBytes": 1732214784,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 63,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1133.502,
+        "processTreeRssBytes": 1724088320,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 64,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1169.721,
+        "processTreeRssBytes": 1663352832,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 65,
+        "kind": "regression",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 2766.766,
+        "processTreeRssBytes": 1475477504,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["timing-identity-mismatch"]
+      },
+      {
+        "index": 66,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1171.007,
+        "processTreeRssBytes": 1662910464,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 67,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1106.937,
+        "processTreeRssBytes": 1652228096,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 68,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1166.613,
+        "processTreeRssBytes": 1517142016,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 69,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1127.064,
+        "processTreeRssBytes": 1512046592,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 70,
+        "kind": "cancellation",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 176.519,
+        "processTreeRssBytes": 1434271744,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["incomplete-evidence"]
+      },
+      {
+        "index": 71,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1120.629,
+        "processTreeRssBytes": 1516617728,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 72,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1167.378,
+        "processTreeRssBytes": 1660420096,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 73,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1137.021,
+        "processTreeRssBytes": 1662533632,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 74,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1187.809,
+        "processTreeRssBytes": 1486831616,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 75,
+        "kind": "regression",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 2800.923,
+        "processTreeRssBytes": 1149550592,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["timing-identity-mismatch"]
+      },
+      {
+        "index": 76,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1135.047,
+        "processTreeRssBytes": 1633730560,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 77,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1117.255,
+        "processTreeRssBytes": 1641512960,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 78,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1153.759,
+        "processTreeRssBytes": 1638989824,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 79,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1137.406,
+        "processTreeRssBytes": 1644265472,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 80,
+        "kind": "cancellation",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 190.897,
+        "processTreeRssBytes": 1437679616,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["incomplete-evidence"]
+      },
+      {
+        "index": 81,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1200.395,
+        "processTreeRssBytes": 1486585856,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 82,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1176.275,
+        "processTreeRssBytes": 1634926592,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 83,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1135.495,
+        "processTreeRssBytes": 1641758720,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 84,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1118.664,
+        "processTreeRssBytes": 1637367808,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 85,
+        "kind": "regression",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 2775.041,
+        "processTreeRssBytes": 1440710656,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["timing-identity-mismatch"]
+      },
+      {
+        "index": 86,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1158.907,
+        "processTreeRssBytes": 1641234432,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 87,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1140.431,
+        "processTreeRssBytes": 1490829312,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 88,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1191.324,
+        "processTreeRssBytes": 1640153088,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 89,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1160.678,
+        "processTreeRssBytes": 1644494848,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 90,
+        "kind": "cancellation",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 194.705,
+        "processTreeRssBytes": 1434648576,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["incomplete-evidence"]
+      },
+      {
+        "index": 91,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1153.306,
+        "processTreeRssBytes": 1638465536,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 92,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1159.56,
+        "processTreeRssBytes": 1646657536,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 93,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1142.889,
+        "processTreeRssBytes": 1650425856,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 94,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1179.251,
+        "processTreeRssBytes": 1638514688,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 95,
+        "kind": "regression",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 2782.268,
+        "processTreeRssBytes": 1445691392,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["timing-identity-mismatch"]
+      },
+      {
+        "index": 96,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1118.707,
+        "processTreeRssBytes": 1496072192,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 97,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1106.417,
+        "processTreeRssBytes": 1497333760,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 98,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1121.285,
+        "processTreeRssBytes": 1499234304,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 99,
+        "kind": "pass",
+        "status": "complete",
+        "classification": "unchanged",
+        "durationMs": 1112.467,
+        "processTreeRssBytes": 1500610560,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["equivalent-passing-behavior"]
+      },
+      {
+        "index": 100,
+        "kind": "cancellation",
+        "status": "incomparable",
+        "classification": "incomparable",
+        "durationMs": 175.666,
+        "processTreeRssBytes": 1423671296,
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        },
+        "cleanupComplete": true,
+        "reasonCodes": ["incomplete-evidence"]
+      }
+    ],
+    "sourceImmutability": {
+      "passed": true,
+      "before": [
+        "5489b38ddb3a0c56a6d27c457cffc028ca6bb61702d87f5b108370ae939d7758",
+        "0052c7b6c397865a4d8ea4f6a935b23b2b9a229bcc5ca8704464247d76a2ca85"
+      ],
+      "after": [
+        "5489b38ddb3a0c56a6d27c457cffc028ca6bb61702d87f5b108370ae939d7758",
+        "0052c7b6c397865a4d8ea4f6a935b23b2b9a229bcc5ca8704464247d76a2ca85"
+      ]
+    },
+    "noOrphans": {
+      "passed": true,
+      "finalActiveContexts": 0
+    },
+    "stableServerBrowserReuse": {
+      "passed": true,
+      "initial": {
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        }
+      },
+      "final": {
+        "activeContexts": 0,
+        "serverReady": true,
+        "browserReady": true,
+        "browserIdentity": "chromium:1217:generation-1",
+        "serverIdentities": {
+          "reference": "vite:http://127.0.0.1:52226:generation-1",
+          "candidate": "vite:http://127.0.0.1:52412:generation-1"
+        }
+      }
+    }
+  },
+  "gates": {
+    "task_6_2": {
+      "passed": true,
+      "reasonCodes": []
+    },
+    "task_6_3": {
+      "passed": true,
+      "reasonCodes": []
+    }
+  },
+  "sourceHashes": {
+    "scripts/differential-runtime-qualification.ts": "374f73830b7fc13d4704aeaf1155d260688464ff533d82c6e93f642aca4f9779",
+    "src/lib/warm-verification/differential-scheduler.ts": "19ecd9d22cc258bf1a23ff9d6db830a644d24a4341908d55488a99d604ff5d6a",
+    "src/lib/warm-verification/differential-service.ts": "0ec784106ed038484db6c03f89d58d3271bf5cfcbc668497b87bd75864257d6f",
+    "src/lib/warm-verification/differential-composition.ts": "d9da9ae4ab69372ffb877939a249859f73a0b86e89993a1705d94afa706e3e10",
+    "src/lib/warm-verification/differential-config.ts": "85b9a87f2bc829977a879c16bc0c1c0d54cd4688a70f01aa67aa3f1b92b7abc3",
+    "src/lib/warm-verification/differential-config-loader.ts": "298cb6ba6af3551443a78bff397f150835a6845ceffd88f90ccefb1bd8930488",
+    "src/lib/warm-verification/differential-cache.ts": "38ec2b3165efd71544b3254699ca3cde1487f9c07943b5d5420319da33b3dfeb",
+    "src/lib/warm-verification/differential-archive.ts": "d6bb44586ae707ef6730b0058d859263702dfb086ba69426512faaa4cc2eea85",
+    "src/lib/warm-verification/differential-dependency-identity.ts": "3e933de8dfe380ac97b464203cfd82ef38cef78f214593ea30e9ce53d341e6cb",
+    "src/lib/warm-verification/differential-source.ts": "b750c695798de1f7d301674423debdf18e089e6572b5e90cb5aa2387c7c56540",
+    "src/lib/warm-verification/differential-plan.ts": "ecd939da62029476ea3b4566ea9fde0e58c9f06e62edd23f3e25ea511fdb4e25",
+    "src/lib/warm-verification/differential-context.ts": "ffc8c2a98bdc2384895b5b3585e0ebc8c6a3b36ba1b0f428fba34717a11824be",
+    "src/lib/warm-verification/differential-supervision.ts": "f12e47c45f82026bd8d75f846334a8c8d25e13b747ab531875f4f959f66fd7e0",
+    "src/lib/warm-verification/differential-runtime.ts": "20d9452065acf972137446c5072ad09f2c9bed1ded6dbd2a7c6119aa20232918",
+    "src/lib/warm-verification/differential-materialization.ts": "21e2c328b9a61a2ea301e8b3ffefef5085cf5026d405e195ffc7a3ba4bf8f921",
+    "src/lib/warm-verification/differential-comparator.ts": "440232cb05eefa357ab009ee231525045c3f16c314e983dd5e935319c4f37a59",
+    "src/lib/warm-verification/differential-contracts.ts": "c1a5bcab2766738120d288481057d727ff4bd45ab9e8d549b143d1e869ebed9b",
+    "src/lib/warm-verification/runtime-utils.ts": "5010396d562a7b21fae722e58692bb20eaba63d94cff0aad34187723445c2e18",
+    "src/lib/warm-verification/process-resources.ts": "094337b873e3f4a01bcc0be282c8d7f8646dc0a683b54c3e89b5634df11c4c73",
+    "src/lib/warm-verification/differential-test-fixtures.ts": "fb0692fbaa4a52673b3b5b79e57056aafb51091d46baec4041181ebbe7fb21a6",
+    "tests/fixtures/warm-verification/qualification-fixture.ts": "4d559cc69c6277d807badea092d85fae9c0b286e920b4bdbd26545b3f38423c9",
+    "tests/fixtures/warm-verification/benchmark-manifest.json": "8da6cc15b50388f0e51d41e0c9c8ec3a719179164c77cee6f021d251ece6a978"
+  },
+  "cleanup": [
+    {
+      "browserOwnership": "shared",
+      "browserReleased": true,
+      "serverClosed": true,
+      "repositoryRemoved": true,
+      "activeOwnedContexts": 0,
+      "complete": true
+    },
+    {
+      "browserOwnership": "owned",
+      "browserReleased": true,
+      "serverClosed": true,
+      "repositoryRemoved": true,
+      "activeOwnedContexts": 0,
+      "complete": true
+    }
+  ]
+}

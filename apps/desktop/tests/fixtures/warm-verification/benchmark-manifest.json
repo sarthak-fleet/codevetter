@@ -1,0 +1,385 @@
+{
+  "benchmarkFixtureVersion": "1.0.0",
+  "name": "codevetter-warm-local-qualification",
+  "description": "Representative qualification corpus for a warm local verifier. This fixture describes coverage and is not the final runtime scenario contract.",
+  "target": {
+    "kind": "react-web-app",
+    "browser": "chromium",
+    "baseUrl": "http://127.0.0.1:1420",
+    "authProfile": "local-developer",
+    "frozenTime": "2026-07-15T09:30:00.000Z",
+    "locale": "en-IN",
+    "timezone": "Asia/Kolkata"
+  },
+  "observationProfiles": {
+    "strict-ui": {
+      "runtimeErrors": "fail",
+      "consoleErrors": "fail",
+      "failedRequests": "fail",
+      "unexpectedFirstPartyCalls": "fail",
+      "duplicateMutations": "fail",
+      "routeTransitions": "record-and-validate",
+      "interactionTiming": "record-and-budget",
+      "accessibility": "smoke",
+      "screenshots": "hash-checkpoints"
+    }
+  },
+  "scenarios": [
+    {
+      "id": "home-usage-range-and-provider",
+      "capability": "home-usage",
+      "route": "/",
+      "mockState": "home-usage-multi-provider",
+      "intent": "Usage totals and charts respond coherently to range and provider filters.",
+      "interactions": [
+        "select the seven-day range",
+        "toggle the OpenAI provider series",
+        "open one daily usage detail"
+      ],
+      "assertions": [
+        "the displayed total matches the deterministic seven-day fixture",
+        "the provider series and daily detail agree"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["filtered-usage"]
+    },
+    {
+      "id": "home-session-filter-and-detail",
+      "capability": "home-sessions",
+      "route": "/",
+      "mockState": "home-sessions-mixed-status",
+      "intent": "A developer can narrow recent sessions and inspect the selected result.",
+      "interactions": [
+        "filter sessions to failed runs",
+        "select the newest failed session",
+        "return to the complete session list"
+      ],
+      "assertions": [
+        "only deterministic failed sessions appear while filtered",
+        "the selected session detail preserves its provider and timestamp"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["failed-session-detail"]
+    },
+    {
+      "id": "home-source-health-refresh",
+      "capability": "home-source-health",
+      "route": "/",
+      "mockState": "home-source-health-degraded",
+      "intent": "A degraded source can be refreshed without corrupting the other source summaries.",
+      "interactions": [
+        "expand the degraded source",
+        "request a source refresh",
+        "collapse the refreshed source"
+      ],
+      "assertions": [
+        "exactly one refresh mutation is recorded",
+        "the refreshed source becomes healthy while unrelated counts stay stable"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["source-health-refreshed"]
+    },
+    {
+      "id": "review-change-source-and-file",
+      "capability": "review-change-selection",
+      "route": "/review",
+      "mockState": "review-worktree-three-files",
+      "intent": "The Review workspace preserves change-source and file selection correctly.",
+      "interactions": [
+        "switch from worktree changes to staged changes",
+        "select the settings file",
+        "switch back to the first changed file"
+      ],
+      "assertions": [
+        "the changed-file list reflects the selected source",
+        "the code pane and file metadata refer to the same file"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["selected-review-file"]
+    },
+    {
+      "id": "review-finding-filter-and-resolution",
+      "capability": "review-findings",
+      "route": "/review",
+      "mockState": "review-findings-mixed-severity",
+      "intent": "Finding filters and resolution state remain synchronized with the active finding.",
+      "interactions": [
+        "filter findings to high severity",
+        "open the first high-severity finding",
+        "mark the finding resolved"
+      ],
+      "assertions": [
+        "the active finding has high severity",
+        "exactly one resolution mutation occurs and the queue count decrements"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["resolved-finding"]
+    },
+    {
+      "id": "review-verification-target-edit",
+      "capability": "review-verification",
+      "route": "/review",
+      "mockState": "review-verification-ready",
+      "intent": "A verification target can be edited and restored without starting a model-driven run.",
+      "interactions": [
+        "open the verification controls",
+        "change the target route to /settings",
+        "restore the target route to /review"
+      ],
+      "assertions": [
+        "the route field preserves each deterministic edit",
+        "no verification or model-provider mutation is made"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["verification-target"]
+    },
+    {
+      "id": "review-evidence-expand-and-copy",
+      "capability": "review-evidence",
+      "route": "/review",
+      "mockState": "review-evidence-complete",
+      "intent": "Stored verification evidence can be inspected and copied from Review.",
+      "interactions": [
+        "expand the latest verification evidence",
+        "open its runtime observation section",
+        "copy the evidence summary"
+      ],
+      "assertions": [
+        "the expanded evidence belongs to the selected review",
+        "the copied summary contains the fixture outcome and provenance"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["expanded-evidence"]
+    },
+    {
+      "id": "unpack-inventory-language-filter",
+      "capability": "unpack-inventory",
+      "route": "/unpack?section=inventory",
+      "mockState": "unpack-inventory-polyglot",
+      "intent": "Repository inventory filters expose the right deterministic files and summaries.",
+      "interactions": [
+        "expand the language summary",
+        "filter inventory to TypeScript",
+        "open one TypeScript source file"
+      ],
+      "assertions": [
+        "only TypeScript fixture files remain after filtering",
+        "the opened source belongs to the selected language group"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["typescript-inventory"]
+    },
+    {
+      "id": "unpack-activity-commit-selection",
+      "capability": "unpack-activity",
+      "route": "/unpack?section=activity",
+      "mockState": "unpack-activity-linear-history",
+      "intent": "Commit history selection updates its file and verification evidence consistently.",
+      "interactions": [
+        "select the second commit in history",
+        "expand its changed-file list",
+        "open the associated verification evidence"
+      ],
+      "assertions": [
+        "commit metadata and changed files come from the same fixture commit",
+        "the evidence provenance points to that commit"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["commit-evidence"]
+    },
+    {
+      "id": "unpack-graph-node-neighborhood",
+      "capability": "unpack-structural-graph",
+      "route": "/unpack?section=structure",
+      "mockState": "unpack-graph-connected-components",
+      "intent": "Selecting and filtering a graph node presents a consistent local neighborhood.",
+      "interactions": [
+        "filter graph entities to components",
+        "select the Review workspace node",
+        "expand its incoming relationships"
+      ],
+      "assertions": [
+        "the details panel identifies the selected node",
+        "every displayed relationship is present in the deterministic graph fixture"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["graph-neighborhood"]
+    },
+    {
+      "id": "unpack-graph-history-slider",
+      "capability": "unpack-graph-history",
+      "route": "/unpack?section=structure",
+      "mockState": "unpack-graph-three-releases",
+      "intent": "Walking repository history reconstructs the graph at stable release boundaries.",
+      "interactions": [
+        "move the history position from latest to the middle release",
+        "select a node added in the middle release",
+        "move back to the latest release"
+      ],
+      "assertions": [
+        "the middle release graph contains its added node and exact edge count",
+        "returning to latest restores the latest graph identity"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["middle-release-graph", "latest-release-graph"]
+    },
+    {
+      "id": "unpack-quality-risk-drilldown",
+      "capability": "unpack-quality",
+      "route": "/unpack?section=quality",
+      "mockState": "unpack-quality-ranked-risks",
+      "intent": "Quality-risk ranking can be narrowed and traced back to source evidence.",
+      "interactions": [
+        "filter risks to high confidence",
+        "open the highest-ranked risk",
+        "open its first source-evidence link"
+      ],
+      "assertions": [
+        "the selected risk is the highest-ranked qualifying fixture",
+        "the source evidence path and risk explanation remain visible"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["quality-risk-evidence"]
+    },
+    {
+      "id": "agents-status-filter-and-run",
+      "capability": "agents-runs",
+      "route": "/agents",
+      "mockState": "agents-runs-mixed-status",
+      "intent": "Agent run status filters lead to the correct deterministic run detail.",
+      "interactions": [
+        "filter runs to completed",
+        "select the newest completed run",
+        "expand its output summary"
+      ],
+      "assertions": [
+        "the selected run is completed and has the expected adapter",
+        "the output summary belongs to the selected run"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["agent-run-detail"]
+    },
+    {
+      "id": "agents-run-cancel-confirmation",
+      "capability": "agents-run-control",
+      "route": "/agents",
+      "mockState": "agents-one-running-job",
+      "intent": "Cancelling an active local run requires confirmation and emits only one mutation.",
+      "interactions": ["open the running job", "request cancellation", "confirm cancellation"],
+      "assertions": [
+        "exactly one cancellation mutation is recorded",
+        "the run moves from running to cancelled"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["cancelled-agent-run"]
+    },
+    {
+      "id": "trex-watcher-configuration",
+      "capability": "trex-configuration",
+      "route": "/trex",
+      "mockState": "trex-idle-valid-repository",
+      "intent": "Local watcher configuration accepts valid polling and branch inputs.",
+      "interactions": [
+        "set the poll interval to five seconds",
+        "set the base branch to main",
+        "enable changed-file watching"
+      ],
+      "assertions": [
+        "the normalized configuration matches the deterministic inputs",
+        "no watcher starts before explicit confirmation"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["trex-configured"]
+    },
+    {
+      "id": "trex-event-filter-and-detail",
+      "capability": "trex-events",
+      "route": "/trex",
+      "mockState": "trex-events-mixed-outcomes",
+      "intent": "A developer can filter watcher events and inspect a failed event safely.",
+      "interactions": [
+        "filter events to failed outcomes",
+        "select the newest failed event",
+        "expand its diagnostic detail"
+      ],
+      "assertions": [
+        "only failed fixture events appear while filtered",
+        "the diagnostic detail preserves the event identity and changed paths"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["trex-failed-event"]
+    },
+    {
+      "id": "settings-provider-form-validation",
+      "capability": "settings-providers",
+      "route": "/settings?section=providers",
+      "mockState": "settings-provider-empty-safe",
+      "intent": "Provider settings validate editable metadata without persisting credentials.",
+      "interactions": [
+        "select the custom provider",
+        "enter an invalid base URL",
+        "replace it with the deterministic valid URL"
+      ],
+      "assertions": [
+        "invalid input produces an inline validation message",
+        "valid input clears the message without issuing a save mutation"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["provider-validation"]
+    },
+    {
+      "id": "settings-rubric-filter-and-preview",
+      "capability": "settings-rubrics",
+      "route": "/settings?section=rubrics",
+      "mockState": "settings-rubrics-mixed-language",
+      "intent": "Rubric filtering and preview preserve the selected rubric's content.",
+      "interactions": [
+        "filter rubrics to TypeScript",
+        "select the security rubric",
+        "expand its rule preview"
+      ],
+      "assertions": [
+        "the selected rubric belongs to the TypeScript fixture set",
+        "the preview contains its deterministic rule count"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["rubric-preview"]
+    },
+    {
+      "id": "settings-memory-search-and-detail",
+      "capability": "settings-memories",
+      "route": "/settings?section=memories",
+      "mockState": "settings-memories-searchable",
+      "intent": "Local memory search returns the correct evidence-backed detail.",
+      "interactions": [
+        "search memories for graph history",
+        "select the matching observation",
+        "expand its source metadata"
+      ],
+      "assertions": [
+        "the deterministic graph-history observation is returned",
+        "its source metadata and timestamp match the fixture"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["memory-source-detail"]
+    },
+    {
+      "id": "shell-command-palette-navigation",
+      "capability": "app-shell-navigation",
+      "route": "/",
+      "mockState": "shell-navigation-ready",
+      "intent": "Global keyboard navigation reaches a direct destination without stale page state.",
+      "interactions": [
+        "open the command palette with the platform shortcut",
+        "filter commands to Settings",
+        "activate the Settings destination"
+      ],
+      "assertions": [
+        "the final route is /settings",
+        "the Settings page is visible and the command palette is closed"
+      ],
+      "observationProfile": "strict-ui",
+      "screenshotCheckpoints": ["settings-from-command-palette"]
+    }
+  ]
+}

@@ -74,6 +74,61 @@ export interface VerificationTimelineItem {
   jump?: VerificationTimelineJumpTarget | null;
 }
 
+/**
+ * Read-only projection of a differential run. It intentionally has no pass
+ * status, findings, or jump-to-artifact evidence: a comparison is additive
+ * history and can never satisfy normal warm verification.
+ */
+export interface DifferentialVerificationHistoryItem {
+  id: string;
+  createdAt: string;
+  summary: {
+    classification: 'regressed' | 'improved' | 'unchanged' | 'incomparable';
+    candidate_kind: 'worktree' | 'staged' | 'commit' | 'range';
+    scenario_count: number;
+    delta_count: number;
+    blocking_delta_count: number;
+    duration_ms: number;
+    reason_codes: string[];
+    creates_pass_evidence: false;
+  };
+}
+
+export function projectDifferentialVerificationHistory(
+  runs: readonly DifferentialVerificationHistoryItem[]
+): VerificationTimelineItem[] {
+  return [...runs]
+    .sort(
+      (left, right) =>
+        right.createdAt.localeCompare(left.createdAt) || left.id.localeCompare(right.id)
+    )
+    .slice(0, 8)
+    .map(({ id, createdAt, summary }) => {
+      const reasons = summary.reason_codes.slice(0, 2).join(', ');
+      return {
+        id: `differential-history:${id}`,
+        phase: 'qa',
+        label: 'Differential comparison history',
+        detail: [
+          `recorded ${createdAt}`,
+          summary.classification,
+          `${summary.candidate_kind} candidate`,
+          `${summary.scenario_count} scenarios`,
+          `${summary.delta_count} deltas`,
+          summary.blocking_delta_count > 0 ? `${summary.blocking_delta_count} blocking` : null,
+          `${summary.duration_ms}ms`,
+          reasons ? `reasons: ${reasons}` : null,
+          'comparison-only; warm verification still required',
+        ]
+          .filter(Boolean)
+          .join(' · '),
+        // A differential result is deliberately never displayed as a passing
+        // review-proof state, even when its classification is improved.
+        status: 'idle',
+      };
+    });
+}
+
 interface VerificationTimelineAnchor {
   id: string;
   label: string;
@@ -159,6 +214,8 @@ export interface QaComparisonRun {
   notes: string;
   artifacts?: string[];
   consoleErrors: number;
+  /** Exact execution-flow identity for richer runners such as warm verifyd. */
+  flowKey?: string;
 }
 
 type QaPostFixComparisonStatus =
@@ -824,6 +881,7 @@ function qaRunTimestamp(run: QaComparisonRun): number {
 }
 
 function qaFlowKey(run: QaComparisonRun): string {
+  if (run.flowKey?.trim()) return run.flowKey.trim();
   return [
     run.runnerType.trim(),
     run.baseUrl.trim(),

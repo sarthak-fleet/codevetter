@@ -61,7 +61,7 @@ Single-page, top-down:
 
 ### 4.1 Deterministic repo health
 
-Repo Unpacked now persists a `repo_health` inventory artifact inspired by Repowise's local-first code-health loop, without adding Repowise as a dependency. The scanner ranks source files from bounded file samples plus recent git `--numstat` churn, then emits:
+Repo Unpacked persists a native `repo_health` inventory artifact. The scanner ranks source files from bounded file samples plus recent git `--numstat` churn, then emits:
 
 - file score and bucket (`healthy` / `watch` / `hotspot`)
 - defect, maintainability, and performance findings

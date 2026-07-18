@@ -14,7 +14,8 @@ const PERIODIC_INDEX_INTERVAL_SECS: u64 = commands::history::FULL_INDEX_RECOVERY
 /// When the app is started from Finder/Dock (not a terminal), macOS gives it a
 /// bare `PATH` of `/usr/bin:/bin:/usr/sbin:/sbin`. Tools installed by Homebrew
 /// (`/opt/homebrew/bin` on Apple Silicon, `/usr/local/bin` on Intel) and user
-/// installs (`~/.local/bin`) are then invisible, so `StdCommand::new("gh")`
+/// installs (`~/.local/bin`, mise, Volta, or pnpm home) are then invisible, so
+/// `StdCommand::new("gh")`
 /// fails with "not found" and GitHub auth detection reports "not connected"
 /// even though the user is fully signed in via the `gh` CLI in their terminal.
 ///
@@ -34,6 +35,9 @@ fn repair_path_for_gui() {
     ];
     if let Ok(home) = std::env::var("HOME") {
         candidates.push(format!("{home}/.local/bin"));
+        candidates.push(format!("{home}/.local/share/mise/shims"));
+        candidates.push(format!("{home}/.volta/bin"));
+        candidates.push(format!("{home}/Library/pnpm"));
     }
     for dir in candidates {
         if !present.contains(dir.as_str()) && std::path::Path::new(&dir).is_dir() {
@@ -240,7 +244,7 @@ fn main() {
                 .spawn(move || {
                     set_thread_background_qos();
                     std::thread::sleep(std::time::Duration::from_secs(
-                        crate::commands::history::LIVE_TRANSCRIPT_INITIAL_DELAY_SECS,
+                        commands::history::LIVE_TRANSCRIPT_INITIAL_DELAY_SECS,
                     ));
                     // Grok/Cursor aren't transcript-tailable, so they only
                     // refreshed on the 5-min full index and lagged Claude/Codex.
@@ -284,9 +288,10 @@ fn main() {
                                 }
 
                                 if tick.is_multiple_of(
-                                    crate::commands::history::LIVE_SECONDARY_ADAPTER_INTERVAL_SECS
-                                        / crate::commands::history::LIVE_TRANSCRIPT_INTERVAL_SECS,
-                                ) {
+                                    commands::history::LIVE_SECONDARY_ADAPTER_INTERVAL_SECS
+                                        / commands::history::LIVE_TRANSCRIPT_INTERVAL_SECS,
+                                )
+                                {
                                     match commands::history::refresh_secondary_agents_with_conn(
                                         &conn,
                                     ) {
@@ -321,7 +326,7 @@ fn main() {
                         }
                         tick = tick.wrapping_add(1);
                         std::thread::sleep(std::time::Duration::from_secs(
-                            crate::commands::history::LIVE_TRANSCRIPT_INTERVAL_SECS,
+                            commands::history::LIVE_TRANSCRIPT_INTERVAL_SECS,
                         ));
                     }
                 })
@@ -430,6 +435,7 @@ fn main() {
             commands::files::read_file_preview,
             commands::files::read_file_around_line,
             commands::files::open_in_app,
+            commands::files::open_repository_source_in_editor,
             // Setup
             commands::setup::check_prerequisites,
             // Agent Talks
@@ -452,17 +458,9 @@ fn main() {
             commands::unpack::get_unpack_outcome_evidence,
             commands::unpack::delete_repo_unpack_report,
             commands::unpack::export_repo_unpack_report,
-            commands::graph_trust::import_graphify_preview,
+            commands::graph_trust::import_external_graph_preview,
             commands::graph_trust::trace_repo_graph_path,
             commands::history_summary_graph::query_repo_history_graph,
-            // Unpack deep graph (call-graph indexing)
-            commands::unpack_deep_graph::unpack_deep_graph_status,
-            commands::unpack_deep_graph::unpack_deep_graph_analyze,
-            commands::unpack_deep_graph::unpack_deep_graph_cancel_analyze,
-            commands::unpack_deep_graph::unpack_deep_graph_symbol_context,
-            commands::unpack_deep_graph::unpack_deep_graph_symbol_impact,
-            commands::unpack_deep_graph::unpack_deep_graph_query,
-            commands::unpack_deep_graph::unpack_deep_graph_detect_changes,
             // Canonical structural repository graph
             commands::structural_graph::api::build_structural_graph,
             commands::structural_graph::api::cancel_structural_graph_build,
@@ -482,35 +480,71 @@ fn main() {
             commands::structural_graph::api::get_structural_graph_status,
             commands::structural_graph::api::get_structural_graph_subgraph,
             commands::structural_graph::api::list_structural_graph_snapshots,
-            commands::structural_graph::api::preview_graphify_structural_graph,
+            commands::structural_graph::api::preview_node_link_structural_graph,
             commands::structural_graph::api::search_structural_graph,
-            commands::history_graph::get_history_revision_topology,
-            commands::history_graph::backfill_history_graph,
-            commands::history_graph::cancel_history_backfill,
-            commands::history_graph::get_history_as_of,
-            commands::history_graph::get_history_entity_evolution,
-            commands::history_graph::get_history_graph_status,
-            commands::history_graph::explain_history_entity,
-            commands::history_graph::add_history_annotation,
-            commands::history_graph::list_history_annotations,
-            commands::history_graph::get_history_structural_delta,
-            commands::history_graph::get_history_structural_state,
-            commands::history_graph::get_history_timeline,
-            commands::history_graph::history_list_releases,
-            commands::history_graph::history_search,
-            commands::history_evidence::get_history_evidence_adapters,
-            commands::history_evidence::refresh_history_evidence,
-            commands::history_evidence::import_history_evidence_export,
-            commands::history_query::get_history_causal_trace,
-            // Local repository-scoped MCP exposure
+            // Temporal repository graph
+            commands::history_graph::api::backfill_history_graph,
+            commands::history_graph::api::cancel_history_backfill,
+            commands::history_graph::state::get_history_entity_evolution,
+            commands::history_graph::api::get_history_graph_status,
+            commands::history_graph::api::explain_history_entity,
+            commands::history_graph::api::add_history_annotation,
+            commands::history_graph::api::list_history_annotations,
+            commands::history_graph::state::get_history_structural_delta,
+            commands::history_graph::state::get_history_structural_state,
+            commands::history_graph::api::get_history_timeline,
+            commands::history_read::api::get_history_release_catalog,
+            commands::history_read::api::get_history_landmark_catalog,
+            commands::history_read::api::get_history_contributor_summary,
+            commands::history_read::api::get_history_timeline_window,
+            commands::business_rule_archaeology::synthesis_command::run_business_rule_synthesis,
+            commands::business_rule_archaeology::synthesis_command::continue_business_rule_synthesis_without_model,
+            commands::business_rule_archaeology::synthesis_command::cancel_business_rule_synthesis,
+            commands::business_rule_archaeology::synthesis_command::cleanup_business_rule_synthesis,
+            commands::business_rule_archaeology::read::read_business_rule_archaeology,
+            commands::business_rule_archaeology::export::export_business_rule_archaeology,
+            commands::business_rule_archaeology::review_command::mutate_business_rule_archaeology_review,
+            commands::business_rule_archaeology::repository_resolution::resolve_business_rule_archaeology_repository,
+            commands::business_rule_archaeology::refresh_command::refresh_business_rule_archaeology,
+            commands::business_rule_archaeology::cleanup_command::cleanup_business_rule_archaeology_index,
+            commands::business_rule_archaeology::refresh_command::get_business_rule_archaeology_refresh_status,
+            commands::business_rule_archaeology::refresh_command::get_current_business_rule_archaeology_refresh_status,
+            commands::business_rule_archaeology::refresh_command::continue_business_rule_archaeology_refresh,
+            commands::business_rule_archaeology::refresh_command::cancel_business_rule_archaeology_refresh,
+            commands::history_evidence::service::get_history_evidence_adapters,
+            commands::history_evidence::service::import_history_evidence_export,
+            commands::history_query::service::get_history_causal_trace,
+            // Repository-scoped local MCP access
             commands::mcp_access::get_mcp_repository_settings,
             commands::mcp_access::set_mcp_repository_enabled,
             commands::mcp_access::clear_mcp_access_audit,
+            // Unpack deep graph (call-graph indexing)
+            commands::unpack_deep_graph::unpack_deep_graph_status,
+            commands::unpack_deep_graph::unpack_deep_graph_analyze,
+            commands::unpack_deep_graph::unpack_deep_graph_cancel_analyze,
+            commands::unpack_deep_graph::unpack_deep_graph_symbol_context,
+            commands::unpack_deep_graph::unpack_deep_graph_symbol_impact,
+            commands::unpack_deep_graph::unpack_deep_graph_query,
+            commands::unpack_deep_graph::unpack_deep_graph_detect_changes,
             // Synthetic user QA
             commands::synthetic_qa::run_synthetic_qa,
             commands::synthetic_qa::discover_playwright_specs,
             commands::synthetic_qa::record_synthetic_qa_run,
             commands::synthetic_qa::list_synthetic_qa_runs,
+            commands::warm_verification::list_warm_verification_runs,
+            commands::differential_verification::list_differential_verification_runs,
+            commands::warm_verification_bridge::get_warm_verification_daemon_health,
+            commands::warm_verification_bridge::start_warm_verification_daemon,
+            commands::warm_verification_bridge::stop_warm_verification_daemon,
+            commands::warm_verification_bridge::run_warm_changed_verification,
+            commands::warm_verification_bridge::prepare_differential_verification,
+            commands::warm_verification_bridge::run_differential_verification,
+            commands::warm_verification_bridge::cancel_warm_verification_run,
+            commands::warm_verification_bridge::cancel_differential_verification_run,
+            commands::warm_verification_bridge::cleanup_warm_verification_artifacts,
+            commands::warm_verification_bridge::cleanup_differential_verification_artifacts,
+            commands::warm_verification_bridge::get_current_warm_verification_identity,
+            commands::scenario_compiler_bridge::run_scenario_compiler_action,
             // Live browser agent (drives real Chrome via chromiumoxide)
             #[cfg(feature = "browser-agent")]
             commands::agent::agent_run_task,
@@ -521,7 +555,7 @@ fn main() {
 
 /// Run a lightweight startup index using its own database connection.
 fn run_initial_index(app_data_dir: std::path::PathBuf) -> Result<String, String> {
-    use codevetter_desktop::db::queries;
+    use db::queries;
 
     let conn = db::init_db(app_data_dir).map_err(|e| e.to_string())?;
 
@@ -642,7 +676,7 @@ fn run_initial_index(app_data_dir: std::path::PathBuf) -> Result<String, String>
 fn run_full_index(
     app_data_dir: std::path::PathBuf,
 ) -> Result<commands::history::FullIndexSummary, String> {
-    use codevetter_desktop::commands::history;
+    use commands::history;
     let conn = db::init_db(app_data_dir).map_err(|e| e.to_string())?;
     history::run_full_index_summary_with_conn(&conn)
 }
@@ -657,7 +691,7 @@ struct QuickMeta {
 }
 
 fn quick_parse_session_meta(path: &std::path::Path) -> (String, QuickMeta) {
-    use codevetter_desktop::commands::session_adapters::{ClaudeCodeAdapter, SessionSourceAdapter};
+    use commands::session_adapters::{ClaudeCodeAdapter, SessionSourceAdapter};
     use std::io::BufRead;
 
     let file = match std::fs::File::open(path) {

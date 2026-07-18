@@ -37,6 +37,21 @@ describe('syntheticQaToFindingEvidence', () => {
     assert.match(ev.notes, /PASS/);
   });
 
+  it('keeps an inconclusive richer runner unverified', () => {
+    const run = {
+      ...baseRun,
+      pass: false,
+      verification_outcome: 'no_confidence' as const,
+      notes: 'Browser unavailable',
+    };
+    const ev = syntheticQaToFindingEvidence(run);
+    const finding = syntheticQaFailureFinding(run);
+    assert.equal(ev.status, 'not_checked');
+    assert.match(ev.notes, /NO CONFIDENCE/);
+    assert.match(finding.title, /inconclusive/);
+    assert.match(finding.suggestion ?? '', /prerequisite/);
+  });
+
   it('prefers first explicit artifact and lists all artifacts', () => {
     const ev = syntheticQaToFindingEvidence({
       ...baseRun,

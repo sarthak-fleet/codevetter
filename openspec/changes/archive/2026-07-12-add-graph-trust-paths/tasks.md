@@ -4,11 +4,11 @@
 - [x] 1.2 Classify every native fast/enriched graph edge as extracted or inferred and attach the narrowest available source anchors.
 - [x] 1.3 Add Rust regression tests proving new scans emit schema v2 and schema-v1 snapshots load as legacy without being rewritten.
 
-## 2. Graphify Import Boundary
+## 2. External Graph Import Boundary
 
-- [x] 2.1 Add a size-bounded Tauri command that parses user-selected Graphify `nodes` plus `links`/`edges`, validates endpoints, and returns a transient normalized graph.
-- [x] 2.2 Preserve supported Graphify relation, confidence, source file/location, and community metadata while mapping missing or unknown confidence to ambiguous.
-- [x] 2.3 Add fixture-based tests for current Graphify JSON, loose edge-key JSON, dangling endpoints, malformed JSON, and configured size/node/edge caps.
+- [x] 2.1 Add a size-bounded Tauri command that parses user-selected `nodes` plus `links`/`edges`, validates endpoints, and returns a transient normalized graph.
+- [x] 2.2 Preserve supported imported relation, confidence, source file/location, and community metadata while mapping missing or unknown confidence to ambiguous.
+- [x] 2.3 Add fixture-based tests for current generic node-link JSON, loose edge-key JSON, dangling endpoints, malformed JSON, and configured size/node/edge caps.
 
 ## 3. Trusted Path Query
 
@@ -31,5 +31,5 @@
 ## 6. Verification and Documentation
 
 - [x] 6.1 Run the smallest relevant Rust graph/import/path tests, then desktop unit tests, typecheck, lint, and build.
-- [x] 6.2 Runtime-verify native path tracing and explicit Graphify import in the Tauri app against a local fixture or temp repo.
+- [x] 6.2 Runtime-verify native path tracing and explicit generic graph import in the Tauri app against a local fixture or temp repo.
 - [x] 6.3 Update the archived Review Memory Graph reference URL/status and `PROJECT_STATUS.md` only after the capability is implemented and verified.

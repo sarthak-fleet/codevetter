@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "status": "not_recorded",
+  "purpose": "Pre-generation manual scenario-authoring baseline for representative specifications",
+  "required_protocol": {
+    "authors": "named human authors",
+    "representative_specs": "at least one simple, one stateful, and one negative-case specification",
+    "measurements": [
+      "elapsed authoring time from accepted criterion to reviewable deterministic scenario",
+      "review outcome and defects found before acceptance",
+      "dry-run outcome and remediation count"
+    ],
+    "prohibited_substitutes": [
+      "model-generated scenario output",
+      "synthetic fixture timing",
+      "retrospective estimates"
+    ]
+  },
+  "observations": [],
+  "blocker": "No manually authored timed records existed when this audit ran. This file records the gap rather than fabricating a historical baseline."
+}

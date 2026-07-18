@@ -41,6 +41,7 @@ import UnpackDeepGraphPanel from '@/components/unpack-deep-graph-panel';
 import { UnpackScanProfileHeatmap } from '@/components/unpack-scan-profile-heatmap';
 import { IntelProjectPanel } from '@/components/project-workspace/IntelProjectPanel';
 import { UnpackAiPanel, type UnpackAskEntry } from '@/components/unpack-workspace/UnpackAiPanel';
+import { BusinessRuleArchaeologyPanel } from '@/components/unpack-workspace/BusinessRuleArchaeologyPanel';
 import { UnpackRunKindBadge } from '@/components/unpack-workspace/UnpackRunKindBadge';
 import { UnpackAgentStream } from '@/components/unpack-agent-stream';
 import {
@@ -51,9 +52,9 @@ import {
 } from '@/components/unpack-workspace/UnpackIntelligencePanels';
 import { UnpackHistoryList } from '@/components/unpack-workspace/UnpackHistoryList';
 import { UnpackMissionControl } from '@/components/unpack-workspace/UnpackMissionControl';
+import { HistoryGraphSlider } from '@/components/unpack-workspace/HistoryGraphSlider';
 import { RepoMemoryGraphPanel } from '@/components/unpack-workspace/RepoMemoryGraphPanel';
 import { RepoMemoryPanel } from '@/components/unpack-workspace/RepoMemoryPanel';
-import { HistoryGraphSlider } from '@/components/unpack-workspace/HistoryGraphSlider';
 import { StructuralGraphWorkbench } from '@/components/unpack-workspace/StructuralGraphWorkbench';
 import { TasteVerdictCard } from '@/components/unpack-workspace/TasteVerdictCard';
 import { DisclosurePanel } from '@/components/unpack-workspace/DisclosurePanel';
@@ -1126,12 +1127,14 @@ export function UnpackProjectPanel({
   useEffect(() => {
     const requested = searchParams.get('section');
     const normalized =
-      requested === 'intel' || requested === 'attribution' ? 'activity' : requested;
-    const nextSection =
-      isUnpackSection(normalized) && sections.some((section) => section.id === normalized)
-        ? normalized
-        : 'overview';
-    if (nextSection !== activeSection) setActiveSection(nextSection);
+      requested == null
+        ? 'overview'
+        : requested === 'intel' || requested === 'attribution'
+          ? 'activity'
+          : requested;
+    if (!isUnpackSection(normalized) || normalized === activeSection) return;
+    if (!sections.some((section) => section.id === normalized)) return;
+    setActiveSection(normalized);
   }, [activeSection, searchParams, sections]);
 
   const handleSectionChange = useCallback(
@@ -1302,6 +1305,10 @@ export function UnpackProjectPanel({
           disabled={isBusy || !active.reportId}
           onExportMemory={() => handleExport('repo_memory_markdown')}
         />
+      ) : null}
+
+      {activeSection === 'rules' && active?.inventory ? (
+        <BusinessRuleArchaeologyPanel repoPath={active.inventory.repo_path} />
       ) : null}
 
       {activeSection === 'inventory' && active?.inventory ? (
@@ -3703,14 +3710,9 @@ const InventorySummary = memo(function InventorySummary({
 
         {showIntelligence ? (
           <>
+            <RepoMemoryGraphPanel graph={inventory.repo_graph} repoPath={inventory.repo_path} />
             <StructuralGraphWorkbench repoPath={inventory.repo_path} />
             <HistoryGraphSlider repoPath={inventory.repo_path} />
-            <DisclosurePanel
-              title="Metadata graph"
-              summary="Fast routes, commands, tables, tests, scripts, and repo decision markers."
-            >
-              <RepoMemoryGraphPanel graph={inventory.repo_graph} repoPath={inventory.repo_path} />
-            </DisclosurePanel>
             <DisclosurePanel
               title="Deep symbol lookup"
               summary="Build a local symbol index only when the repo map is not enough."

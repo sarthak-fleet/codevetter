@@ -5,6 +5,9 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
 import App from './App';
+import { initializeVerificationStateBridge } from './lib/verification-state-bridge';
+
+void initializeVerificationStateBridge();
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };

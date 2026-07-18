@@ -481,41 +481,18 @@ fn build_verification_summary(
         },
     };
 
-    let qa_row: Option<(bool, String, Option<String>, String)> = conn
-        .query_row(
-            "SELECT pass, loop_id, screenshot_path, created_at
-             FROM synthetic_qa_runs
-             WHERE review_id = ?1
-             ORDER BY datetime(created_at) DESC
-             LIMIT 1",
-            params![review_id],
-            |row| {
-                let pass: i64 = row.get(0)?;
-                Ok((pass != 0, row.get(1)?, row.get(2)?, row.get(3)?))
-            },
-        )
-        .optional()
-        .map_err(|error| error.to_string())?;
-    let executable_test = match qa_row {
-        Some((passed, loop_id, screenshot_path, created_at)) => VerificationStage {
-            status: if passed { "passed" } else { "failed" }.to_string(),
-            label: "Executable test".to_string(),
-            evidence: [Some(format!("{loop_id} · {created_at}")), screenshot_path]
-                .into_iter()
-                .flatten()
-                .collect(),
-            caveats: if passed {
-                Vec::new()
-            } else {
-                vec!["The latest executable QA run failed.".to_string()]
-            },
-        },
-        None => VerificationStage {
-            status: "not_run".to_string(),
-            label: "Executable test".to_string(),
-            evidence: Vec::new(),
-            caveats: vec!["No executable QA evidence is linked to this review.".to_string()],
-        },
+    // The database-only summary cannot establish that browser evidence still
+    // matches the current worktree/config/manifest/source identity. Review's
+    // read-only warm-evidence adapter performs that qualification. Legacy
+    // synthetic QA remains readable in its own surface but cannot satisfy or
+    // block this exact-current executable stage.
+    let executable_test = VerificationStage {
+        status: "not_verified".to_string(),
+        label: "Executable test".to_string(),
+        evidence: Vec::new(),
+        caveats: vec![
+            "No exact-current warm verification evidence has been qualified.".to_string(),
+        ],
     };
 
     let audience = match run {
@@ -591,9 +568,10 @@ fn build_verification_summary(
         "incomplete"
     } else if executable_test.status == "failed" {
         "blocked"
-    } else if run.is_some_and(|run| run.required)
-        && audience.status != "completed"
-        && audience.status != "waived"
+    } else if executable_test.status != "passed"
+        || (run.is_none_or(|run| run.required)
+            && audience.status != "completed"
+            && audience.status != "waived")
     {
         "incomplete"
     } else if findings_count > 0 {
@@ -953,12 +931,14 @@ mod tests {
         let bundle = load_bundle(&conn, "review-1").expect("bundle");
         assert!(bundle.run.is_none());
         assert_eq!(bundle.verification.review.status, "completed");
+        assert_eq!(bundle.verification.executable_test.status, "not_verified");
+        assert_eq!(bundle.verification.aggregate_status, "incomplete");
         assert_eq!(bundle.verification.audience.status, "not_run");
         assert!(!bundle.verification.human_validation_fulfilled);
     }
 
     #[test]
-    fn failed_executable_test_blocks_aggregate_outcome() {
+    fn legacy_executable_failure_cannot_block_exact_current_verification() {
         let conn = test_db();
         conn.execute(
             "INSERT INTO synthetic_qa_runs (
@@ -969,9 +949,25 @@ mod tests {
         )
         .expect("qa");
         let bundle = load_bundle(&conn, "review-1").expect("bundle");
-        assert_eq!(bundle.verification.executable_test.status, "failed");
-        assert_eq!(bundle.verification.aggregate_status, "blocked");
+        assert_eq!(bundle.verification.executable_test.status, "not_verified");
+        assert_eq!(bundle.verification.aggregate_status, "incomplete");
         assert_eq!(bundle.verification.confidence, "low");
+    }
+
+    #[test]
+    fn legacy_executable_pass_cannot_satisfy_exact_current_verification() {
+        let conn = test_db();
+        conn.execute(
+            "INSERT INTO synthetic_qa_runs (
+                id, review_id, loop_id, runner_type, pass, duration_ms,
+                console_errors, created_at
+             ) VALUES ('qa-1', 'review-1', 'onboarding', 'playwright_builtin', 1, 10, 0, '2026-07-10T00:01:00Z')",
+            [],
+        )
+        .expect("qa");
+        let bundle = load_bundle(&conn, "review-1").expect("bundle");
+        assert_eq!(bundle.verification.executable_test.status, "not_verified");
+        assert_eq!(bundle.verification.aggregate_status, "incomplete");
     }
 
     #[test]
@@ -980,7 +976,7 @@ mod tests {
         insert_run(&conn, 3, Some("Backend-only schema repair"));
         let bundle = load_bundle(&conn, "review-1").expect("bundle");
         assert_eq!(bundle.verification.audience.status, "waived");
-        assert_eq!(bundle.verification.aggregate_status, "verified");
+        assert_eq!(bundle.verification.aggregate_status, "incomplete");
         assert!(!bundle.verification.human_validation_fulfilled);
         assert!(bundle
             .verification
@@ -998,11 +994,11 @@ mod tests {
         assert_eq!(bundle.diagnostics.agent_response_count, 1);
         assert_eq!(bundle.diagnostics.human_response_count, 0);
         assert!(!bundle.verification.human_validation_fulfilled);
-        assert_eq!(bundle.verification.confidence, "medium");
+        assert_eq!(bundle.verification.confidence, "low");
     }
 
     #[test]
-    fn mixed_panel_preserves_provenance_and_can_reach_high_confidence() {
+    fn mixed_panel_preserves_provenance_but_waits_for_exact_warm_evidence() {
         let conn = test_db();
         conn.execute(
             "INSERT INTO synthetic_qa_runs (
@@ -1020,7 +1016,7 @@ mod tests {
         assert_eq!(bundle.diagnostics.agent_response_count, 1);
         assert_eq!(bundle.diagnostics.human_response_count, 1);
         assert!(bundle.verification.human_validation_fulfilled);
-        assert_eq!(bundle.verification.aggregate_status, "verified");
-        assert_eq!(bundle.verification.confidence, "high");
+        assert_eq!(bundle.verification.aggregate_status, "incomplete");
+        assert_eq!(bundle.verification.confidence, "low");
     }
 }

@@ -228,9 +228,9 @@ Acceptance:
 - Do not process secrets, env files, SSH keys, cloud credentials, kube configs, or production configs.
 - Make caveats visible when evidence is missing or stale.
 
-## Steal / Adapt / Skip
+## Adopt / Adapt / Skip
 
-Steal now:
+Adopt now:
 
 - systematic search before agent analysis
 - ranked evidence packets

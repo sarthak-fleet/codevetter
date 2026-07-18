@@ -7,6 +7,30 @@ import {
 } from '@tauri-apps/plugin-notification';
 
 import { buildActiveStandardsContext, getActiveStandardsPackId } from '@/lib/review-service';
+import type { DaemonHealth, VerifyResult } from '@/lib/warm-verification/contracts';
+import type {
+  ArchaeologyCleanupCommandInput,
+  ArchaeologyCleanupCommandResult,
+  ArchaeologySynthesisCancelInput,
+  ArchaeologySynthesisCancelResult,
+  ArchaeologySynthesisCleanupCommandInput,
+  ArchaeologySynthesisCleanupCommandResult,
+  ArchaeologySynthesisCommandInput,
+  ArchaeologySynthesisCommandResult,
+  ArchaeologyJobStatus,
+  ArchaeologyExportInput,
+  ArchaeologyExportResult,
+  ArchaeologyReadRequest,
+  ArchaeologyReadResponse,
+  ArchaeologyRefreshCommandInput,
+  ArchaeologyRefreshCommandResult,
+  ArchaeologyRefreshContinueInput,
+  ArchaeologyRefreshLifecycleResult,
+  ArchaeologyRepositoryResolution,
+  ArchaeologyReviewMutationInput,
+  ArchaeologyReviewMutationResult,
+  ArchaeologyZeroModelContinuationInput,
+} from '@/lib/business-rule-archaeology/contracts';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1251,104 +1275,6 @@ export async function analyzeBlastRadius(
   });
 }
 
-// ─── Unpack deep graph (call-graph indexing) ─────────────────────────────────
-
-interface UnpackDeepGraphStats {
-  files?: number | null;
-  nodes?: number | null;
-  edges?: number | null;
-  communities?: number | null;
-  processes?: number | null;
-}
-
-export interface UnpackDeepGraphStatus {
-  indexed: boolean;
-  indexed_at?: string | null;
-  indexed_commit?: string | null;
-  current_commit?: string | null;
-  stale: boolean;
-  stats?: UnpackDeepGraphStats | null;
-  engine_available: boolean;
-  engine_version?: string | null;
-  index_path?: string | null;
-}
-
-export interface UnpackDeepGraphDetectChanges {
-  formatted: string;
-  raw?: unknown;
-  risk_level?: string | null;
-  changed_symbols: number;
-  affected_processes: number;
-}
-
-export async function unpackDeepGraphStatus(repoPath: string): Promise<UnpackDeepGraphStatus> {
-  return safeInvoke('unpack_deep_graph_status', { repoPath });
-}
-
-export async function unpackDeepGraphAnalyze(
-  repoPath: string,
-  streamId: string,
-  indexOnly = true
-): Promise<UnpackDeepGraphStatus> {
-  return safeInvoke('unpack_deep_graph_analyze', { repoPath, streamId, indexOnly });
-}
-
-export async function unpackDeepGraphCancelAnalyze(streamId: string): Promise<boolean> {
-  return safeInvoke('unpack_deep_graph_cancel_analyze', { streamId });
-}
-
-export async function unpackDeepGraphSymbolContext(
-  repoPath: string,
-  symbol: string,
-  filePath?: string | null,
-  limit?: number
-): Promise<Record<string, unknown>> {
-  return safeInvoke('unpack_deep_graph_symbol_context', {
-    repoPath,
-    symbol,
-    filePath: filePath ?? null,
-    limit: limit ?? null,
-  });
-}
-
-export async function unpackDeepGraphSymbolImpact(
-  repoPath: string,
-  symbol: string,
-  filePath?: string | null,
-  direction?: string,
-  depth?: number,
-  limit?: number
-): Promise<Record<string, unknown>> {
-  return safeInvoke('unpack_deep_graph_symbol_impact', {
-    repoPath,
-    symbol,
-    filePath: filePath ?? null,
-    direction: direction ?? null,
-    depth: depth ?? null,
-    limit: limit ?? null,
-  });
-}
-
-export async function unpackDeepGraphQuery(
-  repoPath: string,
-  query: string,
-  limit?: number
-): Promise<Record<string, unknown>> {
-  return safeInvoke('unpack_deep_graph_query', { repoPath, query, limit: limit ?? null });
-}
-
-export async function unpackDeepGraphDetectChanges(
-  repoPath: string,
-  scope?: string,
-  baseRef?: string | null
-): Promise<UnpackDeepGraphDetectChanges> {
-  return safeInvoke('unpack_deep_graph_detect_changes', {
-    repoPath,
-    scope: scope ?? null,
-    baseRef: baseRef ?? null,
-  });
-}
-
 // ─── Canonical structural graph (local Tree-sitter index) ──────────────────
 
 export type StructuralGraphTrust = 'extracted' | 'inferred' | 'ambiguous' | 'legacy';
@@ -1357,8 +1283,11 @@ export type StructuralGraphOrigin =
   | 'resolution'
   | 'analysis'
   | 'metadata'
-  | 'imported_graphify'
-  | 'imported_git_nexus'
+  | 'extracted'
+  | 'deterministic'
+  | 'model_synthesized'
+  | 'human_confirmed'
+  | 'imported_node_link'
   | 'user_annotation'
   | 'legacy_metadata';
 
@@ -1395,6 +1324,70 @@ export interface StructuralGraphEdge {
   origin: StructuralGraphOrigin;
   sources: StructuralGraphSourceAnchor[];
   candidates: string[];
+}
+
+export interface StructuralControlFlowFact {
+  id: string;
+  kind: string;
+  parent_id?: string | null;
+  nesting: number;
+  source: StructuralGraphSourceAnchor;
+}
+
+export interface StructuralBoundaryFact {
+  kind: string;
+  target: string;
+  source: StructuralGraphSourceAnchor;
+}
+
+export interface StructuralCodeMetrics {
+  line_count: number;
+  statement_count: number;
+  parameter_count: number;
+  cyclomatic_complexity: number;
+  cognitive_complexity: number;
+  max_nesting: number;
+  fan_in: number;
+  fan_out: number;
+  cohesion?: number | null;
+}
+
+export interface StructuralGraphMetricFact {
+  schema_version: number;
+  id: string;
+  node_id: string;
+  path: string;
+  scope_kind: string;
+  language: string;
+  public_surface: boolean;
+  public_surface_reason?: string | null;
+  syntax_fingerprint: string;
+  normalized_token_count: number;
+  normalization_method: string;
+  metrics: StructuralCodeMetrics;
+  control_flow: StructuralControlFlowFact[];
+  definitions: string[];
+  uses: string[];
+  boundaries: StructuralBoundaryFact[];
+  sources: StructuralGraphSourceAnchor[];
+  limitations: string[];
+}
+
+export interface StructuralCloneRegion {
+  metric_id: string;
+  node_id: string;
+  path: string;
+  source: StructuralGraphSourceAnchor;
+}
+
+export interface StructuralCloneGroup {
+  id: string;
+  syntax_fingerprint: string;
+  normalization_method: string;
+  normalized_token_count: number;
+  similarity: number;
+  regions: StructuralCloneRegion[];
+  exclusions: string[];
 }
 
 export interface StructuralGraphLanguageCoverage {
@@ -1614,7 +1607,66 @@ export interface StructuralGraphSuggestedQuestion {
   source_paths: string[];
 }
 
+export interface StructuralGraphAnalysisPolicy {
+  algorithm_version: string;
+  included_edge_kinds: string[];
+  execution_edge_kinds: string[];
+  included_trust: StructuralGraphTrust[];
+  direction: 'from_to';
+  max_ranked_metrics: number;
+  max_components: number;
+  max_execution_flows: number;
+  max_execution_flow_depth: number;
+}
+
+export interface StructuralGraphAnalysisCoverage {
+  complete: boolean;
+  reachability_complete: boolean;
+  trusted_edge_count: number;
+  excluded_edge_count: number;
+  unresolved_endpoint_count: number;
+  gaps: string[];
+  output_truncated: boolean;
+}
+
+export interface StructuralGraphNodeMetric {
+  node_id: string;
+  in_degree: number;
+  out_degree: number;
+  total_degree: number;
+  degree_centrality: number;
+  pagerank: number;
+}
+
+export interface StructuralGraphComponent {
+  id: string;
+  node_ids: string[];
+  edge_ids: string[];
+  cyclic: boolean;
+}
+
+export interface StructuralGraphExecutionFlow {
+  entrypoint_node_id: string;
+  node_ids: string[];
+  edge_ids: string[];
+  terminal_reason: 'terminal' | 'cycle_avoided' | 'depth_limit';
+}
+
+export interface StructuralGraphAlgorithmResults {
+  node_metrics: StructuralGraphNodeMetric[];
+  strongly_connected_components: StructuralGraphComponent[];
+  cycles: StructuralGraphComponent[];
+  articulation_node_ids: string[];
+  entrypoint_node_ids: string[];
+  reachable_node_ids: string[];
+  unreachable_node_ids: string[];
+  execution_flows: StructuralGraphExecutionFlow[];
+}
+
 export interface StructuralGraphAnalysisSummary {
+  policy: StructuralGraphAnalysisPolicy;
+  coverage: StructuralGraphAnalysisCoverage;
+  algorithms: StructuralGraphAlgorithmResults;
   communities: StructuralGraphCommunity[];
   hubs: StructuralGraphNodeRank[];
   super_hubs: StructuralGraphNodeRank[];
@@ -1644,6 +1696,8 @@ export interface StructuralGraphInterchangePreview {
     engine: { id: string; version: string; bundled: boolean; syntax_aware: boolean };
     nodes: StructuralGraphNode[];
     edges: StructuralGraphEdge[];
+    metrics: StructuralGraphMetricFact[];
+    clone_groups: StructuralCloneGroup[];
     communities: StructuralGraphCommunity[];
     truncated: boolean;
   };
@@ -1680,11 +1734,11 @@ export async function getStructuralGraphAdapters(): Promise<StructuralGraphAdapt
   return safeInvoke('get_structural_graph_adapters');
 }
 
-export async function previewGraphifyStructuralGraph(
+export async function previewNodeLinkStructuralGraph(
   repoPath: string,
   jsonText: string
 ): Promise<StructuralGraphInterchangePreview> {
-  return safeInvoke('preview_graphify_structural_graph', { repoPath, jsonText });
+  return safeInvoke('preview_node_link_structural_graph', { repoPath, jsonText });
 }
 
 export async function exportStructuralGraphJson(repoPath: string): Promise<string | null> {
@@ -1837,6 +1891,104 @@ export async function getStructuralGraphImpact(
   });
 }
 
+// ─── Unpack deep graph (call-graph indexing) ─────────────────────────────────
+
+interface UnpackDeepGraphStats {
+  files?: number | null;
+  nodes?: number | null;
+  edges?: number | null;
+  communities?: number | null;
+  processes?: number | null;
+}
+
+export interface UnpackDeepGraphStatus {
+  indexed: boolean;
+  indexed_at?: string | null;
+  indexed_commit?: string | null;
+  current_commit?: string | null;
+  stale: boolean;
+  stats?: UnpackDeepGraphStats | null;
+  engine_available: boolean;
+  engine_version?: string | null;
+  index_path?: string | null;
+}
+
+export interface UnpackDeepGraphDetectChanges {
+  formatted: string;
+  raw?: unknown;
+  risk_level?: string | null;
+  changed_symbols: number;
+  affected_processes: number;
+}
+
+export async function unpackDeepGraphStatus(repoPath: string): Promise<UnpackDeepGraphStatus> {
+  return safeInvoke('unpack_deep_graph_status', { repoPath });
+}
+
+export async function unpackDeepGraphAnalyze(
+  repoPath: string,
+  streamId: string,
+  indexOnly = true
+): Promise<UnpackDeepGraphStatus> {
+  return safeInvoke('unpack_deep_graph_analyze', { repoPath, streamId, indexOnly });
+}
+
+export async function unpackDeepGraphCancelAnalyze(streamId: string): Promise<boolean> {
+  return safeInvoke('unpack_deep_graph_cancel_analyze', { streamId });
+}
+
+export async function unpackDeepGraphSymbolContext(
+  repoPath: string,
+  symbol: string,
+  filePath?: string | null,
+  limit?: number
+): Promise<Record<string, unknown>> {
+  return safeInvoke('unpack_deep_graph_symbol_context', {
+    repoPath,
+    symbol,
+    filePath: filePath ?? null,
+    limit: limit ?? null,
+  });
+}
+
+export async function unpackDeepGraphSymbolImpact(
+  repoPath: string,
+  symbol: string,
+  filePath?: string | null,
+  direction?: string,
+  depth?: number,
+  limit?: number
+): Promise<Record<string, unknown>> {
+  return safeInvoke('unpack_deep_graph_symbol_impact', {
+    repoPath,
+    symbol,
+    filePath: filePath ?? null,
+    direction: direction ?? null,
+    depth: depth ?? null,
+    limit: limit ?? null,
+  });
+}
+
+export async function unpackDeepGraphQuery(
+  repoPath: string,
+  query: string,
+  limit?: number
+): Promise<Record<string, unknown>> {
+  return safeInvoke('unpack_deep_graph_query', { repoPath, query, limit: limit ?? null });
+}
+
+export async function unpackDeepGraphDetectChanges(
+  repoPath: string,
+  scope?: string,
+  baseRef?: string | null
+): Promise<UnpackDeepGraphDetectChanges> {
+  return safeInvoke('unpack_deep_graph_detect_changes', {
+    repoPath,
+    scope: scope ?? null,
+    baseRef: baseRef ?? null,
+  });
+}
+
 // ─── Git history topology ──────────────────────────────────────────────────
 
 export interface HistoryRevision {
@@ -1849,6 +2001,8 @@ export interface HistoryRevision {
   tags: string[];
   is_release: boolean;
   is_head: boolean;
+  /** Global indexed history position; never use a local slider array index as identity. */
+  ordinal: number;
 }
 
 export interface HistoryTimeline {
@@ -1874,16 +2028,170 @@ export interface HistoryReleaseRange {
   is_unreleased: boolean;
 }
 
-export interface HistoryTopology {
-  schema_version: number;
-  repo_path: string;
-  revision: string;
-  nodes: Array<{ id: string; kind: string; label: string; path: string; detail: string }>;
-  edges: Array<{ id: string; from: string; to: string; kind: string }>;
-  changed_paths: string[];
-  path_changes: HistoryPathChange[];
-  total_files: number;
+/** Opaque backend cursor. Callers must not inspect or synthesize its value. */
+export type HistoryOpaqueCursor = string;
+export type HistoryReleaseTagKind = 'annotated' | 'lightweight';
+export type HistoryCoverageState = 'complete' | 'partial' | 'unavailable';
+
+export interface HistoryReadCoverage {
+  state: HistoryCoverageState;
+  ancestry_complete: boolean;
+  is_shallow: boolean;
   truncated: boolean;
+  reasons: string[];
+}
+
+export interface HistoryReadFreshness {
+  indexed_revision?: string | null;
+  current_revision?: string | null;
+  indexed_tags_fingerprint?: string | null;
+  current_tags_fingerprint?: string | null;
+  stale: boolean;
+}
+
+export interface HistoryReleaseCatalogEntry {
+  id: string;
+  tag: string;
+  tag_kind: HistoryReleaseTagKind;
+  revision_sha: string;
+  ordinal: number;
+  tagged_at?: string | null;
+  /** Every tag at this rail position; this row still represents one tag. */
+  coincident_tags: string[];
+  evidence_ids: string[];
+  /** Exact only when ancestry coverage proves the release boundary. */
+  interval?: HistoryReleaseIntervalMetadata | null;
+}
+
+export interface HistoryReleaseIntervalMetadata {
+  schema_version: 1;
+  from_exclusive_sha?: string | null;
+  commit_count?: number | null;
+  observed_commit_count: number;
+  coverage: HistoryCoverageState;
+  coverage_reason?: string | null;
+}
+
+export interface HistoryReleaseCatalog {
+  schema_version: 1;
+  /** One canonical row per tag; coincident tags are not collapsed here. */
+  releases: HistoryReleaseCatalogEntry[];
+  coverage: HistoryReadCoverage;
+  freshness: HistoryReadFreshness;
+  applied_limit: number;
+  truncated: boolean;
+  next_cursor?: HistoryOpaqueCursor | null;
+}
+
+export type HistoryLandmarkKind = 'release' | 'candidate_inflection';
+export type HistoryLandmarkTrust = 'extracted' | 'qualified' | 'qualified_partial';
+
+/** A release fact or non-causal, qualified candidate-inflection observation. */
+export interface HistoryLandmark {
+  id: string;
+  kind: HistoryLandmarkKind;
+  revision_sha: string;
+  ordinal: number;
+  label: string;
+  tags: string[];
+  trust: HistoryLandmarkTrust;
+  score_milli?: number | null;
+  components: unknown;
+  reasons: string[];
+  caveats: string[];
+  coverage: unknown;
+  evidence_ids: string[];
+}
+
+export interface HistoryLandmarkCatalog {
+  schema_version: 1;
+  landmarks: HistoryLandmark[];
+  coverage: HistoryReadCoverage;
+  freshness: HistoryReadFreshness;
+  applied_limit: number;
+  truncated: boolean;
+  next_cursor?: HistoryOpaqueCursor | null;
+}
+
+export type HistoryContributorScope =
+  | { kind: 'release_cycle_through'; tag: string; to_inclusive?: string | null }
+  | {
+      kind: 'exact_interval';
+      from_exclusive?: string | null;
+      to_inclusive: string;
+    };
+
+export interface HistoryContributorAggregate {
+  contributor_count: number;
+  primary_commits: number;
+  coauthor_participations: number;
+  additions: number;
+  deletions: number;
+  active_days: number;
+  binary_changes: number;
+  generated_changes: number;
+  vendored_changes: number;
+  merge_commits: number;
+}
+
+export interface HistoryContributorRow {
+  contributor_id: string;
+  display_name: string;
+  identity_kind: 'human' | 'automation' | 'unknown';
+  alias_count: number;
+  activity: HistoryContributorAggregate;
+  areas: string[];
+  /** Bounded local Git revisions that back the observed participation. */
+  revisions: HistoryContributorRevision[];
+  evidence_ids: string[];
+}
+
+export interface HistoryContributorRevision {
+  sha: string;
+  role: 'primary' | 'coauthor';
+}
+
+/** Participation metrics only; never an ownership, causation, or quality score. */
+export interface HistoryContributorSummary {
+  schema_version: 1;
+  from_exclusive?: string | null;
+  to_inclusive: string;
+  contributors: HistoryContributorRow[];
+  other: HistoryContributorAggregate;
+  totals: HistoryContributorAggregate;
+  human_primary_commit_share: number;
+  top_human_primary_concentration: number;
+  automation_primary_commit_share: number;
+  coverage: HistoryCoverageState;
+  caveats: string[];
+  freshness: HistoryReadFreshness;
+  applied_limit: number;
+  applied_offset: number;
+  truncated: boolean;
+  /** Compatibility-only cursor position for previously persisted local payloads. */
+  next_offset?: number | null;
+  next_cursor?: HistoryOpaqueCursor | null;
+}
+
+export type HistoryTimelineCenter =
+  | { kind: 'release'; tag: string }
+  | { kind: 'revision'; revision_sha: string }
+  | { kind: 'landmark'; landmark_id: string }
+  | { kind: 'cursor'; cursor: HistoryOpaqueCursor };
+
+export interface HistoryTimelineWindow {
+  schema_version: 1;
+  center_revision?: string | null;
+  revisions: HistoryRevision[];
+  releases: HistoryReleaseCatalogEntry[];
+  coverage: HistoryReadCoverage;
+  freshness: HistoryReadFreshness;
+  applied_limit: number;
+  truncated: boolean;
+  has_older: boolean;
+  has_newer: boolean;
+  older_cursor?: HistoryOpaqueCursor | null;
+  newer_cursor?: HistoryOpaqueCursor | null;
 }
 
 export interface HistoryPathChange {
@@ -1974,19 +2282,6 @@ export interface HistoryEntityEvolution {
   coverage_gap?: string | null;
   truncated: boolean;
   next_cursor?: string | null;
-}
-
-export type HistoryTemporalReference =
-  | { kind: 'revision'; revision: string }
-  | { kind: 'release'; tag: string }
-  | { kind: 'date'; at: string };
-
-export interface HistoryAsOfState {
-  requested: HistoryTemporalReference;
-  resolved_revision: string;
-  committed_at: string;
-  exact: boolean;
-  state: HistoryStructuralState;
 }
 
 export interface HistoryBackfillProgress {
@@ -2151,21 +2446,6 @@ export interface HistoryChangeEpisode {
   truncated: boolean;
 }
 
-export interface HistoryCausalTrace {
-  schema_version: number;
-  repo_path: string;
-  selector: HistoryCausalSelector;
-  episodes: HistoryChangeEpisode[];
-  indexed_head: string;
-  stale: boolean;
-  coverage: Record<string, unknown>;
-  gaps: string[];
-  scanned_events: number;
-  total_events: number;
-  truncated: boolean;
-  next_cursor?: string | null;
-}
-
 export interface HistoryReviewSlice {
   schema_version: number;
   repo_path: string;
@@ -2182,6 +2462,21 @@ export interface HistoryReviewSlice {
   stale: boolean;
   coverage: Record<string, unknown>;
   truncated: boolean;
+}
+
+export interface HistoryCausalTrace {
+  schema_version: number;
+  repo_path: string;
+  selector: HistoryCausalSelector;
+  episodes: HistoryChangeEpisode[];
+  indexed_head: string;
+  stale: boolean;
+  coverage: Record<string, unknown>;
+  gaps: string[];
+  scanned_events: number;
+  total_events: number;
+  truncated: boolean;
+  next_cursor?: string | null;
 }
 
 export type HistoryAnnotationDecision = 'note' | 'confirm' | 'reject' | 'correction';
@@ -2205,16 +2500,76 @@ export interface HistoryAnnotationPage {
   next_cursor?: string | null;
 }
 
-export interface HistorySearchResult {
-  revisions: HistoryRevision[];
-  truncated: boolean;
-}
-
 export async function getHistoryTimeline(
   repoPath: string,
   limit?: number
 ): Promise<HistoryTimeline> {
   return safeInvoke('get_history_timeline', { repoPath, limit: limit ?? null });
+}
+
+export async function getHistoryReleaseCatalog(
+  repoPath: string,
+  options: {
+    limit?: number;
+    cursor?: HistoryOpaqueCursor | null;
+    currentRevision?: string | null;
+  } = {}
+): Promise<HistoryReleaseCatalog> {
+  return safeInvoke('get_history_release_catalog', {
+    repoPath,
+    limit: options.limit ?? null,
+    cursor: options.cursor ?? null,
+    currentRevision: options.currentRevision ?? null,
+  });
+}
+
+export async function getHistoryLandmarkCatalog(
+  repoPath: string,
+  options: {
+    kind?: HistoryLandmarkKind | null;
+    limit?: number;
+    cursor?: HistoryOpaqueCursor | null;
+    currentRevision?: string | null;
+  } = {}
+): Promise<HistoryLandmarkCatalog> {
+  return safeInvoke('get_history_landmark_catalog', {
+    repoPath,
+    kind: options.kind ?? null,
+    limit: options.limit ?? null,
+    cursor: options.cursor ?? null,
+    currentRevision: options.currentRevision ?? null,
+  });
+}
+
+export async function getHistoryContributorSummary(
+  repoPath: string,
+  scope: HistoryContributorScope,
+  options: {
+    limit?: number;
+    cursor?: HistoryOpaqueCursor | null;
+    currentRevision?: string | null;
+  } = {}
+): Promise<HistoryContributorSummary> {
+  return safeInvoke('get_history_contributor_summary', {
+    repoPath,
+    scope,
+    limit: options.limit ?? null,
+    cursor: options.cursor ?? null,
+    currentRevision: options.currentRevision ?? null,
+  });
+}
+
+export async function getHistoryTimelineWindow(
+  repoPath: string,
+  center: HistoryTimelineCenter,
+  options: { limit?: number; currentRevision?: string | null } = {}
+): Promise<HistoryTimelineWindow> {
+  return safeInvoke('get_history_timeline_window', {
+    repoPath,
+    center,
+    limit: options.limit ?? null,
+    currentRevision: options.currentRevision ?? null,
+  });
 }
 
 export async function onHistoryBackfillProgress(
@@ -2247,12 +2602,6 @@ export async function getHistoryEvidenceAdapters(
   repoPath: string
 ): Promise<HistoryEvidenceAdapterDescriptor[]> {
   return safeInvoke('get_history_evidence_adapters', { repoPath });
-}
-
-export async function refreshHistoryEvidence(
-  repoPath: string
-): Promise<HistoryEvidenceRefreshResult> {
-  return safeInvoke('refresh_history_evidence', { repoPath });
 }
 
 export async function importHistoryEvidenceExport(
@@ -2325,18 +2674,6 @@ export async function listHistoryAnnotations(
   });
 }
 
-export async function getHistoryRevisionTopology(
-  repoPath: string,
-  revision: string,
-  maxNodes?: number
-): Promise<HistoryTopology> {
-  return safeInvoke('get_history_revision_topology', {
-    repoPath,
-    revision,
-    maxNodes: maxNodes ?? null,
-  });
-}
-
 export async function getHistoryStructuralState(
   repoPath: string,
   revision: string,
@@ -2371,33 +2708,6 @@ export async function getHistoryEntityEvolution(
     entity,
     revision: revision ?? null,
   });
-}
-
-export async function getHistoryAsOf(
-  repoPath: string,
-  reference: HistoryTemporalReference,
-  maxNodes?: number
-): Promise<HistoryAsOfState> {
-  return safeInvoke('get_history_as_of', {
-    repoPath,
-    reference,
-    maxNodes: maxNodes ?? null,
-  });
-}
-
-export async function listHistoryReleases(
-  repoPath: string,
-  limit?: number
-): Promise<HistorySearchResult> {
-  return safeInvoke('history_list_releases', { repoPath, limit: limit ?? null });
-}
-
-export async function searchHistory(
-  repoPath: string,
-  query: string,
-  limit?: number
-): Promise<HistorySearchResult> {
-  return safeInvoke('history_search', { repoPath, query, limit: limit ?? null });
 }
 
 export async function getRepoHistoryContext(
@@ -3004,7 +3314,7 @@ export async function pickGraphJsonFile(): Promise<string | null> {
     const selected = await open({
       directory: false,
       multiple: false,
-      title: 'Select Graphify graph.json',
+      title: 'Select external graph JSON',
       filters: [{ name: 'Graph JSON', extensions: ['json'] }],
     });
     if (Array.isArray(selected)) return selected[0] ?? null;
@@ -3060,6 +3370,22 @@ export async function readFileAroundLine(
 
 export async function openInApp(appName: string, path: string): Promise<{ success: boolean }> {
   return safeInvoke('open_in_app', { appName: appName, path });
+}
+
+export async function openRepositorySourceInEditor(
+  appName: 'cursor' | 'vscode',
+  repoPath: string,
+  relativePath: string,
+  line: number,
+  column: number
+): Promise<{ success: boolean }> {
+  return safeInvoke('open_repository_source_in_editor', {
+    appName,
+    repoPath,
+    relativePath,
+    line,
+    column,
+  });
 }
 
 // ─── Agent Memories ────────────────────────────────────────────────────────
@@ -3207,7 +3533,7 @@ export interface UnpackRepoGraphEdge {
   evidence: string;
   sources: string[];
   trust: 'extracted' | 'inferred' | 'ambiguous' | 'legacy' | string;
-  origin: 'codevetter' | 'graphify' | 'imported' | string;
+  origin: 'codevetter' | 'imported' | string;
   confidence_label?: string | null;
 }
 
@@ -3829,9 +4155,9 @@ export async function exportRepoUnpackReport(
   return safeInvoke('export_repo_unpack_report', { id, format });
 }
 
-/** Parse a selected Graphify artifact into a transient preview. This never persists the graph. */
-export async function importGraphifyPreview(filePath: string): Promise<UnpackRepoGraph> {
-  return safeInvoke('import_graphify_preview', { filePath });
+/** Parse a selected node-link artifact into a transient preview. This never persists the graph. */
+export async function importExternalGraphPreview(filePath: string): Promise<UnpackRepoGraph> {
+  return safeInvoke('import_external_graph_preview', { filePath });
 }
 
 export async function traceRepoGraphPath(input: {
@@ -3908,6 +4234,86 @@ export interface StoredSyntheticQaRun {
   created_at: string;
 }
 
+export interface StoredWarmVerificationRun {
+  id: string;
+  repo_path: string;
+  result: VerifyResult;
+  created_at: string;
+}
+
+export type DifferentialCandidateKind = 'worktree' | 'staged' | 'commit' | 'range';
+
+export interface DifferentialPreparedSummary {
+  schema_version: 1;
+  run_id: string;
+  status: 'ready' | 'incomparable';
+  reference_sha: string | null;
+  candidate_kind: DifferentialCandidateKind;
+  candidate_identity: string | null;
+  selection_identity: string | null;
+  scenario_count: number;
+  source_cache_hits: number;
+  dependency_cache_hit: boolean;
+  prepared_bytes: number;
+  reason_codes: string[];
+  model_call_count: 0;
+  cleanup_complete: boolean;
+}
+
+export interface DifferentialCleanupSummary {
+  schema_version: 1;
+  dry_run: boolean;
+  complete: boolean;
+  removed_source_cache_keys: string[];
+  removed_dependency_cache_keys: string[];
+  removed_targets: number;
+  removed_staging: number;
+  skipped_entries: number;
+  retained_entries: number;
+  retained_logical_bytes: number;
+  retained_allocated_bytes: number;
+  warm_artifact_reclaimed_bytes: number;
+  warm_artifact_removed_files: number;
+  shared_playwright_cache_bytes: number;
+  error_codes: string[];
+}
+
+export interface DifferentialRunSummary {
+  schema_version: 1;
+  run_id: string;
+  status: 'complete' | 'incomparable';
+  classification: 'regressed' | 'improved' | 'unchanged' | 'incomparable';
+  plan_identity: string | null;
+  reference_sha: string | null;
+  candidate_kind: DifferentialCandidateKind;
+  candidate_identity: string | null;
+  scenario_count: number;
+  delta_count: number;
+  blocking_delta_count: number;
+  delta_previews: Array<{
+    id: string;
+    scenario_id: string;
+    kind: string;
+    direction: string;
+    blocking: boolean;
+    policy_id: string;
+  }>;
+  delta_previews_truncated: boolean;
+  reason_codes: string[];
+  comparison_policy_identities: string[];
+  duration_ms: number;
+  cleanup_complete: boolean;
+  creates_pass_evidence: false;
+  model_call_count: 0;
+}
+
+export interface StoredDifferentialVerificationRun {
+  id: string;
+  repo_path: string;
+  summary: DifferentialRunSummary;
+  created_at: string;
+}
+
 export interface PlaywrightSpecCandidate {
   path: string;
   reason: string;
@@ -3945,6 +4351,282 @@ export async function listSyntheticQaRuns(
     limit: limit ?? 8,
   });
   return resp.runs;
+}
+
+export async function listWarmVerificationRuns(input: {
+  repoPath: string;
+  limit?: number;
+}): Promise<StoredWarmVerificationRun[]> {
+  return safeInvoke('list_warm_verification_runs', {
+    repoPath: input.repoPath,
+    limit: input.limit ?? 20,
+  });
+}
+
+export async function listDifferentialVerificationRuns(input: {
+  repoPath: string;
+  limit?: number;
+}): Promise<StoredDifferentialVerificationRun[]> {
+  return safeInvoke('list_differential_verification_runs', {
+    repoPath: input.repoPath,
+    limit: input.limit ?? 20,
+  });
+}
+
+export async function runDifferentialVerification(input: {
+  repoPath: string;
+  runId: string;
+  referenceRevision: string;
+  candidateKind: DifferentialCandidateKind;
+  candidateRevision?: string | null;
+}): Promise<StoredDifferentialVerificationRun> {
+  return safeInvoke('run_differential_verification', {
+    repoPath: input.repoPath,
+    runId: input.runId,
+    referenceRevision: input.referenceRevision,
+    candidateKind: input.candidateKind,
+    candidateRevision: input.candidateRevision ?? null,
+  });
+}
+
+export async function prepareDifferentialVerification(input: {
+  repoPath: string;
+  runId: string;
+  referenceRevision: string;
+  candidateKind: DifferentialCandidateKind;
+  candidateRevision?: string | null;
+}): Promise<DifferentialPreparedSummary> {
+  return safeInvoke('prepare_differential_verification', {
+    repoPath: input.repoPath,
+    runId: input.runId,
+    referenceRevision: input.referenceRevision,
+    candidateKind: input.candidateKind,
+    candidateRevision: input.candidateRevision ?? null,
+  });
+}
+
+export async function cancelDifferentialVerificationRun(input: {
+  repoPath: string;
+  runId: string;
+}): Promise<{ accepted: boolean }> {
+  return safeInvoke('cancel_differential_verification_run', {
+    repoPath: input.repoPath,
+    runId: input.runId,
+  });
+}
+
+export async function cleanupDifferentialVerificationArtifacts(input: {
+  repoPath: string;
+  dryRun?: boolean;
+}): Promise<DifferentialCleanupSummary> {
+  return safeInvoke('cleanup_differential_verification_artifacts', {
+    repoPath: input.repoPath,
+    dryRun: input.dryRun ?? false,
+  });
+}
+
+export interface WarmVerificationCleanupReport {
+  schema_version: 1;
+  dry_run: boolean;
+  removed_runs: number;
+  removed_files: number;
+  reclaimed_bytes: number;
+  retained_bytes: number;
+  shared_playwright_cache_bytes: number;
+}
+
+export interface CurrentWarmVerificationIdentity {
+  schema_version: 1;
+  target_sha: string;
+  change_set_kind: VerifyResult['source']['change_set_kind'];
+  change_set_identity: string;
+  config_hash: string;
+  manifest_hash: string;
+  source_hash: string;
+  observation_policy_profile_id: string;
+}
+
+/** Desktop control boundary for the repository-owned warm verifier. */
+export async function getWarmVerificationDaemonHealth(
+  repoPath: string
+): Promise<DaemonHealth | null> {
+  return safeInvoke('get_warm_verification_daemon_health', { repoPath });
+}
+
+export async function startWarmVerificationDaemon(repoPath: string): Promise<DaemonHealth> {
+  return safeInvoke('start_warm_verification_daemon', { repoPath });
+}
+
+export async function stopWarmVerificationDaemon(
+  repoPath: string
+): Promise<{ active_run_ids: string[] }> {
+  return safeInvoke('stop_warm_verification_daemon', { repoPath });
+}
+
+export async function runWarmChangedVerification(input: {
+  repoPath: string;
+  detailedCapture: boolean;
+  runId: string;
+}): Promise<StoredWarmVerificationRun> {
+  return safeInvoke('run_warm_changed_verification', {
+    repoPath: input.repoPath,
+    detailedCapture: input.detailedCapture,
+    runId: input.runId,
+  });
+}
+
+export async function cancelWarmVerificationRun(input: {
+  repoPath: string;
+  runId: string;
+}): Promise<{ accepted: boolean }> {
+  return safeInvoke('cancel_warm_verification_run', {
+    repoPath: input.repoPath,
+    runId: input.runId,
+  });
+}
+
+export async function cleanupWarmVerificationArtifacts(input: {
+  repoPath: string;
+  dryRun?: boolean;
+}): Promise<WarmVerificationCleanupReport> {
+  return safeInvoke('cleanup_warm_verification_artifacts', {
+    repoPath: input.repoPath,
+    dryRun: input.dryRun ?? false,
+  });
+}
+
+/** Read-only exact identity for qualifying staged-verification evidence; does not launch Chromium. */
+export async function getCurrentWarmVerificationIdentity(
+  repoPath: string
+): Promise<CurrentWarmVerificationIdentity> {
+  return safeInvoke('get_current_warm_verification_identity', { repoPath });
+}
+
+// ─── T-Rex scenario compiler ───────────────────────────────────────────────
+
+export type ScenarioCompilerProviderKind = 'fixture' | 'local_command' | 'hosted';
+export type ScenarioCompilerCostClass = 'free' | 'paid';
+
+export interface ScenarioCompilerProviderSelection {
+  kind: ScenarioCompilerProviderKind;
+  provider: string;
+  model: string;
+  cost_class: ScenarioCompilerCostClass;
+  paid_approved: boolean;
+}
+
+export type ScenarioCompilerAction =
+  | {
+      kind: 'generate';
+      spec_source_path: string;
+      spec_section: string | null;
+      provider: ScenarioCompilerProviderSelection;
+      context: {
+        capabilities: string[];
+        auth_profiles: string[];
+        states: string[];
+        routes: string[];
+        include_request_policy: boolean;
+        examples: string[];
+      };
+    }
+  | { kind: 'inspect'; candidate_id: string | null }
+  | { kind: 'validate'; candidate_id: string }
+  | { kind: 'dry_run'; candidate_id: string }
+  | {
+      kind: 'accept';
+      candidate_id: string;
+      expected_candidate_hash: string;
+      selected_destinations: string[];
+      approve_replacements: boolean;
+    }
+  | { kind: 'reject'; candidate_id: string; expected_candidate_hash: string }
+  | { kind: 'cleanup' };
+
+export interface ScenarioCompilerUsage {
+  input_tokens: number | null;
+  output_tokens: number | null;
+  estimated_cost_usd: number | null;
+  actual_cost_usd: number | null;
+}
+
+export interface ScenarioCompilerIssue {
+  path: string;
+  message: string;
+  severity: 'error' | 'warning';
+}
+
+export interface ScenarioCompilerCandidateFile {
+  kind:
+    | 'scenario'
+    | 'verification_config'
+    | 'state_requirement'
+    | 'capability_suggestion'
+    | 'provenance';
+  destination: string;
+  sha256: string;
+  replaces_existing: boolean;
+  diff: string;
+}
+
+export interface ScenarioCompilerCandidate {
+  schema_version: 1;
+  candidate_id: string;
+  candidate_hash: string;
+  cache_key: string;
+  status: 'candidate' | 'accepted' | 'rejected' | 'expired' | 'invalid';
+  created_at: string;
+  expires_at: string;
+  spec_source_path: string;
+  spec_section: string | null;
+  spec_hash: string;
+  target_sha: string;
+  config_hash: string;
+  manifest_hash: string;
+  provider: ScenarioCompilerProviderSelection;
+  provider_duration_ms: number;
+  cache_hit: boolean;
+  usage: ScenarioCompilerUsage;
+  unresolved_requirements: string[];
+  validation: {
+    qualified: boolean;
+    issues: ScenarioCompilerIssue[];
+  };
+  dry_run: {
+    status: 'not_run' | 'passed' | 'failed';
+    duration_ms: number | null;
+    summary: string;
+    diagnostics: string[];
+    evidence_persisted: false;
+    baselines_updated: false;
+  };
+  files: ScenarioCompilerCandidateFile[];
+  accepted_file_hashes: Record<string, string>;
+}
+
+export interface ScenarioCompilerCleanupReport {
+  removed_candidates: number;
+  removed_files: number;
+  reclaimed_bytes: number;
+  retained_candidates: number;
+}
+
+export interface ScenarioCompilerActionResult {
+  schema_version: 1;
+  action: ScenarioCompilerAction['kind'];
+  status: 'ok' | 'rejected' | 'failed';
+  message: string;
+  candidate: ScenarioCompilerCandidate | null;
+  candidates: ScenarioCompilerCandidate[];
+  cleanup: ScenarioCompilerCleanupReport | null;
+}
+
+/** Short-lived authoring boundary. Normal warm verification never imports or invokes it. */
+export async function runScenarioCompilerAction(
+  repoPath: string,
+  action: ScenarioCompilerAction
+): Promise<ScenarioCompilerActionResult> {
+  return safeInvoke('run_scenario_compiler_action', { repoPath, action });
 }
 
 export async function runSyntheticQa(
@@ -4366,6 +5048,134 @@ export interface McpRepositorySettings {
 
 export async function getMcpRepositorySettings(repoPath: string): Promise<McpRepositorySettings> {
   return safeInvoke<McpRepositorySettings>('get_mcp_repository_settings', { repoPath });
+}
+
+// ─── Evidence-traced business-rule archaeology ─────────────────────────────
+
+export async function readBusinessRuleArchaeology(
+  request: ArchaeologyReadRequest
+): Promise<ArchaeologyReadResponse> {
+  if (!isTauriAvailable()) {
+    throw new Error('TAURI_NOT_AVAILABLE');
+  }
+  return safeInvoke<ArchaeologyReadResponse>('read_business_rule_archaeology', { request });
+}
+
+export async function refreshBusinessRuleArchaeology(
+  input: ArchaeologyRefreshCommandInput
+): Promise<ArchaeologyRefreshCommandResult> {
+  if (!isTauriAvailable()) {
+    throw new Error('TAURI_NOT_AVAILABLE');
+  }
+  return safeInvoke<ArchaeologyRefreshCommandResult>('refresh_business_rule_archaeology', {
+    input,
+  });
+}
+
+export async function cleanupBusinessRuleArchaeologyIndex(
+  input: ArchaeologyCleanupCommandInput
+): Promise<ArchaeologyCleanupCommandResult> {
+  if (!isTauriAvailable()) {
+    throw new Error('TAURI_NOT_AVAILABLE');
+  }
+  return safeInvoke<ArchaeologyCleanupCommandResult>('cleanup_business_rule_archaeology_index', {
+    input,
+  });
+}
+
+export async function getBusinessRuleArchaeologyRefreshStatus(
+  jobId: string
+): Promise<ArchaeologyRefreshLifecycleResult> {
+  return safeInvoke<ArchaeologyRefreshLifecycleResult>(
+    'get_business_rule_archaeology_refresh_status',
+    { jobId }
+  );
+}
+
+export async function getCurrentBusinessRuleArchaeologyRefreshStatus(
+  repoPath: string
+): Promise<ArchaeologyRefreshLifecycleResult | null> {
+  return safeInvoke<ArchaeologyRefreshLifecycleResult | null>(
+    'get_current_business_rule_archaeology_refresh_status',
+    { repoPath }
+  );
+}
+
+export async function continueBusinessRuleArchaeologyRefresh(
+  input: ArchaeologyRefreshContinueInput
+): Promise<ArchaeologyRefreshLifecycleResult> {
+  return safeInvoke<ArchaeologyRefreshLifecycleResult>(
+    'continue_business_rule_archaeology_refresh',
+    { input }
+  );
+}
+
+export async function cancelBusinessRuleArchaeologyRefresh(
+  jobId: string
+): Promise<ArchaeologyRefreshLifecycleResult> {
+  return safeInvoke<ArchaeologyRefreshLifecycleResult>('cancel_business_rule_archaeology_refresh', {
+    jobId,
+  });
+}
+
+export async function resolveBusinessRuleArchaeologyRepository(
+  repoPath: string
+): Promise<ArchaeologyRepositoryResolution> {
+  if (!isTauriAvailable()) {
+    throw new Error('TAURI_NOT_AVAILABLE');
+  }
+  return safeInvoke<ArchaeologyRepositoryResolution>(
+    'resolve_business_rule_archaeology_repository',
+    { repoPath }
+  );
+}
+
+export async function exportBusinessRuleArchaeology(
+  input: ArchaeologyExportInput
+): Promise<ArchaeologyExportResult> {
+  if (!isTauriAvailable()) {
+    throw new Error('TAURI_NOT_AVAILABLE');
+  }
+  return safeInvoke<ArchaeologyExportResult>('export_business_rule_archaeology', { input });
+}
+
+export async function mutateBusinessRuleArchaeologyReview(
+  input: ArchaeologyReviewMutationInput
+): Promise<ArchaeologyReviewMutationResult> {
+  if (!isTauriAvailable()) {
+    throw new Error('TAURI_NOT_AVAILABLE');
+  }
+  return safeInvoke<ArchaeologyReviewMutationResult>('mutate_business_rule_archaeology_review', {
+    input,
+  });
+}
+
+export async function runBusinessRuleSynthesis(
+  input: ArchaeologySynthesisCommandInput
+): Promise<ArchaeologySynthesisCommandResult> {
+  return safeInvoke<ArchaeologySynthesisCommandResult>('run_business_rule_synthesis', { input });
+}
+
+export async function continueBusinessRuleSynthesisWithoutModel(
+  input: ArchaeologyZeroModelContinuationInput
+): Promise<ArchaeologyJobStatus> {
+  return safeInvoke<ArchaeologyJobStatus>('continue_business_rule_synthesis_without_model', {
+    input,
+  });
+}
+
+export async function cancelBusinessRuleSynthesis(
+  input: ArchaeologySynthesisCancelInput
+): Promise<ArchaeologySynthesisCancelResult> {
+  return safeInvoke<ArchaeologySynthesisCancelResult>('cancel_business_rule_synthesis', { input });
+}
+
+export async function cleanupBusinessRuleSynthesis(
+  input: ArchaeologySynthesisCleanupCommandInput
+): Promise<ArchaeologySynthesisCleanupCommandResult> {
+  return safeInvoke<ArchaeologySynthesisCleanupCommandResult>('cleanup_business_rule_synthesis', {
+    input,
+  });
 }
 
 export async function setMcpRepositoryEnabled(

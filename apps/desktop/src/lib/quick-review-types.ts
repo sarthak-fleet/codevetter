@@ -80,6 +80,8 @@ export interface QaRunHistoryEntry {
   repoTraceMode?: QaRepoTraceMode;
   storageStatePath?: string;
   allowRemoteTarget?: boolean;
+  /** Exact execution-flow identity for read-only runners such as warm verifyd. */
+  flowKey?: string;
 }
 
 export function isLoopbackQaBaseUrl(value: string): boolean {

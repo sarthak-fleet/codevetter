@@ -4,6 +4,10 @@ use rusqlite::Connection;
 /// (`IF NOT EXISTS`) so this function is safe to call on every startup.
 pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(MIGRATION_SQL)?;
+    super::archaeology_schema::run_migration(conn)?;
+    super::history_graph_schema::run_migration(conn)?;
+    super::mcp_schema::run_migration(conn)?;
+    super::structural_graph_schema::run_migration(conn)?;
 
     // History annotations remain append-only, but newer clients attach an explicit
     // correction decision and optional evidence target. Additive columns keep old
@@ -718,6 +722,50 @@ CREATE INDEX IF NOT EXISTS idx_synthetic_qa_runs_review_created
 
 CREATE INDEX IF NOT EXISTS idx_synthetic_qa_runs_repo_created
     ON synthetic_qa_runs(repo_path, created_at DESC);
+
+-- Warm verifier evidence is intentionally additive. Keeping its versioned
+-- payload separate avoids rewriting or weakening legacy synthetic_qa_runs.
+CREATE TABLE IF NOT EXISTS warm_verification_runs (
+    id               TEXT PRIMARY KEY,
+    repo_path        TEXT NOT NULL,
+    run_id           TEXT UNIQUE NOT NULL,
+    schema_version   INTEGER NOT NULL CHECK (schema_version = 1),
+    protocol_version INTEGER NOT NULL CHECK (protocol_version = 1),
+    outcome          TEXT NOT NULL CHECK (outcome IN ('passed', 'regression', 'no_confidence')),
+    target_sha       TEXT NOT NULL,
+    change_set_kind  TEXT NOT NULL,
+    change_set_id    TEXT NOT NULL,
+    started_at       TEXT NOT NULL,
+    finished_at      TEXT NOT NULL,
+    warm             INTEGER NOT NULL CHECK (warm IN (0, 1)),
+    stale            INTEGER NOT NULL CHECK (stale IN (0, 1)),
+    result_json      TEXT NOT NULL,
+    created_at       TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_warm_verification_runs_repo_created
+    ON warm_verification_runs(repo_path, created_at DESC);
+
+-- Differential evidence remains separate from warm and synthetic QA evidence.
+CREATE TABLE IF NOT EXISTS differential_verification_runs (
+    id                 TEXT PRIMARY KEY,
+    repo_path          TEXT NOT NULL,
+    run_id             TEXT UNIQUE NOT NULL,
+    schema_version     INTEGER NOT NULL CHECK (schema_version = 1),
+    status             TEXT NOT NULL CHECK (status IN ('complete', 'incomparable')),
+    classification     TEXT NOT NULL CHECK (classification IN ('regressed', 'improved', 'unchanged', 'incomparable')),
+    reference_sha      TEXT,
+    candidate_kind     TEXT NOT NULL,
+    candidate_identity TEXT,
+    plan_identity      TEXT,
+    duration_ms        REAL NOT NULL,
+    cleanup_complete   INTEGER NOT NULL CHECK (cleanup_complete IN (0, 1)),
+    summary_json       TEXT NOT NULL,
+    created_at         TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_differential_verification_runs_repo_created
+    ON differential_verification_runs(repo_path, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS audience_validation_runs (
     id                       TEXT PRIMARY KEY,
@@ -1492,10 +1540,12 @@ mod tests {
         assert_eq!(
             tables,
             vec![
+                "structural_graph_clone_groups",
                 "structural_graph_communities",
                 "structural_graph_diagnostics",
                 "structural_graph_edges",
                 "structural_graph_file_cursors",
+                "structural_graph_metric_facts",
                 "structural_graph_nodes",
                 "structural_graph_snapshot_files",
                 "structural_graph_snapshots",
@@ -1528,7 +1578,7 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("history table count");
-        assert_eq!(table_count, 8);
+        assert_eq!(table_count, 17);
         let index_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master

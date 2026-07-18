@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
+
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 30_000,
@@ -10,6 +12,7 @@ export default defineConfig({
     baseURL: 'http://localhost:1420',
     viewport: { width: 1280, height: 800 },
     colorScheme: 'dark',
+    launchOptions: executablePath ? { executablePath } : undefined,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },

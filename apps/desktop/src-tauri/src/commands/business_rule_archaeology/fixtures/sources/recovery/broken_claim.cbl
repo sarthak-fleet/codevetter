@@ -1,0 +1,5 @@
+       IF CLAIM-AMOUNT > ZERO
+           MOVE 'Y' TO CLAIM-ELIGIBLE
+       IF CLAIM-AMOUNT >
+           DISPLAY 'BROKEN'
+       MOVE 'N' TO CLAIM-ELIGIBLE.

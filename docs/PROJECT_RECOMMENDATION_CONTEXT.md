@@ -1,6 +1,6 @@
 # Project Recommendation Context
 
-Generated: 2026-06-06T21:14:19.542Z (product context refreshed 2026-07-10)
+Generated: 2026-06-06T21:14:19.542Z (product context refreshed 2026-07-18)
 
 This file is a CodeVetter Repo Unpacked-inspired audit written for Starboard recommendations. It is intentionally local, evidence-oriented, and safe to commit: it records product context, feature areas, stack inventory, and recommendation guidance without secrets or environment values.
 
@@ -17,7 +17,7 @@ This file is a CodeVetter Repo Unpacked-inspired audit written for Starboard rec
 
 AI code review platform — desktop-first, works offline.
 
-CodeVetter is a local-first desktop workbench for checking agent-generated code. The active product direction is evidence-backed software quality review: code review, bug finding, synthetic user QA, replay, and debugging surfaces that help a human decide whether agent-written work is actually shippable.
+CodeVetter is a local-first desktop workbench for checking agent-generated code. The active product direction is evidence-backed software quality review: code review, deterministic browser verification, differential comparison, repository-history exploration, evidence-traced business-rule archaeology, and bounded MCP context that help a human or coding agent decide whether a change is actually shippable.
 
 The Review workflow now owns the reusable evaluation capability formerly developed in ShipRank: after code review and executable QA, an operator can define a target audience/task, collect provenance-labeled agent, human, or imported judgments, diagnose agreement/order sensitivity/preference cycles, and carry that audience result into the verification proof. This remains local-first and does not depend on ShipRank's former Hono/D1/Cloudflare product stack.
 
@@ -31,6 +31,7 @@ CodeVetter AI software quality workbench for agent-generated code — desktop-fi
 - **Testing and quality**: Unit tests, browser tests, evals, CI quality gates, and regression checks. Keywords: test, testing, quality, vitest, playwright, ci, eval, benchmark.
 - **Audience validation and evaluation diagnostics**: Target-audience tasks, agent simulation, imported human evidence, pairwise judgments, agreement, order sensitivity, cycles, and calibrated confidence. Keywords: audience, evaluator, pairwise, agreement, confidence, validation, preference.
 - **Repo intelligence**: Repository understanding, metadata enrichment, code review, and evidence reports. Keywords: review, static, analysis, diff, history, evidence, verification.
+- **Repository history and archaeology**: Release-aware graph time travel, inflection detection, contributor evidence, source-traced business rules, and read-only agent access. Keywords: git, release, graph, contributor, cobol, assembly, rule, mcp.
 - **UI workflows**: Dashboards, tables, forms, component systems, charts, and user workflows. Keywords: ui, ux, dashboard, table, component, react, next, tailwind.
 - **Auth and identity**: Auth, OAuth, sessions, users, permissions, and account flows. Keywords: auth, oauth, identity, session, user, permission, login, nextauth.
 - **Content and media**: Content production, video, reels, documents, markdown, and publishing workflows. Keywords: content, media, video, reel, markdown, document, publish, editor.
@@ -39,12 +40,11 @@ CodeVetter AI software quality workbench for agent-generated code — desktop-fi
 ## Runtime Surfaces and Entrypoints
 
 - `apps/desktop/src/pages/Home.tsx`
-- `apps/desktop/src/pages/IntentDebugger.tsx`
-- `apps/desktop/src/pages/QaReplay.tsx`
 - `apps/desktop/src/pages/QuickReview.tsx`
 - `apps/desktop/src/pages/RepoUnpacked.tsx`
 - `apps/desktop/src/pages/Rubrics.tsx`
 - `apps/desktop/src/pages/Settings.tsx`
+- `apps/desktop/src/pages/TRex.tsx`
 - `apps/landing-page-astro/src/pages/download.astro`
 - `apps/landing-page-astro/src/pages/index.astro`
 - `apps/landing-page-astro/src/pages/privacy.astro`
@@ -52,7 +52,7 @@ CodeVetter AI software quality workbench for agent-generated code — desktop-fi
 ## Current Stack
 
 - Languages: `Astro`, `Rust`, `TypeScript`
-- Frameworks/tools: `Astro`, `Cargo`, `Cloudflare Workers`, `Next.js`, `Playwright`, `Radix UI`, `React`, `Tailwind CSS`, `Tauri`
+- Frameworks/tools: `Astro`, `Cargo`, `Cloudflare Pages`, `Playwright`, `Radix UI`, `React`, `Tailwind CSS`, `Tauri`, `Vite`
 - Config files:
 - `apps/desktop/playwright.config.ts`
 - `apps/desktop/src-tauri/Cargo.toml`
@@ -66,11 +66,12 @@ CodeVetter AI software quality workbench for agent-generated code — desktop-fi
 
 Direct dependencies:
 - `@astrojs/sitemap`
+- `@fontsource-variable/inter`
+- `@fontsource/jetbrains-mono`
+- `@fontsource/space-grotesk`
 - `@radix-ui/react-dialog`
-- `@radix-ui/react-dropdown-menu`
 - `@radix-ui/react-separator`
 - `@radix-ui/react-slot`
-- `@radix-ui/react-tabs`
 - `@radix-ui/react-tooltip`
 - `@tailwindcss/typography`
 - `@tailwindcss/vite`
@@ -78,43 +79,35 @@ Direct dependencies:
 - `@tauri-apps/plugin-dialog`
 - `@tauri-apps/plugin-notification`
 - `@tauri-apps/plugin-process`
-- `@tauri-apps/plugin-sql`
 - `@tauri-apps/plugin-updater`
 - `@xterm/addon-fit`
+- `@xterm/addon-search`
 - `@xterm/addon-web-links`
+- `@xterm/addon-webgl`
 - `@xterm/xterm`
 - `astro`
 - `class-variance-authority`
 - `clsx`
-- `framer-motion`
 - `lucide-react`
-- `next`
 - `react`
 - `react-dom`
-- `react-markdown`
 - `react-resizable-panels`
 - `react-router-dom`
-- `rehype-highlight`
-- `remark-gfm`
 - `tailwind-merge`
 - `tailwindcss`
 
 Development dependencies:
+- `@axe-core/playwright`
 - `@playwright/test`
-- `@tailwindcss/postcss`
 - `@tauri-apps/cli`
 - `@types/node`
 - `@types/react`
 - `@types/react-dom`
-- `@typescript-eslint/eslint-plugin`
-- `@typescript-eslint/parser`
 - `@vitejs/plugin-react`
 - `autoprefixer`
-- `beasties`
-- `eslint`
-- `husky`
+- `c8`
 - `lightningcss`
-- `lint-staged`
+- `msw`
 - `postcss`
 - `tailwindcss`
 - `tailwindcss-animate`
@@ -122,32 +115,44 @@ Development dependencies:
 - `typescript`
 - `vite`
 - `wrangler`
+- `yaml`
 
 Package scripts:
 - `astro`
-- `bench:catch-rate`
-- `bench:curation`
-- `bench:new-case`
+- `bench:bundle`
+- `bench:mcp`
+- `bench:mcp:smoke`
+- `bench:rust`
+- `bench:scenario-compiler`
+- `bench:verify`
+- `bench:verify:differential`
+- `bench:verify:stability`
 - `build`
 - `dev`
 - `intent-debugger`
 - `lint`
-- `prepare`
+- `prepare:mcp-sidecar`
+- `prepare:mcp-sidecar:release`
 - `preview`
-- `start`
+- `qualify:archaeology:correctness`
+- `qualify:archaeology:reviewer`
+- `qualify:verify:differential`
 - `synthetic-qa:replay`
 - `synthetic-qa:run`
 - `tauri`
 - `tauri:build`
 - `tauri:dev`
 - `test`
-- `test:benchmark`
+- `test:coverage`
 - `test:e2e`
-- `test:e2e:tauri`
 - `test:e2e:ui`
 - `test:intent-debugger`
 - `test:review-proof`
 - `test:synthetic-qa`
+- `test:unit`
+- `test:verify`
+- `verify`
+- `verifyd`
 
 ## Testing and Quality Signals
 
@@ -157,7 +162,6 @@ Package scripts:
 - `apps/desktop/src/lib/synthetic-qa/apply-evidence.test.ts`
 - `apps/desktop/src/lib/synthetic-qa/fixture-runner.test.ts`
 - `apps/desktop/tests/e2e/README.md`
-- `apps/desktop/tests/e2e/app.tauri-spec.ts`
 - `apps/desktop/tests/e2e/evidence.spec.ts`
 - `apps/desktop/tests/e2e/helpers.ts`
 - `apps/desktop/tests/e2e/review.spec.ts`
