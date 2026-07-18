@@ -72,7 +72,8 @@ jobs:
           # qualification here; absolute graph ceilings run on the named machine.
           CV_GRAPH_BUDGET_MODE: report-only
         run: |
-          pnpm qualify:graph
+          CV_ENFORCE_GRAPH_BUDGETS=1 cargo test --release --manifest-path src-tauri/Cargo.toml --lib perf_bench::bench_structural_graph_real_repo -- --ignored --nocapture --test-threads=1
+          pnpm bench:history-ui
           pnpm qualify:graph:browser
           pnpm bench:mcp
 
