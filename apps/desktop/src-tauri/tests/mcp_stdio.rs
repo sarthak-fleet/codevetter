@@ -306,12 +306,21 @@ fn stdio_boundary_is_json_only_scoped_and_paginated() {
         true
     );
 
+    let repository = Path::new(repo_path);
+    fs::write(repository.join("README.md"), "fixture changed\n").expect("change fixture");
+    git(repository, &["add", "README.md"]);
+    git(repository, &["commit", "-m", "change fixture"]);
+    let changed_head = git_output(repository, &["rev-parse", "HEAD"]);
     connection
         .execute(
             "UPDATE archaeology_repositories SET current_revision=?2 WHERE repo_path=?1",
-            params![repo_path, "f".repeat(40)],
+            params![repo_path, changed_head],
         )
-        .expect("stale archaeology");
+        .expect("update archaeology revision");
+    // Repository freshness is cached briefly so a burst of MCP reads does not
+    // spawn Git for every tool call. Cross the cache boundary before asserting
+    // that the sidecar observes the new on-disk HEAD.
+    thread::sleep(Duration::from_millis(1_100));
     let stale = sidecar.request(json!({
         "jsonrpc": "2.0", "id": 21, "method": "tools/call",
         "params": {"name": "archaeology_list_rules", "arguments": {}}

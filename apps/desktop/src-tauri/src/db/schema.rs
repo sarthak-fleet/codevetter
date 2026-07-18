@@ -1540,10 +1540,12 @@ mod tests {
         assert_eq!(
             tables,
             vec![
+                "structural_graph_clone_groups",
                 "structural_graph_communities",
                 "structural_graph_diagnostics",
                 "structural_graph_edges",
                 "structural_graph_file_cursors",
+                "structural_graph_metric_facts",
                 "structural_graph_nodes",
                 "structural_graph_snapshot_files",
                 "structural_graph_snapshots",
@@ -1576,7 +1578,7 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("history table count");
-        assert_eq!(table_count, 8);
+        assert_eq!(table_count, 17);
         let index_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master

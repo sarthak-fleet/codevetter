@@ -575,6 +575,22 @@ function baselineKey(scenarioId: string, checkpoint: string): string {
 }
 
 async function captureExactScreenshot(page: Page): Promise<Uint8Array> {
+  let previous = await captureSettledScreenshot(page);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await captureSettledScreenshot(page);
+    if (equalBytes(previous, current)) return current;
+    previous = current;
+  }
+  return previous;
+}
+
+async function captureSettledScreenshot(page: Page): Promise<Uint8Array> {
+  await page.evaluate(async () => {
+    await document.fonts?.ready;
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+  });
   return page.screenshot({
     animations: 'disabled',
     caret: 'hide',
@@ -582,6 +598,11 @@ async function captureExactScreenshot(page: Page): Promise<Uint8Array> {
     mask: [page.locator(SENSITIVE_SELECTOR)],
     maskColor: '#000000',
   });
+}
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  return left.every((value, index) => value === right[index]);
 }
 
 async function readVisualEnvironment(page: Page): Promise<VisualEnvironment> {

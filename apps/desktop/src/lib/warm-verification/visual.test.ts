@@ -40,6 +40,44 @@ afterEach(async () => {
 });
 
 describe('VisualCheckpointVerifier', () => {
+  it('waits for two consecutive byte-identical captures before comparing', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'codevetter-visual-'));
+    roots.push(root);
+    const unstable = Buffer.from('unstable screenshot bytes');
+    const stable = Buffer.from('stable screenshot bytes');
+    const captures = [unstable, stable, stable];
+    let captureCount = 0;
+    const verifier = new VisualCheckpointVerifier({
+      repoRoot: root,
+      retentionDirectory: '.codevetter/artifacts',
+      retentionMaxAgeDays: 7,
+      runId: 'run-1',
+      scenarioId: 'scenario-1',
+      scenarioSourceHash: 'a'.repeat(64),
+      artifactBudget: new VisualArtifactBudget(),
+      detailedCapture: false,
+      now: () => new Date('2026-07-15T00:00:00.000Z'),
+      environment: async () => environment,
+    });
+    const baselinePath = visualBaselinePath(root, 'scenario-1', 'ready');
+    await mkdir(path.dirname(baselinePath), { recursive: true });
+    await writeFile(baselinePath, JSON.stringify(baseline(stable)));
+    const settlingPage = {
+      evaluate: async () => undefined,
+      locator: () => ({}),
+      screenshot: async () => {
+        const capture = captures[Math.min(captureCount, captures.length - 1)];
+        captureCount += 1;
+        return capture;
+      },
+    } as unknown as Page;
+
+    const result = await verifier.verify('ready', settlingPage);
+
+    assert.equal(result.disposition, 'passed');
+    assert.equal(captureCount, 3);
+  });
+
   it('accepts only an exact compatible baseline and retains no passing artifact', async () => {
     const fixture = await createFixture();
     await fixture.writeBaseline(baseline(screenshot));

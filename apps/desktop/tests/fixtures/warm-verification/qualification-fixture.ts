@@ -252,7 +252,9 @@ export async function startQualificationHarness(options?: {
       benchmark.target.frozenTime,
       'regression'
     );
-    const browserRevision = chromiumRevisionFromExecutablePath(chromium.executablePath());
+    const browserRevision = process.env.PLAYWRIGHT_EXECUTABLE_PATH
+      ? `external-${ownedBrowser.version()}`
+      : chromiumRevisionFromExecutablePath(chromium.executablePath());
     const serverIdentity = `vite:${baseUrl}:generation-1`;
     const browserIdentity = `chromium:${browserRevision}:generation-1`;
 
@@ -319,7 +321,19 @@ export async function startQualificationHarness(options?: {
         const result = await run(parallelism, runId);
         const reportingStarted = performance.now();
         if (result.outcome !== 'passed' || result.scenarios.length !== scenarioIds.length) {
-          throw new Error(`qualification invocation ${runId} did not pass all scenarios`);
+          const failures = result.scenarios
+            .filter((scenario) => scenario.outcome !== 'passed')
+            .map((scenario) => {
+              const observations = scenario.observations
+                .filter((observation) => observation.disposition !== 'passed')
+                .map((observation) => `${observation.policy_id}:${observation.disposition}`)
+                .join('|');
+              return `${scenario.scenario_id}:${scenario.outcome}[${observations}]`;
+            })
+            .join(', ');
+          throw new Error(
+            `qualification invocation ${runId} did not pass all scenarios (${failures || result.outcome})`
+          );
         }
         if (result.intelligenceCalls.total !== 0 || ownedBrowser.contexts().length !== 0) {
           throw new Error(`qualification invocation ${runId} leaked confidence or contexts`);

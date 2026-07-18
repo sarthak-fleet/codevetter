@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import SaasMakerConfigPanel from '@/components/SaasMakerConfigPanel';
+import McpHistoryPanel from '@/components/settings/McpHistoryPanel';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -14,20 +15,15 @@ import {
 } from '@/lib/review-service';
 import type { GitHubAuthStatus, LinearUser } from '@/lib/tauri-ipc';
 import {
-  clearMcpAccessAudit,
   checkGitHubAuth,
   checkLinearConnection,
   disconnectLinear,
-  getMcpRepositorySettings,
   getPreference,
   isTauriAvailable,
-  type McpRepositorySettings,
-  setMcpRepositoryEnabled,
   setPreference,
   startLinearOAuth,
   syncGitHubToken,
 } from '@/lib/tauri-ipc';
-import { useProjectWorkspace } from '@/lib/project-workspace';
 import { cn } from '@/lib/utils';
 import { isSettingsSection, type SettingsSection } from '@/lib/settings-sections';
 import AgentMemories from '@/pages/AgentMemories';
@@ -524,256 +520,6 @@ const categories: CategoryDef[] = [
   { key: 'memories', label: 'Memories', icon: '\u232c' },
   { key: 'about', label: 'About', icon: '\u2139' },
 ];
-
-function McpHistoryPanel() {
-  const { selectedRepoPath } = useProjectWorkspace();
-  const [settings, setSettings] = useState<McpRepositorySettings | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const selectedRepoRef = useRef(selectedRepoPath);
-  const refreshGeneration = useRef(0);
-  selectedRepoRef.current = selectedRepoPath;
-
-  const refresh = useCallback(async () => {
-    const generation = ++refreshGeneration.current;
-    const requestedRepo = selectedRepoPath;
-    if (!selectedRepoPath || !isTauriAvailable()) {
-      setSettings(null);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const next = await getMcpRepositorySettings(selectedRepoPath);
-      if (generation === refreshGeneration.current && selectedRepoRef.current === requestedRepo) {
-        setSettings(next);
-      }
-    } catch (cause) {
-      if (generation === refreshGeneration.current) {
-        setError(cause instanceof Error ? cause.message : String(cause));
-      }
-    } finally {
-      if (generation === refreshGeneration.current) setLoading(false);
-    }
-  }, [selectedRepoPath]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  async function toggleEnabled() {
-    if (!selectedRepoPath || !settings) return;
-    const requestedRepo = selectedRepoPath;
-    setSaving(true);
-    setError(null);
-    try {
-      const next = await setMcpRepositoryEnabled(selectedRepoPath, !settings.enabled);
-      if (selectedRepoRef.current === requestedRepo) setSettings(next);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function copyConfig() {
-    if (!settings?.client_config) return;
-    setError(null);
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(settings.client_config, null, 2));
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }
-
-  async function clearAudit() {
-    if (!selectedRepoPath) return;
-    setError(null);
-    try {
-      await clearMcpAccessAudit(selectedRepoPath);
-      await refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }
-
-  if (!selectedRepoPath) {
-    return (
-      <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-6 text-sm text-slate-400">
-        Select a repository from the workspace header to configure its MCP exposure.
-      </div>
-    );
-  }
-
-  if (loading && !settings) {
-    return <div className="text-sm text-slate-500">Loading local history exposure…</div>;
-  }
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-6">
-        <div className="flex items-start justify-between gap-5">
-          <div>
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-medium text-slate-200">Repository history over MCP</p>
-              <span
-                className={cn(
-                  'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
-                  settings?.enabled
-                    ? 'bg-emerald-500/10 text-emerald-400'
-                    : 'bg-slate-500/10 text-slate-500'
-                )}
-              >
-                {settings?.enabled ? 'Enabled' : 'Disabled'}
-              </span>
-            </div>
-            <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500">
-              Exposes only this repository&apos;s persisted structural graph and release history
-              over local stdio. It cannot write files, refresh indexes, call providers, or listen on
-              the network.
-            </p>
-          </div>
-          <Button
-            onClick={() => void toggleEnabled()}
-            disabled={saving || !settings?.indexed}
-            variant={settings?.enabled ? 'outline' : 'default'}
-            className={settings?.enabled ? 'border-[#292929] bg-transparent' : 'bg-amber-600'}
-          >
-            {saving ? 'Saving…' : settings?.enabled ? 'Disable' : 'Enable'}
-          </Button>
-        </div>
-
-        {!settings?.indexed && (
-          <p className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
-            Build release history for this repository before enabling MCP.
-          </p>
-        )}
-        {error && (
-          <p className="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-300">
-            {error}
-          </p>
-        )}
-
-        <div className="mt-5 grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
-          <div className="rounded-lg border border-[#1a1a1a] bg-[#070707] p-3">
-            <p className="text-slate-600">History</p>
-            <p className={settings?.stale ? 'mt-1 text-amber-300' : 'mt-1 text-slate-300'}>
-              {settings?.stale ? 'Stale but readable' : settings?.indexed ? 'Current' : 'Not built'}
-            </p>
-          </div>
-          <div className="rounded-lg border border-[#1a1a1a] bg-[#070707] p-3">
-            <p className="text-slate-600">Tools</p>
-            <p className="mt-1 text-slate-300">{settings?.tool_names.length ?? 0}</p>
-          </div>
-          <div className="rounded-lg border border-[#1a1a1a] bg-[#070707] p-3">
-            <p className="text-slate-600">Resources</p>
-            <p className="mt-1 text-slate-300">{settings?.resource_kinds.length ?? 0} kinds</p>
-          </div>
-          <div className="rounded-lg border border-[#1a1a1a] bg-[#070707] p-3">
-            <p className="text-slate-600">Recent accesses</p>
-            <p className="mt-1 text-slate-300">{settings?.recent_audit.length ?? 0}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-6">
-        <p className="text-sm font-medium text-slate-200">Client configuration</p>
-        <p className="mt-1 text-xs text-slate-500">
-          CodeVetter shows the exact generic stdio config but never edits an agent&apos;s config
-          file.
-        </p>
-        <div className="mt-4 rounded-lg border border-[#1a1a1a] bg-[#070707] px-3 py-2">
-          <p className="text-[10px] uppercase tracking-wider text-slate-600">Packaged server</p>
-          <p className="mt-1 break-all font-mono text-[11px] text-slate-400">
-            {settings?.server_path ?? 'Unavailable outside the desktop app'}
-          </p>
-        </div>
-        <pre className="mt-4 max-h-64 overflow-auto rounded-lg border border-[#1a1a1a] bg-[#050505] p-4 text-[11px] leading-5 text-slate-400">
-          {settings?.client_config
-            ? JSON.stringify(settings.client_config, null, 2)
-            : 'Enable this repository to generate an opaque scoped configuration.'}
-        </pre>
-        <div className="mt-3 flex gap-2">
-          <Button
-            variant="outline"
-            disabled={!settings?.client_config}
-            onClick={() => void copyConfig()}
-            className="border-[#292929] bg-transparent"
-          >
-            {copied ? 'Copied' : 'Copy config'}
-          </Button>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-6">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-slate-200">Local access audit</p>
-            <p className="mt-1 text-xs text-slate-500">
-              Operational metadata only—arguments, prompts, query text, and returned evidence are
-              never recorded.
-            </p>
-          </div>
-          <Button
-            variant="ghost"
-            disabled={!settings?.recent_audit.length}
-            onClick={() => void clearAudit()}
-          >
-            Clear access audit
-          </Button>
-        </div>
-        <div className="mt-4 overflow-hidden rounded-lg border border-[#1a1a1a]">
-          {settings?.recent_audit.length ? (
-            <div className="divide-y divide-[#151515]">
-              {settings.recent_audit.slice(0, 12).map((entry) => (
-                <div
-                  key={entry.id}
-                  className="grid grid-cols-[1fr_auto_auto] items-center gap-4 bg-[#070707] px-3 py-2 text-[11px]"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-mono text-slate-300">{entry.operation}</p>
-                    <p className="mt-0.5 text-slate-600">{entry.created_at}</p>
-                  </div>
-                  <span className={entry.status === 'ok' ? 'text-emerald-400' : 'text-amber-300'}>
-                    {entry.status}
-                  </span>
-                  <span className="tabular-nums text-slate-500">
-                    {entry.duration_ms} ms · {entry.response_bytes} B
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="bg-[#070707] px-3 py-4 text-xs text-slate-600">
-              No MCP accesses recorded for this repository.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-5">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Exposed kinds
-          </p>
-          <p className="mt-3 text-xs leading-6 text-slate-500">
-            {settings?.resource_kinds.join(' · ') || 'No resource preview available'}
-          </p>
-        </div>
-        <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-5">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Redaction</p>
-          <p className="mt-3 text-xs leading-6 text-slate-500">
-            {settings?.redaction_rules.join(' · ') || 'No redaction preview available'}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
