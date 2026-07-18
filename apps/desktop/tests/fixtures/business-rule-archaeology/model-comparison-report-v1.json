@@ -1,0 +1,255 @@
+{
+  "cases": [
+    {
+      "case_id": "claim-conflict-current",
+      "deterministic_clause_count": 2,
+      "deterministic_correction": {
+        "deletions": 162,
+        "insertions": 0,
+        "substitutions": 16,
+        "text_edit_distance": 178
+      },
+      "deterministic_rule_kind": "eligibility",
+      "deterministic_supported_clause_count": 2,
+      "golden_rule_id": "rule:claim:conflict",
+      "golden_rule_kind": "eligibility",
+      "rule_kind_match": true,
+      "synthesis_clause_count": 1,
+      "synthesis_correction": {
+        "deletions": 227,
+        "insertions": 1,
+        "substitutions": 6,
+        "text_edit_distance": 234
+      },
+      "synthesis_supported_clause_count": 1
+    },
+    {
+      "case_id": "claim-duplicate-current",
+      "deterministic_clause_count": 2,
+      "deterministic_correction": {
+        "deletions": 123,
+        "insertions": 2,
+        "substitutions": 34,
+        "text_edit_distance": 159
+      },
+      "deterministic_rule_kind": "eligibility",
+      "deterministic_supported_clause_count": 2,
+      "golden_rule_id": "rule:claim:duplicate",
+      "golden_rule_kind": "eligibility",
+      "rule_kind_match": true,
+      "synthesis_clause_count": 1,
+      "synthesis_correction": {
+        "deletions": 191,
+        "insertions": 1,
+        "substitutions": 31,
+        "text_edit_distance": 223
+      },
+      "synthesis_supported_clause_count": 1
+    },
+    {
+      "case_id": "payment-current",
+      "deterministic_clause_count": 2,
+      "deterministic_correction": {
+        "deletions": 42,
+        "insertions": 33,
+        "substitutions": 73,
+        "text_edit_distance": 148
+      },
+      "deterministic_rule_kind": "lifecycle",
+      "deterministic_supported_clause_count": 2,
+      "golden_rule_id": "rule:payment:current",
+      "golden_rule_kind": "eligibility",
+      "rule_kind_match": false,
+      "synthesis_clause_count": 1,
+      "synthesis_correction": {
+        "deletions": 72,
+        "insertions": 12,
+        "substitutions": 102,
+        "text_edit_distance": 186
+      },
+      "synthesis_supported_clause_count": 1
+    },
+    {
+      "case_id": "route-cobol-current",
+      "deterministic_clause_count": 3,
+      "deterministic_correction": {
+        "deletions": 196,
+        "insertions": 2,
+        "substitutions": 17,
+        "text_edit_distance": 215
+      },
+      "deterministic_rule_kind": "routing",
+      "deterministic_supported_clause_count": 3,
+      "golden_rule_id": "rule:route:cobol",
+      "golden_rule_kind": "routing",
+      "rule_kind_match": true,
+      "synthesis_clause_count": 1,
+      "synthesis_correction": {
+        "deletions": 331,
+        "insertions": 0,
+        "substitutions": 13,
+        "text_edit_distance": 344
+      },
+      "synthesis_supported_clause_count": 1
+    },
+    {
+      "case_id": "route-hlasm-current",
+      "deterministic_clause_count": 3,
+      "deterministic_correction": {
+        "deletions": 191,
+        "insertions": 0,
+        "substitutions": 26,
+        "text_edit_distance": 217
+      },
+      "deterministic_rule_kind": "lifecycle",
+      "deterministic_supported_clause_count": 3,
+      "golden_rule_id": "rule:route:hlasm",
+      "golden_rule_kind": "routing",
+      "rule_kind_match": false,
+      "synthesis_clause_count": 1,
+      "synthesis_correction": {
+        "deletions": 270,
+        "insertions": 0,
+        "substitutions": 27,
+        "text_edit_distance": 297
+      },
+      "synthesis_supported_clause_count": 1
+    },
+    {
+      "case_id": "route-x86-current",
+      "deterministic_clause_count": 3,
+      "deterministic_correction": {
+        "deletions": 209,
+        "insertions": 2,
+        "substitutions": 29,
+        "text_edit_distance": 240
+      },
+      "deterministic_rule_kind": "validation",
+      "deterministic_supported_clause_count": 3,
+      "golden_rule_id": "rule:route:x86",
+      "golden_rule_kind": "routing",
+      "rule_kind_match": false,
+      "synthesis_clause_count": 1,
+      "synthesis_correction": {
+        "deletions": 279,
+        "insertions": 0,
+        "substitutions": 18,
+        "text_edit_distance": 297
+      },
+      "synthesis_supported_clause_count": 1
+    }
+  ],
+  "full_qualification": false,
+  "gates": {
+    "comparison_gate_pass": true,
+    "deterministic_clause_support_pass": true,
+    "deterministic_unsupported_clause_pass": true,
+    "synthesis_clause_support_pass": true,
+    "synthesis_unsupported_clause_pass": true,
+    "zero_model_catalog_pass": true
+  },
+  "input_identities": {
+    "corpus": "sha256:49359cf4a8872f4e8bae38e46b9d7c6a990790a44c9d63b42980301357a75fe5",
+    "qualification_policy": "sha256:aac211d2ab2316d95bb946fdef68b034654b135ee277450588bf498ea2d31794",
+    "synthesis_fixture": "sha256:718372c382ed0bc9a633163e9f5b2156b65fb9d82d25c80223ebfd86ea62313d"
+  },
+  "limitations": [
+    "The synthesis variant is a deterministic no-network mock, not a live model evaluation.",
+    "The corpus has no labeled quantifier case, so quantifier support is unqualified.",
+    "The six mock cases measure cited-clause support precision, not contradiction completeness or recall.",
+    "The generated listing is reconciled as an alias and is not counted as an independent primary rule.",
+    "The prior payment rule is reconciled as historical and is not counted as a current rule.",
+    "Text edit distance is deterministic comparison evidence, not measured human reviewer effort.",
+    "This six-case fixture is not full correctness, scale, resource, retrieval, or external-model qualification."
+  ],
+  "policy": {
+    "clause_support_rate_min_millionths": 980000,
+    "policy_id": "codevetter.business-rule-archaeology.qualification",
+    "policy_version": 1,
+    "unsupported_clause_rate_max_millionths": 20000
+  },
+  "report_id": "business-rule-archaeology-template-model-comparison-v1",
+  "schema_version": 1,
+  "scope": {
+    "corpus_id": "business-rule-archaeology-hand-labeled-v1",
+    "covered_clause_shapes": [
+      "subject",
+      "condition",
+      "action",
+      "exception"
+    ],
+    "generated_alias_cases": 1,
+    "generated_alias_of_rule_id": "rule:claim:eligible",
+    "generated_alias_rule_id": "rule:claim:generated",
+    "historical_cases": 1,
+    "historical_rule_id": "rule:payment:previous",
+    "missing_clause_shapes": [
+      "quantifier"
+    ],
+    "primary_current_cases": 6,
+    "primary_current_rule_ids": [
+      "rule:claim:conflict",
+      "rule:claim:duplicate",
+      "rule:payment:current",
+      "rule:route:cobol",
+      "rule:route:hlasm",
+      "rule:route:x86"
+    ],
+    "reconciled_rule_total": 9
+  },
+  "variants": [
+    {
+      "attempts": 0,
+      "case_count": 6,
+      "clause_count": 15,
+      "correction_deletions": 923,
+      "correction_insertions": 39,
+      "correction_substitutions": 195,
+      "estimated_cost_microusd": 0,
+      "external_model_calls": 0,
+      "input_tokens": 0,
+      "mock_provider_calls": 0,
+      "output_tokens": 0,
+      "pricing_identity": null,
+      "reported_cost_microusd": 0,
+      "supported_clause_count": 15,
+      "supported_clause_rate_millionths": 1000000,
+      "text_edit_distance": 1157,
+      "unsupported_clause_count": 0,
+      "unsupported_clause_rate_millionths": 0,
+      "variant": "deterministic_template"
+    },
+    {
+      "attempts": 6,
+      "case_count": 6,
+      "clause_count": 6,
+      "correction_deletions": 1370,
+      "correction_insertions": 14,
+      "correction_substitutions": 197,
+      "estimated_cost_microusd": 0,
+      "external_model_calls": 0,
+      "input_tokens": 768,
+      "mock_provider_calls": 6,
+      "output_tokens": 384,
+      "pricing_identity": null,
+      "reported_cost_microusd": 0,
+      "supported_clause_count": 6,
+      "supported_clause_rate_millionths": 1000000,
+      "text_edit_distance": 1581,
+      "unsupported_clause_count": 0,
+      "unsupported_clause_rate_millionths": 0,
+      "variant": "mock_structured_synthesis"
+    }
+  ],
+  "zero_model_catalog": {
+    "canonical_rule_rows": 1,
+    "exact_rerun_parity": true,
+    "first_receipt": "archaeology-synthesis-catalog:v1:ab94c0237df884c4b5a295d6699e346587ca43518767846a8039f51076cfd75d",
+    "fts_rows": 1,
+    "manifest_fts_exact_parity": true,
+    "manifest_rows": 1,
+    "provider_calls": 0,
+    "rerun_receipt": "archaeology-synthesis-catalog:v1:ab94c0237df884c4b5a295d6699e346587ca43518767846a8039f51076cfd75d",
+    "synthesis_attempt_rows": 0
+  }
+}

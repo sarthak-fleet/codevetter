@@ -1,0 +1,365 @@
+{
+  "adapter_correctness": {
+    "dialects": {
+      "assembly/ambiguous": {
+        "constructs": {
+          "unresolved": {
+            "expected": 1,
+            "false_negatives": 1,
+            "false_positives": 0,
+            "matched": 0,
+            "observed": 0,
+            "precision": null,
+            "recall": 0.0
+          }
+        }
+      },
+      "assembly/hlasm": {
+        "constructs": {
+          "control_flow": {
+            "expected": 1,
+            "false_negatives": 0,
+            "false_positives": 2,
+            "matched": 1,
+            "observed": 3,
+            "precision": 0.333333,
+            "recall": 1.0
+          },
+          "mutation": {
+            "expected": 2,
+            "false_negatives": 1,
+            "false_positives": 1,
+            "matched": 1,
+            "observed": 2,
+            "precision": 0.5,
+            "recall": 0.5
+          },
+          "predicate": {
+            "expected": 1,
+            "false_negatives": 0,
+            "false_positives": 0,
+            "matched": 1,
+            "observed": 1,
+            "precision": 1.0,
+            "recall": 1.0
+          }
+        }
+      },
+      "assembly/x86-64-gas-att": {
+        "constructs": {
+          "call": {
+            "expected": 2,
+            "false_negatives": 0,
+            "false_positives": 0,
+            "matched": 2,
+            "observed": 2,
+            "precision": 1.0,
+            "recall": 1.0
+          },
+          "control_flow": {
+            "expected": 1,
+            "false_negatives": 0,
+            "false_positives": 2,
+            "matched": 1,
+            "observed": 3,
+            "precision": 0.333333,
+            "recall": 1.0
+          },
+          "entry_point": {
+            "expected": 1,
+            "false_negatives": 0,
+            "false_positives": 0,
+            "matched": 1,
+            "observed": 1,
+            "precision": 1.0,
+            "recall": 1.0
+          },
+          "predicate": {
+            "expected": 1,
+            "false_negatives": 0,
+            "false_positives": 0,
+            "matched": 1,
+            "observed": 1,
+            "precision": 1.0,
+            "recall": 1.0
+          }
+        }
+      },
+      "cobol/free": {
+        "constructs": {
+          "decision": {
+            "expected": 1,
+            "false_negatives": 0,
+            "false_positives": 0,
+            "matched": 1,
+            "observed": 1,
+            "precision": 1.0,
+            "recall": 1.0
+          },
+          "mutation": {
+            "expected": 2,
+            "false_negatives": 2,
+            "false_positives": 2,
+            "matched": 0,
+            "observed": 2,
+            "precision": 0.0,
+            "recall": 0.0
+          }
+        }
+      },
+      "cobol/generated-listing": {
+        "constructs": {
+          "mutation": {
+            "expected": 1,
+            "false_negatives": 1,
+            "false_positives": 0,
+            "matched": 0,
+            "observed": 0,
+            "precision": null,
+            "recall": 0.0
+          },
+          "predicate": {
+            "expected": 1,
+            "false_negatives": 1,
+            "false_positives": 0,
+            "matched": 0,
+            "observed": 0,
+            "precision": null,
+            "recall": 0.0
+          }
+        }
+      },
+      "cobol/ibm-copybook": {
+        "constructs": {
+          "constant": {
+            "expected": 1,
+            "false_negatives": 1,
+            "false_positives": 1,
+            "matched": 0,
+            "observed": 1,
+            "precision": 0.0,
+            "recall": 0.0
+          },
+          "data_field": {
+            "expected": 2,
+            "false_negatives": 2,
+            "false_positives": 3,
+            "matched": 0,
+            "observed": 3,
+            "precision": 0.0,
+            "recall": 0.0
+          }
+        }
+      },
+      "cobol/ibm-fixed": {
+        "constructs": {
+          "include": {
+            "expected": 1,
+            "false_negatives": 1,
+            "false_positives": 1,
+            "matched": 0,
+            "observed": 1,
+            "precision": 0.0,
+            "recall": 0.0
+          },
+          "mutation": {
+            "expected": 6,
+            "false_negatives": 1,
+            "false_positives": 1,
+            "matched": 5,
+            "observed": 6,
+            "precision": 0.833333,
+            "recall": 0.833333
+          },
+          "predicate": {
+            "expected": 4,
+            "false_negatives": 1,
+            "false_positives": 1,
+            "matched": 3,
+            "observed": 4,
+            "precision": 0.75,
+            "recall": 0.75
+          }
+        }
+      },
+      "typescript/typescript": {
+        "constructs": {
+          "calculation": {
+            "expected": 2,
+            "false_negatives": 2,
+            "false_positives": 0,
+            "matched": 0,
+            "observed": 0,
+            "precision": null,
+            "recall": 0.0
+          },
+          "entry_point": {
+            "expected": 1,
+            "false_negatives": 0,
+            "false_positives": 0,
+            "matched": 1,
+            "observed": 1,
+            "precision": 1.0,
+            "recall": 1.0
+          },
+          "mutation": {
+            "expected": 2,
+            "false_negatives": 2,
+            "false_positives": 0,
+            "matched": 0,
+            "observed": 0,
+            "precision": null,
+            "recall": 0.0
+          },
+          "predicate": {
+            "expected": 2,
+            "false_negatives": 2,
+            "false_positives": 0,
+            "matched": 0,
+            "observed": 0,
+            "precision": null,
+            "recall": 0.0
+          }
+        }
+      }
+    },
+    "exactly_matched_fact_count": 18,
+    "labeled_fact_count": 36,
+    "match_contract": "fact kind plus exact original path/byte/line/column span; human paraphrase labels are not compared",
+    "observed_extracted_fact_count": 56,
+    "source_alignment": true,
+    "status": "measured_directly_through_production_language_adapters"
+  },
+  "catalog_correctness": {
+    "clause_support": {
+      "clause_count": 100,
+      "supported_clause_count": 100,
+      "supported_clause_rate": 1.0,
+      "unsupported_clause_count": 0
+    },
+    "contradictions": {
+      "false_negative_cases": 0,
+      "false_positive_relations": 0,
+      "labeled_cases": 1,
+      "matched_cases": 1,
+      "matched_relations": 8,
+      "observed_relations": 8,
+      "precision": 1.0,
+      "recall": 1.0,
+      "status": "measured_against_exact_labeled_fact_to_published_rule_mappings"
+    },
+    "dependency_paths": {
+      "correct_paths": 6,
+      "evaluable_paths": 7,
+      "labeled_paths": 16,
+      "observed_scoped_paths": 6,
+      "precision": 1.0,
+      "recall": 0.375,
+      "status": "measured_on_source_aligned_adapter_edges; cross_unit_linker_publication_is_blocked"
+    },
+    "duplicate_reconciliation": {
+      "alias_relation_precision": null,
+      "consolidated_groups": 1,
+      "false_negative_groups": 0,
+      "false_positive_alias_relations": null,
+      "labeled_groups": 1,
+      "matched_alias_relations": 0,
+      "matched_groups": 1,
+      "observed_alias_relations": 8,
+      "precision": 1.0,
+      "recall": 1.0,
+      "status": "group_accuracy_measured_with_canonical_consolidation; global_alias_precision_not_evaluable_from_non_exhaustive_labels",
+      "unmatched_alias_relations": 8
+    },
+    "retrieval": {
+      "expected": 24,
+      "false_negatives": 0,
+      "false_positives": 0,
+      "matched": 24,
+      "observed": 24,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "reverse_lookup": {
+      "expected": 48,
+      "false_negatives": 0,
+      "false_positives": 0,
+      "matched": 48,
+      "observed": 48,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "temporal_diffs": {
+      "after_revision_sha": "5423cef83a9765000df175c8666e2ab6353747dc",
+      "after_source_identity": "sha256:9c9f0ffb770797dc2b3f435abed1bb32198fbd35b8ca7a2cab8efae14fa25f1b",
+      "before_revision_sha": "af2272e0c744ad5669b985ac54389a0c094586e1",
+      "before_source_identity": "sha256:0a5f6f0f8408d543e61721aa0cba54f552ffa16c7e88046fbae8e32bf668926b",
+      "correct_changes": 1,
+      "coverage": "unavailable",
+      "coverage_reasons": [
+        "current_parser_coverage_unavailable",
+        "history_index_unavailable",
+        "missing_prior_generation",
+        "prior_parser_coverage_unavailable",
+        "temporal_event_coverage_unavailable"
+      ],
+      "exact_evidence_candidates": 1,
+      "labeled_changes": 1,
+      "observed_changed_classifications": 0,
+      "observed_changes": 3,
+      "precision": 1.0,
+      "recall": 1.0,
+      "status": "measured_through_canonical_temporal_read_with_exact_revisions_source_hashes_and_labeled_byte_ranges; classification_remains_fail_closed_under_partial_coverage"
+    }
+  },
+  "corpus_id": "business-rule-archaeology-hand-labeled-v1",
+  "input_identities": {
+    "labeled_corpus": "sha256:49359cf4a8872f4e8bae38e46b9d7c6a990790a44c9d63b42980301357a75fe5",
+    "qualification_policy": "sha256:aac211d2ab2316d95bb946fdef68b034654b135ee277450588bf498ea2d31794",
+    "source_fixture_bundle": "sha256:7b5b035b9635fc0a2285a1854b77105d9f0226b4fa198da86c9aeac5894743ac"
+  },
+  "limitations": [
+    "The checked corpus is small and is not a repository-scale qualification.",
+    "The full labeled source bundle publishes after isolating unsupported units, deduplicating evidence and clauses, reconciling prose-only rules, filtering temporal aliases, accepting exact EOF spans, and rebuilding revision-scoped lineage.",
+    "Adapter facts are source-aligned and measured directly; catalog publication/read metrics use the same full labeled two-revision workload.",
+    "Repeated full-corpus publication is deterministic. Labeled contradiction, source-duplicate, and temporal condition-change cases are measured directly with full recall; temporal classification remains fail-closed while history or parser coverage is partial, and the generated-listing negative case remains excluded from semantic facts by contract.",
+    "No human reviewed this generated sample, so correction minutes and edits remain unavailable.",
+    "A failing metric is retained as measured evidence and is not converted into a supported-language claim."
+  ],
+  "model_usage": {
+    "external_model_calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "reported_cost_microusd": 0
+  },
+  "pipeline": {
+    "normalized_output_identity": "sha256:6ff995fbdbc1669d62ada5ed4329ab063a9c9deb9da27edcbdb715929c2f14e6",
+    "revision_count": 2,
+    "stages": [
+      "inventory",
+      "adapter",
+      "link",
+      "derive",
+      "publish",
+      "canonical_read"
+    ],
+    "zero_model": true
+  },
+  "qualification": {
+    "blockers": [
+      "no recorded human review sample exists"
+    ],
+    "full_correctness_qualification": false,
+    "passing_claim": null
+  },
+  "report_id": "codevetter.business-rule-archaeology.real-pipeline-correctness.v1",
+  "report_payload_sha256": "sha256:643baed6c8e4ccc2b5d93029ff5a01e7aeea6f134b07f860584ce975ff851a7b",
+  "reviewer_correction_effort": {
+    "human_reviewers": 0,
+    "measured_edits": null,
+    "measured_minutes": null,
+    "reviewed_rule_sample": 0,
+    "status": "unavailable_no_recorded_human_review; edit distance is not substituted"
+  },
+  "schema_version": 1
+}

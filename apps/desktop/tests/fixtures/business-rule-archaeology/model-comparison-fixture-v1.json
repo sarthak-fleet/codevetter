@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "fixture_id": "business-rule-archaeology-model-comparison-v1",
+  "corpus_id": "business-rule-archaeology-hand-labeled-v1",
+  "provider": {
+    "provider_kind": "mock",
+    "provider_identity": "local",
+    "model_identity": "qualification-mock-structured-v1",
+    "network_scope": "none",
+    "cost_class": "free",
+    "pricing_identity": null,
+    "input_tokens_per_call": 128,
+    "output_tokens_per_call": 64,
+    "reported_cost_microusd_per_call": 0,
+    "max_output_tokens": 256
+  },
+  "scope": {
+    "primary_current_rule_ids": [
+      "rule:claim:conflict",
+      "rule:claim:duplicate",
+      "rule:payment:current",
+      "rule:route:cobol",
+      "rule:route:hlasm",
+      "rule:route:x86"
+    ],
+    "generated_alias_rule_id": "rule:claim:generated",
+    "generated_alias_of_rule_id": "rule:claim:eligible",
+    "historical_rule_id": "rule:payment:previous",
+    "covered_clause_shapes": ["subject", "condition", "action", "exception"],
+    "missing_clause_shapes": ["quantifier"]
+  },
+  "cases": [
+    {
+      "case_id": "claim-conflict-current",
+      "golden_rule_id": "rule:claim:conflict",
+      "anchor_fact_id": "fact:conflict:predicate",
+      "subject_fact_ids": ["fact:conflict:predicate"],
+      "condition_fact_ids": ["fact:conflict:predicate"],
+      "action_fact_ids": ["fact:conflict:eligible"],
+      "exception_fact_ids": null,
+      "relationship_ids": ["edge:conflict:controls"],
+      "contradicting_fact_ids": [],
+      "quantifier": null
+    },
+    {
+      "case_id": "claim-duplicate-current",
+      "golden_rule_id": "rule:claim:duplicate",
+      "anchor_fact_id": "fact:duplicate:predicate",
+      "subject_fact_ids": ["fact:duplicate:predicate"],
+      "condition_fact_ids": ["fact:duplicate:predicate"],
+      "action_fact_ids": ["fact:duplicate:eligible"],
+      "exception_fact_ids": null,
+      "relationship_ids": ["edge:duplicate:controls"],
+      "contradicting_fact_ids": [],
+      "quantifier": null
+    },
+    {
+      "case_id": "payment-current",
+      "golden_rule_id": "rule:payment:current",
+      "anchor_fact_id": "fact:modern:predicate",
+      "subject_fact_ids": ["fact:modern:predicate"],
+      "condition_fact_ids": ["fact:modern:predicate"],
+      "action_fact_ids": ["fact:modern:approve"],
+      "exception_fact_ids": null,
+      "relationship_ids": ["edge:modern:controls"],
+      "contradicting_fact_ids": [],
+      "quantifier": null
+    },
+    {
+      "case_id": "route-cobol-current",
+      "golden_rule_id": "rule:route:cobol",
+      "anchor_fact_id": "fact:free:evaluate",
+      "subject_fact_ids": ["fact:free:evaluate"],
+      "condition_fact_ids": ["fact:free:evaluate"],
+      "action_fact_ids": ["fact:free:other", "fact:free:urgent"],
+      "exception_fact_ids": ["fact:free:evaluate"],
+      "relationship_ids": ["edge:free:other", "edge:free:urgent"],
+      "contradicting_fact_ids": [],
+      "quantifier": null
+    },
+    {
+      "case_id": "route-hlasm-current",
+      "golden_rule_id": "rule:route:hlasm",
+      "anchor_fact_id": "fact:hlasm:compare",
+      "subject_fact_ids": ["fact:hlasm:compare"],
+      "condition_fact_ids": ["fact:hlasm:compare", "fact:hlasm:branch"],
+      "action_fact_ids": ["fact:hlasm:deny"],
+      "exception_fact_ids": null,
+      "relationship_ids": ["edge:hlasm:branch", "edge:hlasm:deny"],
+      "contradicting_fact_ids": [],
+      "quantifier": null
+    },
+    {
+      "case_id": "route-x86-current",
+      "golden_rule_id": "rule:route:x86",
+      "anchor_fact_id": "fact:x86:compare",
+      "subject_fact_ids": ["fact:x86:compare"],
+      "condition_fact_ids": ["fact:x86:compare", "fact:x86:branch"],
+      "action_fact_ids": ["fact:x86:reject"],
+      "exception_fact_ids": null,
+      "relationship_ids": ["edge:x86:branch", "edge:x86:reject"],
+      "contradicting_fact_ids": [],
+      "quantifier": null
+    }
+  ]
+}
