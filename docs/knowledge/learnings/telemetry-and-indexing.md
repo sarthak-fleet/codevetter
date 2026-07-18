@@ -1,6 +1,6 @@
 ---
-title: Learnings: telemetry and indexing
-description: The usage pipeline: JSONL transcript parsing, usage dedup, incremental byte-offset cursors, day bucketing, API-equivalent pricing, rolling quota windows, background QoS.
+title: "Learnings: telemetry and indexing"
+description: "The usage pipeline: JSONL transcript parsing, usage dedup, incremental byte-offset cursors, day bucketing, API-equivalent pricing, rolling quota windows, background QoS."
 ---
 
 The pipeline that turns raw agent transcripts into the Home usage numbers.

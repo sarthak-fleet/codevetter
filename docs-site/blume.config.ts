@@ -9,18 +9,25 @@ import { defineConfig } from 'blume';
  *
  * See docs/development/docs.md for the documentation rules.
  */
+// PRDs + OpenSpec are public while this repo is open-source.
+// Flip to closed-source by building with DOCS_PUBLIC_INTERNAL=false.
+const publicInternal = process.env.DOCS_PUBLIC_INTERNAL !== 'false';
+
 export default defineConfig({
   title: 'CodeVetter docs',
   description:
     'Local-first knowledge system for CodeVetter — the AI desktop code review workbench for agent-generated code.',
 
   content: {
-    root: 'docs',
+    root: '../docs',
     // Render committed Markdown as the docs site. Archive is excluded from
     // the rendered site (it is preserved for git history and reachable via
     // the repo, not as canonical pages). See docs/development/docs.md.
     include: ['**/*.md'],
-    exclude: ['archive/**'],
+    // archive is never rendered; PRDs/OpenSpec render while open-source.
+    exclude: publicInternal
+      ? ['archive/**']
+      : ['archive/**', 'prds/**', 'openspec/**'],
   },
 
   theme: {
@@ -63,10 +70,9 @@ export default defineConfig({
   },
 
   deployment: {
+    // Served at codevetter.com/docs (apex subpath — no separate product).
+    base: '/docs',
+    site: 'https://codevetter.com',
     output: 'static',
-    // No canonical docs site URL yet — set this when the docs site is
-    // published. Leaving it unset keeps sitemap/feeds off until a site is
-    // chosen.
-    // site: "https://docs.codevetter.com",
   },
 });

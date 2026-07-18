@@ -14,7 +14,7 @@ the Settings tab and persisted via Tauri preferences.
 
 > The old `docs/archive/stale-configuration-2026-04.md` described Cloudflare Workers / GitHub OAuth
 > / D1 / dashboard env vars. None of that is in the product anymore — see
-> [../archive/stale-configuration-2026-04.md](../archive/stale-configuration-2026-04.md).
+> [stale-configuration-2026-04.md](https://github.com/Codevetter/codevetter/blob/main/docs/archive/stale-configuration-2026-04.md).
 > Do not re-add those env vars.
 
 ## Desktop app runtime

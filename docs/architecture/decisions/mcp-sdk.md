@@ -1,5 +1,5 @@
 ---
-title: Decision: MCP Rust SDK
+title: "Decision: MCP Rust SDK"
 description: Chose the official modelcontextprotocol/rust-sdk crate rmcp pinned to 2.2.0 for the local history sidecar.
 ---
 

@@ -1,6 +1,6 @@
 ---
-title: Learnings: platform and stack
-description: Platform + stack concepts: Tauri 2, IPC, CLI-agent subprocesses, ast-grep, agent talks, rusqlite, provider APIs, auto-updater, DORA, calibration, workspaces, CF Pages, GEO, release chaining.
+title: "Learnings: platform and stack"
+description: "Platform + stack concepts: Tauri 2, IPC, CLI-agent subprocesses, ast-grep, agent talks, rusqlite, provider APIs, auto-updater, DORA, calibration, workspaces, CF Pages, GEO, release chaining."
 ---
 
 Desktop Tauri 2 / Rust app that reviews agent-generated code diffs using pluggable LLM providers, running fully offline as a macOS binary.

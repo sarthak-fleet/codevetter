@@ -48,7 +48,7 @@ npm run lint
 | `build` | Vite production build |
 | `tauri:dev` | Full Tauri dev mode with hot reload |
 | `tauri:build` | Release build — outputs macOS `.app` / `.dmg` |
-| `lint` | ESLint over `src/` |
+| `lint` | Biome check over the app |
 
 ## Architecture
 
@@ -62,11 +62,13 @@ src/                       React frontend (Vite + Tailwind)
 
 src-tauri/                 Rust backend (Tauri 2)
 ├── src/commands/          IPC command handlers (invoked from React via tauri-ipc)
-├── src/coordination/      CRDT agent coordination (Automerge)
-├── src/db/                SQLite schema + queries (tauri-plugin-sql)
-├── src/adapters/          Claude Code + Codex CLI adapters
-└── sidecar/               Bun-compiled review sidecar binary
+├── src/db/                SQLite schema + queries (rusqlite, bundled)
+├── src/mcp/               Opt-in read-only MCP sidecar
+├── src/agent/             CLI agent spawning + PTY terminals
+└── src/bin/               Sidecar binary entrypoints
 ```
+
+See `docs/architecture/` for the canonical, code-backed architecture.
 
 ## Keyboard shortcuts
 

@@ -1,0 +1,7 @@
+{
+  "name": "codevetter-docs",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": { "build": "blume build", "dev": "blume dev", "validate": "blume validate" },
+  "dependencies": { "blume": "1.0.4" }
+}

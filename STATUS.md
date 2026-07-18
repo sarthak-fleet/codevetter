@@ -48,8 +48,6 @@ re-review → proof loop with benchmarked catch-rate evidence.
    sidecar (see [docs/operations/runbooks/cut-a-release.md](./docs/operations/runbooks/cut-a-release.md)).
 3. Connect replay to files, diffs, failures, screenshots, tests, and review
    findings (currently replay is conversation-only).
-4. Land the docs validation CI (`.github/workflows/docs.yml`) and Blume
-   rendering config.
 
 ## Recent shipped
 

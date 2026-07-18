@@ -1,6 +1,6 @@
 ---
 title: Synthetic user QA
-description: The runtime proof layer for agent-written code: exercise a changed web surface and store evidence next to review findings.
+description: "The runtime proof layer for agent-written code: exercise a changed web surface and store evidence next to review findings."
 ---
 
 Product brief for the smallest CodeVetter workflow that exercises a changed web surface and stores evidence next to review findings.

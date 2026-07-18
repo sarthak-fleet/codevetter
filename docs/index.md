@@ -11,10 +11,10 @@ This is the canonical knowledge system for the CodeVetter repository. The
 committed Markdown here is the source of truth; [Blume](https://useblume.dev)
 is only the presentation and search layer.
 
-- **Short current view**: [`../STATUS.md`](../STATUS.md)
-- **Deep timeline + feature log**: [`../PROJECT_STATUS.md`](../PROJECT_STATUS.md)
-- **Agent bootloader**: [`../agents.md`](../agents.md)
-- **Product readme**: [`../README.md`](../README.md)
+- **Short current view**: [`STATUS.md`](https://github.com/Codevetter/codevetter/blob/main/STATUS.md)
+- **Deep timeline + feature log**: [`PROJECT_STATUS.md`](https://github.com/Codevetter/codevetter/blob/main/PROJECT_STATUS.md)
+- **Agent bootloader**: [`agents.md`](https://github.com/Codevetter/codevetter/blob/main/agents.md)
+- **Product readme**: [`README.md`](https://github.com/Codevetter/codevetter/blob/main/README.md)
 
 ## Product
 
@@ -24,6 +24,7 @@ is only the presentation and search layer.
 
 ## Architecture
 
+- **Start here:** [how-it-works.md](./architecture/how-it-works.md) — end-to-end pedagogical overview of the whole system (components, review flow, key decisions).
 - [overview.md](./architecture/overview.md) — layers, critical invariants, what was removed.
 - [ipc-and-commands.md](./architecture/ipc-and-commands.md) — the IPC bridge and command map.
 - [data-model.md](./architecture/data-model.md) — SQLite tables and persistence boundaries.
@@ -51,6 +52,7 @@ is only the presentation and search layer.
 ## Operations
 
 - [release-pipeline.md](./operations/release-pipeline.md) — desktop release chain.
+- [signing-and-updates.md](./operations/signing-and-updates.md) — signing keys + auto-update mechanism.
 - [landing-deploy.md](./operations/landing-deploy.md) — Cloudflare Pages deploy.
 - [ci.md](./operations/ci.md) — CI workflow and order.
 
@@ -77,18 +79,21 @@ is only the presentation and search layer.
 
 ## Archive
 
-Superseded docs kept for git history. **Do not treat as current.**
+Superseded docs kept for git history. **Do not treat as current.** These are
+excluded from the rendered Blume site (see `blume.config.ts`), so the links
+below point at the files in the repo on GitHub.
 
-- [DECISIONS.md](./archive/DECISIONS.md) — older decision log.
-- [LESSONS.md](./archive/LESSONS.md) — older lessons.
-- [PRD-*.md](./archive/) — scoped PRDs for shipped slices.
-- [stale-architecture-2026-04.md](./archive/stale-architecture-2026-04.md) — pre-desloppification architecture (removed `packages/`/`workers/`).
-- [stale-development-2026-04.md](./archive/stale-development-2026-04.md)
-- [stale-configuration-2026-04.md](./archive/stale-configuration-2026-04.md)
-- [stale-testing-2026-04.md](./archive/stale-testing-2026-04.md)
-- [planning-codebase/](./archive/planning-codebase/) — pre-desloppification `.planning/codebase/` docs.
+- [DECISIONS.md](https://github.com/Codevetter/codevetter/blob/main/docs/archive/DECISIONS.md) — older decision log.
+- [LESSONS.md](https://github.com/Codevetter/codevetter/blob/main/docs/archive/LESSONS.md) — older lessons.
+- [PRD-*.md](https://github.com/Codevetter/codevetter/tree/main/docs/archive) — scoped PRDs for shipped slices.
+- [stale-competitive-landscape-2026-03.md](https://github.com/Codevetter/codevetter/blob/main/docs/archive/stale-competitive-landscape-2026-03.md) — full March competitor survey + April OSS GTM plan.
+- [stale-architecture-2026-04.md](https://github.com/Codevetter/codevetter/blob/main/docs/archive/stale-architecture-2026-04.md) — pre-desloppification architecture (removed `packages/`/`workers/`).
+- [stale-development-2026-04.md](https://github.com/Codevetter/codevetter/blob/main/docs/archive/stale-development-2026-04.md)
+- [stale-configuration-2026-04.md](https://github.com/Codevetter/codevetter/blob/main/docs/archive/stale-configuration-2026-04.md)
+- [stale-testing-2026-04.md](https://github.com/Codevetter/codevetter/blob/main/docs/archive/stale-testing-2026-04.md)
+- [planning-codebase/](https://github.com/Codevetter/codevetter/tree/main/docs/archive/planning-codebase) — pre-desloppification `.planning/codebase/` docs.
 
 ## Open questions
 
-Tracked in [`../STATUS.md`](../STATUS.md) under "Unresolved questions".
+Tracked in [`STATUS.md`](https://github.com/Codevetter/codevetter/blob/main/STATUS.md) under "Unresolved questions".
 Do not invent answers in docs; mark gaps explicitly.

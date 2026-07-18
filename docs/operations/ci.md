@@ -39,4 +39,4 @@ Steps, in order (a failure stops the job):
 ## Local pre-commit / pre-push
 
 - **pre-commit** (`.husky/pre-commit`): `lint-staged` → `biome check --write` on staged `apps/desktop/src/**/*.{ts,tsx}`.
-- **pre-push** (`.husky/pre-push`): `pnpm lint` + secret-pattern scan over tracked files. Exclusions are anchored to known dirs (`benchmark/`, `apps/landing-page-astro/public/benchmark/`, fixtures, `secret_policy.rs`).
+- **pre-push** (`.husky/pre-push`): `npm run lint` (root `lint` script, which runs Biome) + secret-pattern scan over tracked files. Exclusions are anchored to known dirs (`benchmark/`, `apps/landing-page-astro/public/benchmark/`, fixtures, `secret_policy.rs`).

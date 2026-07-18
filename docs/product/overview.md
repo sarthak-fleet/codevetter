@@ -45,7 +45,7 @@ work, and did the affected audience succeed with it?*
 
 | Capability | Current state | Main gap |
 |---|---|---|
-| Code review | Review tab runs local diffs through CLI agents and persists findings. | Multi-pass specialist review, AGENTS.md/project-context ingestion, benchmarked catch-rate evidence. |
+| Code review | Review tab runs local diffs through CLI agents and persists findings. Risk-tiered multi-pass review (security/product/agent specialists + coordinator dedup) is shipped — see [architecture/review-pipeline.md](../architecture/review-pipeline.md). | AGENTS.md/project-context ingestion; benchmarked catch-rate evidence on real agent-PR cases. |
 | Bug finding | Findings, severity, code viewer, re-review loop. | Runtime evidence from tests/browser/logs, not only static diff judgment. |
 | Agent-written code verification | Fixes/re-reviews selected findings; emits `review-proof` + `agent-fix-packet` with per-finding evidence and fixed/reproduced/unchecked tallies. | Close the intent loop: did the fix resolve the original user goal, and which agent/prompt produced the change. |
 | Debugging/replay | History indexes Claude/Codex sessions and can replay conversations. | Replay not connected to files, diffs, failures, screenshots, tests, or review findings. |
@@ -69,5 +69,5 @@ See [surfaces.md](./surfaces.md) for the full nav + URL-only surface map.
 
 ## Source of truth for status
 
-- [../../STATUS.md](../../STATUS.md) — short current view.
-- [../../PROJECT_STATUS.md](../../PROJECT_STATUS.md) — deep timeline + feature log (fleet-recognized source of truth).
+- [STATUS.md](https://github.com/Codevetter/codevetter/blob/main/STATUS.md) — short current view.
+- [PROJECT_STATUS.md](https://github.com/Codevetter/codevetter/blob/main/PROJECT_STATUS.md) — deep timeline + feature log (fleet-recognized source of truth).

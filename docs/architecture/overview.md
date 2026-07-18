@@ -7,6 +7,10 @@ sidebar:
 
 # Architecture overview
 
+> **New here?** Read [how-it-works.md](./how-it-works.md) first — it's the
+> end-to-end pedagogical entry point that connects every component and walks a
+> review through the system. This page is the layer-and-invariant reference.
+
 CodeVetter is a **local-first macOS desktop application** for evidence-backed
 review of agent-generated code. There is no server. The review engine, session
 indexer, structural graph, history workbench, and MCP sidecar all run on the
@@ -18,7 +22,7 @@ user's machine against a local SQLite database.
 ┌─────────────────────────────────────────────────────────────┐
 │  Tauri 2 native shell  (apps/desktop/src-tauri)             │
 │   ├─ Rust backend: commands/, db/, mcp/, agent/, talk.rs    │
-│   └─ SQLite via rusqlite (apps/desktop/src-tauri/codevetter) │
+│   └─ SQLite via rusqlite (single file in the Tauri app data dir) │
 ├─────────────────────────────────────────────────────────────┤
 │  Tauri IPC bridge  (invoke() → typed wrappers)              │
 ├─────────────────────────────────────────────────────────────┤
@@ -60,9 +64,11 @@ reconstruction, and the optional MCP sidecar.
 - **Single package manager: pnpm.** Root `packageManager: pnpm@10.33.2`. The
   May-2026 Cloudflare Pages failure was caused by dual npm+pnpm lockfile drift;
   do not reintroduce `package-lock.json`.
-- **Review engine runs in the webview (TypeScript).** Rust shells out to git
-  and CLI agents but does not score findings. Scoring/prompt/dedup live in
-  `apps/desktop/src/lib/review-service.ts` and friends.
+- **Review engine is Rust-owned.** The full pipeline — diff, risk-tiering,
+  specialist + coordinator LLM calls, dedup, scoring, and persistence — runs in
+  `src-tauri/src/commands/review.rs`. The React webview is the UI; TypeScript
+  `apps/desktop/src/lib/review-service.ts` only assembles standards/prompt
+  context. Works offline (calls the user's configured LLM providers directly).
 - **Structural graph + history are navigation context, not findings sources.**
   Trusted paths fed into Review/proof can orient a reviewer but cannot
   independently create findings, severities, or verified-runtime claims. See
@@ -77,13 +83,14 @@ reconstruction, and the optional MCP sidecar.
 - [repo-unpacked.md](./repo-unpacked.md) — evidence-backed repo briefs.
 - [mcp-sidecar.md](./mcp-sidecar.md) — opt-in local MCP server.
 - [history-evidence-import.md](./history-evidence-import.md) — importing provider-side outcomes.
-- [decisions/](./decisions/) — pinned technical decisions (MCP SDK, OSS integrations, Graphify parity).
+- Pinned technical decisions: [decisions/mcp-sdk.md](./decisions/mcp-sdk.md), [decisions/oss-integration.md](./decisions/oss-integration.md), [decisions/graphify-parity.md](./decisions/graphify-parity.md).
 
 ## What was removed (do not resurrect)
 
 The 2026-07-11 desloppification sweep removed ~3,600 lines of dead surface.
 Stale architecture docs describing the pre-sweep world are archived under
-[`../archive/`](../archive/) and [`../archive/planning-codebase/`](../archive/planning-codebase/).
+[`docs/archive/`](https://github.com/Codevetter/codevetter/tree/main/docs/archive)
+and [`docs/archive/planning-codebase/`](https://github.com/Codevetter/codevetter/tree/main/docs/archive/planning-codebase).
 Do not bring back:
 
 - `packages/` workspace libs (`review-core`, `ai-gateway-client`, `db`, `shared-types`) — review logic now lives in `apps/desktop/src/lib/`.

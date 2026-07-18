@@ -51,7 +51,7 @@ approximate (commands are `#[tauri::command]`-annotated fns).
 | Evidence patterns | `evidence_pattern.rs`, `cli_stream.rs` | ast-grep evidence, CLI stream. |
 | Sandbox | `sandbox.rs` | Isolated fix-execution sandbox. |
 | Resources / secrets | `resources.rs`, `secret_policy.rs` | Resource chips, secret-policy enforcement. |
-| SaaS Maker | `saas_maker.rs` | Fleet project linking (the `/fleet` tab). |
+| SaaS Maker | `saas_maker.rs` | Fleet project linking. Has no top-nav tab; `/fleet` redirects to `/` (see [product/surfaces.md](../product/surfaces.md)). |
 | Perf bench | `perf_bench.rs` | `#[ignore]`d release-mode benchmarks. See [development/performance.md](../development/performance.md). |
 
 ## Conventions

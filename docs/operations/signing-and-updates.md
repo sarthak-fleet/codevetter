@@ -1,4 +1,16 @@
-# Releasing CodeVetter Desktop
+---
+title: Signing keys and auto-update
+description: One-time Tauri signing-key setup and how the desktop auto-updater works.
+sidebar:
+  order: 4
+---
+
+# Signing keys and auto-update
+
+For the step-by-step release flow (version bump → CI build → publish), see
+[runbooks/cut-a-release.md](./runbooks/cut-a-release.md) and
+[release-pipeline.md](./release-pipeline.md). This page covers the one-time
+signing-key setup and the auto-update mechanism.
 
 ## Prerequisites
 

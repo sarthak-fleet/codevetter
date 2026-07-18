@@ -25,7 +25,6 @@ docs/
     runbooks/                   step-by-step operational runbooks
   knowledge/                    durable learnings + failed approaches
     learnings/                  concept bridges to external sources
-  current/                      short-lived current state
   archive/                      superseded docs (kept for git history)
     planning-codebase/          pre-desloppification planning docs (stale)
 ```
@@ -54,14 +53,22 @@ node scripts/check-docs.mjs           # link + structure + frontmatter checks
 ```
 
 CI runs this on every push/PR via `.github/workflows/docs.yml`. The checker
-verifies:
+(`scripts/check-docs.mjs`, pure stdlib) verifies exactly four things:
 
-- Every `docs/**/*.md` has a `title` in frontmatter (Blume renders it as the
-  page heading).
-- Every relative Markdown link resolves to a file that exists.
-- No broken anchors to headings that don't exist (best-effort).
-- `docs/index.md` exists.
-- Archived docs are not linked from non-archive docs as canonical sources.
+- `docs/index.md` exists (the navigation hub).
+- Every non-archive `docs/**/*.md` has a `title` in its frontmatter (Blume
+  renders it as the page heading).
+- Every relative Markdown link in a non-archive doc resolves to a file that
+  exists on disk (links into `docs/` or elsewhere in the repo both count;
+  anchors are stripped but not validated).
+- No empty subdirectories under `docs/`.
+
+Archived docs (`docs/archive/**`) are skipped entirely — they are preserved
+for git history, not rendered as canonical pages, so their stale relative
+links are expected. This is a per-file skip, not a link-target rule: the
+checker does not flag links *to* archive from current docs. To catch the
+richer Blume link graph (including archive-exclusion and anchor resolution),
+run `node_modules/.bin/blume validate`.
 
 ## Render with Blume
 

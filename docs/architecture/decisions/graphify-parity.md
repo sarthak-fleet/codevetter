@@ -1,5 +1,5 @@
 ---
-title: Decision: Graphify parity contract
+title: "Decision: Graphify parity contract"
 description: Graphify is the minimum useful code-graph reference, not a runtime dependency; parity is pinned to a specific commit.
 ---
 

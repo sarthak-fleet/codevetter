@@ -1,6 +1,6 @@
 ---
-title: Learnings: verification and judgment
-description: The verification stack: pairwise judging + order effects, staged verification, audience provenance, deterministic taste verdict, worktree isolation, FTS5, synthetic QA, spec-driven workflow.
+title: "Learnings: verification and judgment"
+description: "The verification stack: pairwise judging + order effects, staged verification, audience provenance, deterministic taste verdict, worktree isolation, FTS5, synthetic QA, spec-driven workflow."
 ---
 
 The stack that decides whether agent-written work is actually shippable.

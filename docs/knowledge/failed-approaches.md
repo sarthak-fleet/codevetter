@@ -107,7 +107,7 @@ and the constraint it leaves behind. Link here when rejecting a similar idea.
 
 ## More lessons
 
-See also [`../archive/LESSONS.md`](../archive/LESSONS.md) for older entries
-and [`../archive/DECISIONS.md`](../archive/DECISIONS.md) for the decision
+See also [`LESSONS.md`](https://github.com/Codevetter/codevetter/blob/main/docs/archive/LESSONS.md) for older entries
+and [`DECISIONS.md`](https://github.com/Codevetter/codevetter/blob/main/docs/archive/DECISIONS.md) for the decision
 log. When a new failure happens, add an entry here in the same shape
 (what broke / root cause / fix / constraint).

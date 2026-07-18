@@ -1,5 +1,5 @@
 ---
-title: Decision: OSS integration evaluation
+title: "Decision: OSS integration evaluation"
 description: Evaluation of OSS integrations that strengthen CodeVetter's local evidence loop.
 ---
 

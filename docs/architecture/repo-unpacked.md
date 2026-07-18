@@ -1,6 +1,6 @@
 ---
 title: Repo Unpacked
-description: Evidence-backed whole-repo system briefs: scan, synthesize, persist.
+description: "Evidence-backed whole-repo system briefs: scan, synthesize, persist."
 ---
 
 **Status**: Beta · in active development
