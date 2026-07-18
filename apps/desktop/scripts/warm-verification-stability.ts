@@ -613,7 +613,7 @@ function roundHotSample(sample: HotPathSample): HotPathSample {
 }
 
 async function readMandatoryGate() {
-  const reportPath = 'tests/fixtures/warm-verification/qualification-2026-07-17.json';
+  const reportPath = 'tests/fixtures/warm-verification/qualification-2026-07-18.json';
   const absolutePath = path.resolve(process.cwd(), reportPath);
   const bytes = await readFile(absolutePath);
   const report = JSON.parse(bytes.toString('utf8')) as {

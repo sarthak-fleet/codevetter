@@ -54,7 +54,7 @@ describe('warm verification qualification boundary', () => {
       await readFile(
         path.resolve(
           process.cwd(),
-          'tests/fixtures/warm-verification/qualification-2026-07-17.json'
+          'tests/fixtures/warm-verification/qualification-2026-07-18.json'
         ),
         'utf8'
       )
