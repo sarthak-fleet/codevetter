@@ -1,0 +1,4 @@
+/* Blume renders the page title from frontmatter; source Markdown starts at ##. */
+article.prose > h1[id] {
+  display: none;
+}

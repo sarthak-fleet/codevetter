@@ -32,6 +32,11 @@ export default defineConfig({
     accent: 'amber', // matches the product's warm amber accent (#d4a039)
     radius: 'md',
     mode: 'system',
+    fonts: {
+      display: 'space-grotesk',
+      body: 'inter',
+      mono: 'ibm-plex-mono',
+    },
   },
 
   search: {
