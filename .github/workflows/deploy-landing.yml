@@ -47,8 +47,8 @@ jobs:
       - name: Verify required static routes
         run: |
           test -f apps/landing-page-astro/dist/index.html
-          test -f apps/landing-page-astro/dist/privacy.html
-          test -f apps/landing-page-astro/dist/download.html
+          test -f apps/landing-page-astro/dist/privacy/index.html
+          test -f apps/landing-page-astro/dist/download/index.html
           test -f apps/landing-page-astro/dist/sitemap-index.xml
           test -f apps/landing-page-astro/dist/robots.txt
           test -f apps/landing-page-astro/dist/docs/index.html
