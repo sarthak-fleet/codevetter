@@ -51,6 +51,7 @@ is only the presentation and search layer.
 
 ## Operations
 
+- [automation-contract.md](./operations/automation-contract.md) — privacy-safe product, release, reliability, and Foundry evidence contracts.
 - [release-pipeline.md](./operations/release-pipeline.md) — desktop release chain.
 - [signing-and-updates.md](./operations/signing-and-updates.md) — signing keys + auto-update mechanism.
 - [landing-deploy.md](./operations/landing-deploy.md) — Cloudflare Pages deploy.

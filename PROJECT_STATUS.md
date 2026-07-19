@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 
 ## Why / What
 
@@ -140,6 +140,13 @@ Internal (fleet):
 
 ### OSS integration posture
 - OSS repo-analysis engines evaluated in `docs/oss-integration-evaluation.md`; `ast-grep` structural evidence implemented behind PATH detection with no required runtime dependency.
+
+### Automation readiness
+- Privacy-safe product, release, reliability, and Foundry evidence contracts documented in `docs/operations/automation-contract.md` (surface inventory, funnel, N/A decisions, release + canary + Foundry contracts, baseline evidence).
+- `scripts/verify-release-manifest.mjs` validates the live `latest.json` updater manifest references a resolvable asset with a present signature, without publishing a release; wired as a post-upload step in `release.yml`.
+- `scripts/emit-foundry-receipt.mjs` emits a closed-schema sanitized aggregate Foundry receipt (project slug, git revision, desktop version, CI/canary/release/landing/manifest status); `scripts/emit-foundry-receipt.test.mjs` proves sensitive payloads (code, repo, prompt, finding, path, key, email) cannot enter the receipt.
+- `weekly.yml` now records source revision and emits a `canary-evidence.json` artifact (90-day retention) with bounds, timeout, declared cron, freshness window, and conclusion; job summary table exposes the same.
+- CI runs `pnpm run test:automation` (hermetic receipt sanitize tests) on every push and PR.
 
 ## Todo / Planned / Deferred / Blocked
 

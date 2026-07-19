@@ -78,3 +78,5 @@ graph + MCP budget qualification runs before the build (see
 - `.github/workflows/release.yml`
 - `apps/desktop/src-tauri/tauri.conf.json` (version + updater config)
 - `apps/desktop/scripts/prepare-mcp-sidecar.mjs` (sidecar bundling)
+- `scripts/verify-release-manifest.mjs` (post-upload manifest linkage check;
+  see [automation-contract.md](./automation-contract.md#updater-manifest-validation))

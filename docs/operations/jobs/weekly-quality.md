@@ -18,7 +18,8 @@ sidebar:
 
 A single `quality` job (ubuntu-latest, `contents: read`) that:
 
-1. Checks out the repo.
+1. Checks out the repo and records the source revision (short SHA + UTC
+   timestamp) for the canary evidence artifact.
 2. Prepares pnpm (corepack, falls back to `pnpm@10.32.1` if `packageManager`
    isn't pinned).
 3. Installs deps in a **lockfile-agnostic** way: tries `pnpm install
@@ -27,6 +28,13 @@ A single `quality` job (ubuntu-latest, `contents: read`) that:
    scripts.
 4. Runs each of `lint`, `typecheck`, `test`, `build` **only if** the script is
    defined in the root `package.json`.
+5. Emits a `canary-evidence.json` artifact and a job summary table exposing
+   revision, started-at, conclusion, timeout bounds (20 minutes), declared
+   cron interval, and the 8-day freshness window. The artifact is retained
+   for 90 days so Foundry can read historical freshness.
+
+The canary evidence contract is documented in
+[../automation-contract.md](../automation-contract.md#scheduled-canary-freshness-contract).
 
 ## Why lockfile-agnostic
 

@@ -157,3 +157,12 @@ jobs:
             "$SIG_FILE#CodeVetter_aarch64.app.tar.gz.sig" \
             "latest.json" \
             --clobber --repo "$GITHUB_REPOSITORY"
+
+      # Post-upload verification: confirm the live latest.json manifest
+      # references a resolvable asset with a present signature. This does
+      # NOT download the full artifact or verify the signature against the
+      # pubkey — it only proves the updater contract is internally
+      # consistent after a release. Safe to run after the upload; never
+      # publishes or modifies a release.
+      - name: Verify updater manifest linkage
+        run: node scripts/verify-release-manifest.mjs

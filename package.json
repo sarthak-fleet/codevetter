@@ -11,6 +11,7 @@
     "bench:curation": "node scripts/report-benchmark-curation.mjs",
     "bench:new-case": "node scripts/create-benchmark-case.mjs",
     "test:benchmark": "node --test scripts/run-catch-rate-benchmark.test.mjs",
+    "test:automation": "node --test scripts/emit-foundry-receipt.test.mjs",
     "test:coverage": "pnpm --filter @code-reviewer/desktop test:coverage",
     "verify": "pnpm --filter @code-reviewer/desktop verify",
     "prepare": "husky || true",
