@@ -1946,7 +1946,7 @@ fn complete_lines_prefix(text: &str) -> (&str, i64, i64) {
 /// byte offset, parse just the appended tail, and merge the deltas — turning the
 /// per-append cost from O(file size) into O(bytes appended). Otherwise (first
 /// index, a legacy session with no cursor, or a file that shrank/rotated) do a
-/// full parse. See docs/PERFORMANCE.md.
+/// full parse. See docs/development/performance.md.
 fn index_adapter_session<A: SessionSourceAdapter>(
     adapter: &A,
     jsonl_path: &std::path::Path,

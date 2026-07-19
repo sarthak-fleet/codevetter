@@ -48,7 +48,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
 
     // Incremental session indexing: how far the indexer has consumed each
     // JSONL file. A growing live transcript is re-read only from this offset
-    // instead of re-parsing the whole file on every append. (docs/PERFORMANCE.md)
+    // instead of re-parsing the whole file on every append. (docs/development/performance.md)
     let _ = conn.execute(
         "ALTER TABLE cc_sessions ADD COLUMN last_indexed_byte_offset INTEGER NOT NULL DEFAULT 0",
         [],

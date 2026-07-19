@@ -40,7 +40,7 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --release \
 
 The raw-text comparison is preloaded in memory, so filesystem I/O does not bias
 the graph result. Full build, incremental repair, storage, memory, query, and UI
-budgets remain separate release gates in `docs/PERFORMANCE.md`.
+budgets remain separate release gates in `docs/development/performance.md`.
 
 ## Product exclusions
 

@@ -142,7 +142,7 @@ Measured on 2026-07-13 against a 24-commit CodeVetter window: cold backfill
 p95, causal queries 4.96 ms p95 over 10,000 events, and 23.88 MiB SQLite growth.
 The slider's browser responsiveness proxy measured 8.4 ms p50 / 16.7 ms p95
 while background indexing was delayed. Peak cold-backfill RSS remains the main
-known performance limit at about 1.05 GiB; see `docs/PERFORMANCE.md`.
+known performance limit at about 1.05 GiB; see `docs/development/performance.md`.
 
 The canonical present-state graph was separately qualified on 2026-07-14 against
 the current 445-file repository: 35,775 nodes / 58,344 edges, 369.54 ms cold

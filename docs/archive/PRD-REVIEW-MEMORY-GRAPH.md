@@ -103,7 +103,7 @@ The original metadata map could orient a user but could not provide symbol-level
 ## Key files
 
 - `docs/STRUCTURAL-GRAPH-COVERAGE.md`
-- `docs/PERFORMANCE.md`
+- `docs/development/performance.md`
 - `openspec/specs/structural-repo-graph/spec.md`
 - `apps/desktop/src-tauri/src/commands/structural_graph/`
 - `apps/desktop/src-tauri/tests/fixtures/structural-coverage-v1/`
