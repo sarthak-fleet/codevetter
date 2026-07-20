@@ -458,8 +458,10 @@ impl McpFixture {
             .to_string_lossy()
             .to_string();
         let database = root.path().join("codevetter.db");
-        let connection = Connection::open(&database).expect("database");
-        codevetter_desktop::db::schema::run_migrations(&connection).expect("schema");
+        // Match the production database setup, including WAL and the shared
+        // busy timeout, before exercising concurrent sidecar reads + audits.
+        let connection = codevetter_desktop::db::init_db(root.path().to_path_buf())
+            .expect("production-shaped database");
         connection
             .execute(
                 "INSERT INTO history_graph_repositories (

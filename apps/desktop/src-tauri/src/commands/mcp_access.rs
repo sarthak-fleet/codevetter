@@ -71,25 +71,30 @@ pub fn load_scope_by_id(
     connection: &Connection,
     repo_id: &str,
 ) -> Result<Option<McpRepositoryScope>, String> {
-    connection
-        .query_row(
-            "SELECT s.repo_path, s.repo_id, s.enabled, r.indexed_head, s.updated_at
-             FROM mcp_repository_scopes s
-             JOIN history_graph_repositories r ON r.repo_path = s.repo_path
-             WHERE s.repo_id = ?1",
-            [repo_id],
-            |row| {
-                Ok(McpRepositoryScope {
-                    repo_path: row.get(0)?,
-                    repo_id: row.get(1)?,
-                    enabled: row.get::<_, i64>(2)? != 0,
-                    indexed_head: row.get(3)?,
-                    updated_at: row.get(4)?,
-                })
-            },
-        )
-        .optional()
-        .map_err(|error| format!("Load MCP repository scope: {error}"))
+    crate::db::with_busy_retry(
+        || {
+            connection
+                .query_row(
+                    "SELECT s.repo_path, s.repo_id, s.enabled, r.indexed_head, s.updated_at
+                     FROM mcp_repository_scopes s
+                     JOIN history_graph_repositories r ON r.repo_path = s.repo_path
+                     WHERE s.repo_id = ?1",
+                    [repo_id],
+                    |row| {
+                        Ok(McpRepositoryScope {
+                            repo_path: row.get(0)?,
+                            repo_id: row.get(1)?,
+                            enabled: row.get::<_, i64>(2)? != 0,
+                            indexed_head: row.get(3)?,
+                            updated_at: row.get(4)?,
+                        })
+                    },
+                )
+                .optional()
+        },
+        3,
+    )
+    .map_err(|error| format!("Load MCP repository scope: {error}"))
 }
 
 pub fn require_enabled_scope(
