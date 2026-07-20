@@ -3,6 +3,10 @@ interface SyntheticQaTrace {
   final_url: string;
   page_title: string;
   console_errors: string[];
+  /** Wall-clock duration for bounded runner stages, keyed by stable stage name. */
+  stage_timings_ms?: Record<string, number>;
+  /** Resident memory observed in the runner process after the workflow. */
+  runner_rss_bytes?: number;
 }
 
 export interface SyntheticQaStepResult {

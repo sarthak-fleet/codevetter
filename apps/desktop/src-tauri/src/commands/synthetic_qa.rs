@@ -1,6 +1,7 @@
 use crate::{db::queries, DbState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 use tauri::{Manager, State};
@@ -10,6 +11,10 @@ pub struct SyntheticQaTrace {
     pub final_url: String,
     pub page_title: String,
     pub console_errors: Vec<String>,
+    #[serde(default)]
+    pub stage_timings_ms: BTreeMap<String, f64>,
+    #[serde(default)]
+    pub runner_rss_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -829,6 +834,8 @@ pub async fn run_synthetic_qa(
                     final_url: base_url,
                     page_title: "repo_playwright".to_string(),
                     console_errors,
+                    stage_timings_ms: BTreeMap::new(),
+                    runner_rss_bytes: None,
                 },
                 error: if pass {
                     None
@@ -902,6 +909,21 @@ pub async fn run_synthetic_qa(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preserves_optional_runner_performance_evidence() {
+        let trace: SyntheticQaTrace = serde_json::from_value(json!({
+            "final_url": "http://localhost:1420/review",
+            "page_title": "Review",
+            "console_errors": [],
+            "stage_timings_ms": { "navigation": 42.5 },
+            "runner_rss_bytes": 1048576
+        }))
+        .expect("trace should deserialize");
+
+        assert_eq!(trace.stage_timings_ms.get("navigation"), Some(&42.5));
+        assert_eq!(trace.runner_rss_bytes, Some(1_048_576));
+    }
 
     #[test]
     fn discovers_playwright_specs_and_skips_plain_unit_tests() {

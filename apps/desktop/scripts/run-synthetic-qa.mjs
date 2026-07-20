@@ -11,6 +11,7 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 
 const LOOPS = {
   'codevetter-review-shell': {
@@ -83,6 +84,7 @@ async function main() {
   fs.mkdirSync(artifactDir, { recursive: true });
 
   const started = Date.now();
+  const stageTimingsMs = {};
   const consoleErrors = [];
   let browser;
   let context;
@@ -99,13 +101,19 @@ async function main() {
       throw new Error(`unsupported auth mode: ${authMode}`);
     }
 
+    let stageStarted = performance.now();
     browser = await chromium.launch({ headless: true });
+    stageTimingsMs.browser_launch = performance.now() - stageStarted;
+    stageStarted = performance.now();
     context = await browser.newContext({
       viewport: { width: 1280, height: 800 },
       colorScheme: 'dark',
       ...(authMode === 'storage_state' ? { storageState } : {}),
     });
+    stageTimingsMs.context_create = performance.now() - stageStarted;
+    stageStarted = performance.now();
     const page = await context.newPage();
+    stageTimingsMs.page_create = performance.now() - stageStarted;
 
     page.on('console', (msg) => {
       if (msg.type() !== 'error') return;
@@ -114,8 +122,12 @@ async function main() {
       consoleErrors.push(text);
     });
 
+    stageStarted = performance.now();
     await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+    stageTimingsMs.navigation = performance.now() - stageStarted;
+    stageStarted = performance.now();
     await loop.assert(page);
+    stageTimingsMs.assertion = performance.now() - stageStarted;
 
     const pass = consoleErrors.length === 0;
     const assertionSummary =
@@ -139,6 +151,8 @@ async function main() {
         final_url: page.url(),
         page_title: await page.title(),
         console_errors: consoleErrors,
+        stage_timings_ms: stageTimingsMs,
+        runner_rss_bytes: process.memoryUsage().rss,
       },
       error: null,
     };
@@ -180,6 +194,8 @@ async function main() {
         final_url: targetUrl,
         page_title: '',
         console_errors: consoleErrors,
+        stage_timings_ms: stageTimingsMs,
+        runner_rss_bytes: process.memoryUsage().rss,
       },
       error: message,
     };
