@@ -32,6 +32,7 @@ import type {
   ArchaeologyZeroModelContinuationInput,
 } from '@/lib/business-rule-archaeology/contracts';
 import type {
+  AttachWorkItemSessionInput,
   CreateWorkItemInput,
   UpdateWorkItemInput,
   WorkItem,
@@ -145,6 +146,13 @@ export async function updateWorkItem(id: string, input: UpdateWorkItemInput): Pr
   return safeInvoke('update_work_item', { id, input });
 }
 
+export async function attachWorkItemSession(
+  id: string,
+  input: AttachWorkItemSessionInput
+): Promise<WorkItem> {
+  return safeInvoke('attach_work_item_session', { id, input });
+}
+
 export async function transitionWorkItem(
   id: string,
   status: WorkItemStatus,
@@ -216,6 +224,7 @@ export interface AgentTerminalEvent {
   seq?: number | null;
   exit_code?: number | null;
   success?: boolean | null;
+  intentional_stop?: boolean | null;
 }
 
 export interface CodexWarpPluginStatus {

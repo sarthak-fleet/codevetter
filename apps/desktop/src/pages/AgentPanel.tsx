@@ -1,5 +1,6 @@
 import {
   Activity,
+  ChevronDown,
   Bot,
   Loader2,
   Play,
@@ -12,6 +13,7 @@ import {
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { AgentLiveOutput } from '@/components/work/AgentLiveOutput';
 import { WorkBoard } from '@/components/work/WorkBoard';
 import {
   isCodexFailureEvent,
@@ -20,7 +22,10 @@ import {
   type CodexAgentEventPatch,
   type CodexCliAgentPayload,
 } from '@/lib/codex-agent-events';
+import { boundAgentLiveOutput } from '@/lib/agent-live-output';
+import { presentAgentTerminalExit } from '@/lib/agent-terminal-exit';
 import {
+  attachWorkItemSession,
   getRepoProjectGitStatus,
   isTauriAvailable,
   listSessions,
@@ -44,7 +49,7 @@ import {
   type SessionRow,
 } from '@/lib/tauri-ipc';
 import { cn } from '@/lib/utils';
-import type { WorkItem } from '@/lib/work-items';
+import type { WorkItem, WorkSessionLink } from '@/lib/work-items';
 
 type AgentStatus = 'white' | 'green' | 'yellow' | 'red';
 type AgentSize = 'compact' | 'wide' | 'tall';
@@ -278,6 +283,10 @@ export default function AgentPanel() {
   const workspaceSnapshot = useMemo(
     () => serializeAgentWorkspace({ layout, selectedId, terminals }),
     [layout, selectedId, terminals]
+  );
+  const sessionLinks = useMemo(
+    () => buildWorkSessionLinks(terminals, recentCodexSessions),
+    [recentCodexSessions, terminals]
   );
 
   const selected =
@@ -729,13 +738,15 @@ export default function AgentPanel() {
         }
 
         if (event.kind === 'exit') {
-          const success = event.success === true;
-          const suffix =
-            event.data ??
-            (event.exit_code != null
-              ? `${providerName} exited with ${event.exit_code}`
-              : `${providerName} exited`);
-          const outputTail = appendTerminalOutput(event.session_id, `\r\n${suffix}\r\n`);
+          const presentation = presentAgentTerminalExit(
+            event,
+            providerName,
+            Boolean(terminal.codexSessionId)
+          );
+          const outputTail = appendTerminalOutput(
+            event.session_id,
+            `\r\n${presentation.detail}\r\n`
+          );
           return appendActivity(
             appendBlock(
               {
@@ -743,23 +754,23 @@ export default function AgentPanel() {
                 outputTail,
                 running: false,
                 started: true,
-                status: success ? 'green' : 'red',
-                updatedAt: success ? 'done' : 'failed',
-                statusReason: success ? `${providerName} exited cleanly` : suffix,
+                status: presentation.status,
+                updatedAt: presentation.updatedAt,
+                statusReason: presentation.statusReason,
                 idleMs: null,
                 waitingSince: null,
               },
               {
                 kind: 'exit',
-                status: success ? 'green' : 'red',
-                title: success ? `${providerName} exited` : `${providerName} failed`,
-                detail: suffix,
+                status: presentation.status,
+                title: presentation.title,
+                detail: presentation.detail,
               }
             ),
             {
-              kind: success ? 'exit' : 'error',
-              label: success ? `${providerName} exited` : `${providerName} failed`,
-              detail: suffix,
+              kind: presentation.activityKind,
+              label: presentation.title,
+              detail: presentation.detail,
             }
           );
         }
@@ -821,6 +832,16 @@ export default function AgentPanel() {
   }
 
   function openWorkItemConversation(item: WorkItem) {
+    const attached = terminals.find(
+      (terminal) => terminal.id === item.agent_terminal_id && terminal.started
+    );
+    if (attached) {
+      updateTerminal(attached.id, { workItemId: item.id });
+      setConversationSeed(null);
+      setSelectedId(attached.id);
+      setWorkMode('conversation');
+      return;
+    }
     setConversationSeed({
       provider: item.preferred_provider,
       cwd: item.project_path ?? defaultCwd,
@@ -829,6 +850,22 @@ export default function AgentPanel() {
     });
     setSelectedId('');
     setWorkMode('conversation');
+  }
+
+  async function attachExistingSession(
+    item: WorkItem,
+    session: WorkSessionLink
+  ): Promise<WorkItem> {
+    const updated = await attachWorkItemSession(item.id, {
+      provider: session.provider,
+      terminal_id: session.terminal_id,
+      session_id: session.session_id,
+      project_path: session.project_path,
+    });
+    if (session.terminal_id) {
+      updateTerminal(session.terminal_id, { workItemId: item.id });
+    }
+    return updated;
   }
 
   async function restartTerminal(id: string) {
@@ -1106,10 +1143,17 @@ export default function AgentPanel() {
   async function stopTerminal(id: string) {
     try {
       await stopAgentTerminal(id);
-      updateTerminal(id, {
-        updatedAt: 'stopping',
-        statusReason: `Sent /exit to ${providerLabel(terminalProvider(terminals, id))}`,
-      });
+      setTerminals((current) =>
+        current.map((terminal) =>
+          terminal.id === id && terminal.running
+            ? {
+                ...terminal,
+                updatedAt: 'stopping',
+                statusReason: `Sent /exit to ${providerLabel(terminal.provider)}`,
+              }
+            : terminal
+        )
+      );
     } catch (error) {
       const outputTail = appendTerminalOutput(
         id,
@@ -1416,6 +1460,34 @@ export default function AgentPanel() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {activeWorkMode === 'conversation' && terminals.some((terminal) => terminal.started) ? (
+            <label className="relative hidden sm:block">
+              <span className="sr-only">Active agent run</span>
+              <select
+                aria-label="Active agent run"
+                value={selected?.started ? selected.id : ''}
+                onChange={(event) => {
+                  setConversationSeed(null);
+                  setSelectedId(event.target.value);
+                }}
+                className="h-9 max-w-48 appearance-none rounded-lg border border-white/[0.08] bg-black/20 py-0 pl-3 pr-8 text-xs text-zinc-300 outline-none hover:border-white/[0.14] focus:border-amber-300/30"
+              >
+                <option value="">New conversation</option>
+                {terminals
+                  .filter((terminal) => terminal.started)
+                  .map((terminal) => (
+                    <option key={terminal.id} value={terminal.id}>
+                      {terminal.running ? 'Live' : 'Recent'} · {terminal.name}
+                    </option>
+                  ))}
+              </select>
+              <ChevronDown
+                aria-hidden="true"
+                size={13}
+                className="pointer-events-none absolute right-2.5 top-3 text-zinc-500"
+              />
+            </label>
+          ) : null}
           <WorkModeSwitcher value={activeWorkMode} onChange={setWorkMode} />
           {activeWorkMode === 'conversation' && selected?.started ? (
             <Button
@@ -1435,7 +1507,12 @@ export default function AgentPanel() {
       </header>
 
       {activeWorkMode === 'board' ? (
-        <WorkBoard repoProjects={repoProjects} onBuild={openWorkItemConversation} />
+        <WorkBoard
+          repoProjects={repoProjects}
+          sessionLinks={sessionLinks}
+          onBuild={openWorkItemConversation}
+          onAttachSession={attachExistingSession}
+        />
       ) : (
         <section
           aria-label="Agent conversation"
@@ -1489,12 +1566,26 @@ function WorkSessionView({
   onPromptSubmit: (prompt: string) => void;
 }) {
   const [draft, setDraft] = useState('');
+  const [liveOutput, setLiveOutput] = useState(
+    () => getTerminalOutputTail(terminal.id) || terminal.outputTail
+  );
   const providerName = providerLabel(terminal.provider);
   const lifecycle = agentLifecycleState(terminal);
   const quietProcess = isLegacyQuietProcess(terminal);
   const displayStatus: AgentStatus = quietProcess ? 'green' : terminal.status;
   const blocks = compactWorkBlocks(terminal.blocks);
   const recentSignals = compactWorkActivities(terminal.activities);
+
+  useEffect(() => {
+    const refresh = () => {
+      const next = getTerminalOutputTail(terminal.id) || terminal.outputTail;
+      setLiveOutput((current) => (current === next ? current : next));
+    };
+    refresh();
+    if (!terminal.running) return;
+    const interval = window.setInterval(refresh, 250);
+    return () => window.clearInterval(interval);
+  }, [terminal.id, terminal.outputTail, terminal.running]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -1569,6 +1660,15 @@ function WorkSessionView({
             <span className="rounded-md border border-white/[0.07] px-2 py-1 font-mono text-[10px] text-zinc-400">
               {blocks.length}
             </span>
+          </div>
+
+          <div className="mb-4">
+            <AgentLiveOutput
+              provider={terminal.provider}
+              rawOutput={liveOutput}
+              running={terminal.running}
+              structuredEventsActive={terminal.structuredEventsActive}
+            />
           </div>
 
           {terminal.running && terminal.status === 'yellow' && !quietProcess ? (
@@ -2083,6 +2183,46 @@ function indexedSessionMeta(session: SessionRow): string {
   return parts.join(' · ') || compactSessionId(session.id);
 }
 
+function buildWorkSessionLinks(
+  terminals: readonly AgentTerminal[],
+  indexedSessions: readonly SessionRow[]
+): WorkSessionLink[] {
+  const live = terminals
+    .filter((terminal) => terminal.running)
+    .map((terminal) => ({
+      key: `terminal:${terminal.id}`,
+      label: terminal.name,
+      detail: `${providerLabel(terminal.provider)} · ${compactPathLabel(terminal.cwd)}`,
+      provider: terminal.provider,
+      terminal_id: terminal.id,
+      session_id: terminal.codexSessionId,
+      project_path: isConcreteRepoPath(terminal.cwd) ? terminal.cwd : null,
+      running: true,
+    }));
+  const attachedProviderSessions = new Set(
+    live.map((session) => session.session_id).filter((id): id is string => Boolean(id))
+  );
+  const indexedKeys = new Set<string>();
+  const historical = indexedSessions
+    .filter((session) => {
+      const key = `${sessionAgentProvider(session)}:${session.id}`;
+      if (attachedProviderSessions.has(session.id) || indexedKeys.has(key)) return false;
+      indexedKeys.add(key);
+      return true;
+    })
+    .map((session) => ({
+      key: `history:${sessionAgentProvider(session)}:${session.id}`,
+      label: indexedSessionTitle(session),
+      detail: indexedSessionMeta(session),
+      provider: sessionAgentProvider(session),
+      terminal_id: null,
+      session_id: session.id,
+      project_path: session.cwd?.trim() || null,
+      running: false,
+    }));
+  return [...live, ...historical];
+}
+
 function formatShortDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -2167,10 +2307,6 @@ function claudePermissionMode(
 
 function providerLabel(provider: AgentProvider): 'Codex' | 'Claude' {
   return provider === 'claude' ? 'Claude' : 'Codex';
-}
-
-function terminalProvider(terminals: AgentTerminal[], id: string): AgentProvider {
-  return terminals.find((terminal) => terminal.id === id)?.provider ?? 'codex';
 }
 
 function sessionAgentProvider(session: SessionRow): AgentProvider {
@@ -3125,8 +3261,7 @@ function isDuplicateTerminalOutput(id: string, seq: number | null): boolean {
 }
 
 function appendTerminalOutput(id: string, chunk: string): string {
-  const raw = `${outputBuffers.get(id) ?? ''}${chunk}`;
-  const next = raw.length > OUTPUT_BUFFER_CHARS ? raw.slice(raw.length - OUTPUT_BUFFER_CHARS) : raw;
+  const next = boundAgentLiveOutput(`${outputBuffers.get(id) ?? ''}${chunk}`, OUTPUT_BUFFER_CHARS);
   const tail = next.slice(-OUTPUT_TAIL_CHARS);
   outputBuffers.set(id, next);
   outputTails.set(id, tail);
@@ -3134,10 +3269,7 @@ function appendTerminalOutput(id: string, chunk: string): string {
 }
 
 function setTerminalOutput(id: string, output: string): string {
-  const next =
-    output.length > OUTPUT_BUFFER_CHARS
-      ? output.slice(output.length - OUTPUT_BUFFER_CHARS)
-      : output;
+  const next = boundAgentLiveOutput(output, OUTPUT_BUFFER_CHARS);
   const tail = next.slice(-OUTPUT_TAIL_CHARS);
   outputBuffers.set(id, next);
   outputTails.set(id, tail);

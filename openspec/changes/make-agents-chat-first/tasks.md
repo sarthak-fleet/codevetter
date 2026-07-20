@@ -19,6 +19,7 @@
 - [x] 3.3 Make Conversation the default Work mode and reduce its initial controls to provider, repository, optional work item, prompt, and start.
 - [x] 3.4 Replace terminal-first Conversation presentation with one goal/status/activity/composer workspace while retaining the provider-aware PTY runtime underneath.
 - [x] 3.5 Use the canonical application mark and one shared shell spacing/hierarchy system across all five pillars and Settings.
+- [x] 3.6 Keep bounded live provider output visible whenever provider-native message identity is unavailable, label it honestly, and cover control cleanup and memory bounds with focused tests.
 
 ## 4. Evidence-aware Kanban
 
@@ -26,7 +27,7 @@
 - [x] 4.2 Add dependency-free pointer drag and equivalent keyboard/menu movement with focus preservation and announcements.
 - [x] 4.3 Add create/edit/detail flows for intent, acceptance criteria, repository, preferred provider, evidence state, and completion disposition.
 - [x] 4.4 Connect card actions to Conversation, Review, T-Rex, and Repo using every context field the existing routes accept.
-- [ ] 4.5 Attach running or historical agent sessions to work items without restarting the provider process.
+- [x] 4.5 Attach running or historical agent sessions to work items without restarting the provider process.
 
 ## 5. Quality and consolidation
 
@@ -39,5 +40,5 @@
 ## 6. Acceptance and handoff
 
 - [x] 6.1 Record functional and visual qualification evidence without promoting Work above Usage.
-- [ ] 6.2 Update durable project status and SaaS Maker task state with exact implementation and remaining acceptance boundaries.
+- [x] 6.2 Update durable project status and SaaS Maker task state with exact implementation and remaining acceptance boundaries.
 - [ ] 6.3 Sync/archive this OpenSpec change only after the user accepts the native final result.

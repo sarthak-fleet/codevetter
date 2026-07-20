@@ -56,6 +56,24 @@ export interface UpdateWorkItemInput {
   attention?: boolean;
 }
 
+export interface WorkSessionLink {
+  key: string;
+  label: string;
+  detail: string;
+  provider: WorkItemProvider;
+  terminal_id: string | null;
+  session_id: string | null;
+  project_path: string | null;
+  running: boolean;
+}
+
+export interface AttachWorkItemSessionInput {
+  provider: WorkItemProvider;
+  terminal_id?: string | null;
+  session_id?: string | null;
+  project_path?: string | null;
+}
+
 export function normalizeWorkItemStatus(status: string): WorkItemStatus {
   switch (status.trim().toLowerCase()) {
     case 'build':
@@ -129,6 +147,13 @@ export function workItemEvidence(item: WorkItem): WorkEvidenceSummary {
       label: `${item.preferred_provider} active`,
       tone: 'active',
       detail: 'A conversation is attached.',
+    };
+  }
+  if (item.agent_session_id) {
+    return {
+      label: `${item.preferred_provider} run linked`,
+      tone: 'active',
+      detail: 'A historical agent run is attached as evidence.',
     };
   }
   if (item.review_id) {

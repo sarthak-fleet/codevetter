@@ -2787,6 +2787,13 @@ pub(crate) fn resolve_devin_sessions_db() -> std::path::PathBuf {
 /// base input at the full rate).
 fn index_devin_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), String> {
     let db_path = resolve_devin_sessions_db();
+    index_devin_sessions_from_path(conn, &db_path)
+}
+
+fn index_devin_sessions_from_path(
+    conn: &rusqlite::Connection,
+    db_path: &std::path::Path,
+) -> Result<(u64, u64, u64), String> {
     if !db_path.exists() {
         return Ok((0, 0, 0));
     }
@@ -2798,8 +2805,9 @@ fn index_devin_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), 
         rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|e| format!("failed to open devin sessions.db: {e}"))?;
 
-    // Per-session aggregate, deduping assistant messages by message_id so the
-    // duplicate rows (extensions vs bare) don't double-count tokens.
+    // Read cheap session watermarks first. Devin chat_message values can make
+    // sessions.db very large, so aggregating every message before checking
+    // last_activity_at turns every steady-state refresh into a full DB scan.
     let mut sess_stmt = dconn
         .prepare(
             "SELECT s.id,
@@ -2808,47 +2816,15 @@ fn index_devin_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), 
                     s.backend_type,
                     s.created_at,
                     s.last_activity_at,
-                    s.title,
-                    COALESCE(t.msg_count, 0),
-                    COALESCE(t.input_toks, 0),
-                    COALESCE(t.output_toks, 0),
-                    COALESCE(t.cache_read, 0),
-                    COALESCE(t.cache_creation, 0),
-                    (SELECT json_extract(m2.chat_message, '$.metadata.generation_model')
-                       FROM message_nodes m2
-                      WHERE m2.session_id = s.id
-                        AND json_extract(m2.chat_message, '$.role') = 'assistant'
-                        AND json_extract(m2.chat_message, '$.metadata.generation_model') IS NOT NULL
-                      ORDER BY m2.created_at DESC LIMIT 1)
+                    s.title
              FROM sessions s
-             LEFT JOIN (
-                SELECT session_id,
-                       COUNT(*)          AS msg_count,
-                       SUM(in_t)         AS input_toks,
-                       SUM(out_t)        AS output_toks,
-                       SUM(cr)           AS cache_read,
-                       SUM(cc)           AS cache_creation
-                  FROM (
-                    SELECT session_id,
-                           json_extract(chat_message, '$.message_id') AS message_id,
-                           MAX(json_extract(chat_message, '$.metadata.metrics.input_tokens'))          AS in_t,
-                           MAX(json_extract(chat_message, '$.metadata.metrics.output_tokens'))         AS out_t,
-                           MAX(json_extract(chat_message, '$.metadata.metrics.cache_read_tokens'))     AS cr,
-                           MAX(json_extract(chat_message, '$.metadata.metrics.cache_creation_tokens')) AS cc
-                      FROM message_nodes
-                     WHERE json_extract(chat_message, '$.role') = 'assistant'
-                       AND json_extract(chat_message, '$.metadata.metrics.input_tokens') IS NOT NULL
-                     GROUP BY session_id, message_id
-                  )
-                 GROUP BY session_id
-             ) t ON t.session_id = s.id
              ORDER BY s.last_activity_at DESC",
         )
         .map_err(|e| format!("devin session query prepare failed: {e}"))?;
 
     let session_rows = sess_stmt
         .query_map([], |r| {
-            Ok(DevinSessionRow {
+            Ok(DevinSessionHeader {
                 id: r.get(0)?,
                 working_directory: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
                 model: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
@@ -2856,46 +2832,56 @@ fn index_devin_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), 
                 created_at: r.get(4)?,
                 last_activity_at: r.get(5)?,
                 title: r.get::<_, Option<String>>(6)?,
-                msg_count: r.get(7)?,
-                input_toks: r.get(8)?,
-                output_toks: r.get(9)?,
-                cache_read: r.get(10)?,
-                cache_creation: r.get::<_, Option<i64>>(11)?.unwrap_or(0),
-                gen_model: r.get::<_, Option<String>>(12)?,
             })
         })
         .map_err(|e| format!("devin session query failed: {e}"))?;
-    let sessions: Vec<DevinSessionRow> = session_rows.filter_map(Result::ok).collect();
+    let sessions: Vec<DevinSessionHeader> = session_rows.filter_map(Result::ok).collect();
     drop(sess_stmt);
 
-    // Per-session, per-day distinct assistant-message counts for cc_session_days.
+    // Only changed sessions reach these JSON aggregates. Duplicate assistant
+    // rows are still deduped by message_id exactly as in the original query.
+    let mut metrics_stmt = dconn
+        .prepare(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(in_t), 0),
+                    COALESCE(SUM(out_t), 0),
+                    COALESCE(SUM(cr), 0),
+                    COALESCE(SUM(cc), 0)
+               FROM (
+                    SELECT json_extract(chat_message, '$.message_id') AS message_id,
+                           MAX(json_extract(chat_message, '$.metadata.metrics.input_tokens'))          AS in_t,
+                           MAX(json_extract(chat_message, '$.metadata.metrics.output_tokens'))         AS out_t,
+                           MAX(json_extract(chat_message, '$.metadata.metrics.cache_read_tokens'))     AS cr,
+                           MAX(json_extract(chat_message, '$.metadata.metrics.cache_creation_tokens')) AS cc
+                      FROM message_nodes
+                     WHERE session_id = ?1
+                       AND json_extract(chat_message, '$.role') = 'assistant'
+                       AND json_extract(chat_message, '$.metadata.metrics.input_tokens') IS NOT NULL
+                     GROUP BY message_id
+               )",
+        )
+        .map_err(|e| format!("devin metrics query prepare failed: {e}"))?;
+    let mut model_stmt = dconn
+        .prepare(
+            "SELECT (SELECT json_extract(chat_message, '$.metadata.generation_model')
+                       FROM message_nodes
+                      WHERE session_id = ?1
+                        AND json_extract(chat_message, '$.role') = 'assistant'
+                        AND json_extract(chat_message, '$.metadata.generation_model') IS NOT NULL
+                      ORDER BY created_at DESC LIMIT 1)",
+        )
+        .map_err(|e| format!("devin model query prepare failed: {e}"))?;
     let mut day_stmt = dconn
         .prepare(
-            "SELECT session_id,
-                    date(created_at, 'unixepoch', 'localtime') AS day,
+            "SELECT date(created_at, 'unixepoch', 'localtime') AS day,
                     COUNT(DISTINCT json_extract(chat_message, '$.message_id')) AS n
                FROM message_nodes
-              WHERE json_extract(chat_message, '$.role') = 'assistant'
+              WHERE session_id = ?1
+                AND json_extract(chat_message, '$.role') = 'assistant'
                 AND json_extract(chat_message, '$.metadata.metrics.input_tokens') IS NOT NULL
-              GROUP BY session_id, day",
+              GROUP BY day",
         )
         .map_err(|e| format!("devin day query prepare failed: {e}"))?;
-    let day_rows = day_stmt
-        .query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, i64>(2)?,
-            ))
-        })
-        .map_err(|e| format!("devin day query failed: {e}"))?;
-    let mut day_counts: std::collections::HashMap<String, std::collections::BTreeMap<String, i64>> =
-        std::collections::HashMap::new();
-    for row in day_rows.flatten() {
-        day_counts.entry(row.0).or_default().insert(row.1, row.2);
-    }
-    drop(day_stmt);
-    drop(dconn);
 
     let now = chrono::Utc::now().to_rfc3339();
     let mut indexed = 0u64;
@@ -2903,14 +2889,6 @@ fn index_devin_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), 
     let mut skipped = 0u64;
 
     for s in &sessions {
-        // Skip sessions with no token activity (e.g. freshly created, no
-        // assistant turns yet) — they'd insert zero-token rows that clutter
-        // the dashboard without contributing usage.
-        if s.msg_count == 0 && s.input_toks == 0 {
-            skipped += 1;
-            continue;
-        }
-
         let source_ref = format!("devin:{}", s.id);
         let last_activity_rfc =
             chrono::DateTime::<chrono::Utc>::from_timestamp(s.last_activity_at, 0)
@@ -2931,6 +2909,36 @@ fn index_devin_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), 
                 continue;
             }
         }
+
+        let (msg_count, input_toks, output_toks, cache_read, cache_creation): (
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+        ) = metrics_stmt
+            .query_row(rusqlite::params![s.id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })
+            .map_err(|e| format!("devin metrics query failed for {source_ref}: {e}"))?;
+
+        // Skip sessions with no token activity (e.g. freshly created, no
+        // assistant turns yet) — they'd insert zero-token rows that clutter
+        // the dashboard without contributing usage.
+        if msg_count == 0 && input_toks == 0 {
+            skipped += 1;
+            continue;
+        }
+
+        let gen_model = model_stmt
+            .query_row(rusqlite::params![s.id], |r| r.get::<_, Option<String>>(0))
+            .map_err(|e| format!("devin model query failed for {source_ref}: {e}"))?;
+        let day_rows = day_stmt
+            .query_map(rusqlite::params![s.id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })
+            .map_err(|e| format!("devin day query failed for {source_ref}: {e}"))?;
+        let day_counts = day_rows.flatten().collect();
 
         let cwd = if s.working_directory.is_empty() {
             None
@@ -2985,8 +2993,8 @@ fn index_devin_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), 
 
         // cc_sessions.total_input_tokens includes cache_read + cache_creation
         // (estimate_cost subtracts them back out to bill base input at full rate).
-        let total_input = s.input_toks + s.cache_read + s.cache_creation;
-        let model_used = s.gen_model.clone().or_else(|| {
+        let total_input = input_toks + cache_read + cache_creation;
+        let model_used = gen_model.or_else(|| {
             if s.model.is_empty() {
                 None
             } else {
@@ -3005,14 +3013,14 @@ fn index_devin_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), 
             model_used,
             first_timestamp: created_rfc.clone(),
             last_timestamp: last_activity_rfc.clone(),
-            message_count: s.msg_count,
+            message_count: msg_count,
             total_input_tokens: total_input,
-            total_output_tokens: s.output_toks,
-            cache_read_tokens: s.cache_read,
-            cache_creation_tokens: s.cache_creation,
+            total_output_tokens: output_toks,
+            cache_read_tokens: cache_read,
+            cache_creation_tokens: cache_creation,
             compaction_count: 0,
             slug: s.title.clone(),
-            day_counts: day_counts.get(&s.id).cloned().unwrap_or_default(),
+            day_counts,
             archive_messages: Vec::new(),
             parse_warnings: Vec::new(),
             tokens_are_cumulative: false,
@@ -3041,7 +3049,7 @@ fn index_devin_sessions(conn: &rusqlite::Connection) -> Result<(u64, u64, u64), 
 }
 
 #[derive(Debug, Clone)]
-struct DevinSessionRow {
+struct DevinSessionHeader {
     id: String,
     working_directory: String,
     model: String,
@@ -3049,12 +3057,6 @@ struct DevinSessionRow {
     created_at: i64,
     last_activity_at: i64,
     title: Option<String>,
-    msg_count: i64,
-    input_toks: i64,
-    output_toks: i64,
-    cache_read: i64,
-    cache_creation: i64,
-    gen_model: Option<String>,
 }
 
 fn resolve_cursor_agent_chats_dir() -> std::path::PathBuf {
@@ -4508,6 +4510,101 @@ mod tests {
         assert!(near(estimate_cost("glm-5-2", 1_000_000, 0, 0, 0), 1.4));
         assert!(near(estimate_cost("glm-5-2", 0, 1_000_000, 0, 0), 4.4));
         assert!(near(estimate_cost("glm-5-2", 0, 0, 1_000_000, 0), 0.26));
+    }
+
+    #[test]
+    fn devin_steady_state_skips_unchanged_message_payloads() {
+        let source_dir = tempfile::tempdir().expect("source dir");
+        let source_path = source_dir.path().join("sessions.db");
+        let source = Connection::open(&source_path).expect("source db");
+        source
+            .execute_batch(
+                "CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY,
+                    working_directory TEXT NOT NULL,
+                    backend_type TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    agent_mode TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    last_activity_at INTEGER NOT NULL,
+                    title TEXT
+                 );
+                 CREATE TABLE message_nodes (
+                    row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    node_id INTEGER NOT NULL,
+                    parent_node_id INTEGER,
+                    chat_message TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    metadata TEXT,
+                    UNIQUE(session_id, node_id)
+                 );
+                 CREATE INDEX idx_message_nodes_session ON message_nodes(session_id);",
+            )
+            .expect("source schema");
+        source
+            .execute(
+                "INSERT INTO sessions (
+                    id, working_directory, backend_type, model, agent_mode,
+                    created_at, last_activity_at, title
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    "steady-session",
+                    "/repo/codevetter",
+                    "local",
+                    "glm-5-2",
+                    "default",
+                    1_750_000_000_i64,
+                    1_750_000_100_i64,
+                    "Steady session"
+                ],
+            )
+            .expect("session");
+        let message = json!({
+            "role": "assistant",
+            "message_id": "message-1",
+            "metadata": {
+                "generation_model": "glm-5-2",
+                "metrics": {
+                    "input_tokens": 100,
+                    "output_tokens": 20,
+                    "cache_read_tokens": 30,
+                    "cache_creation_tokens": 5
+                }
+            }
+        })
+        .to_string();
+        for node_id in [1_i64, 2_i64] {
+            source
+                .execute(
+                    "INSERT INTO message_nodes (
+                        session_id, node_id, chat_message, created_at
+                     ) VALUES (?1, ?2, ?3, ?4)",
+                    params!["steady-session", node_id, message, 1_750_000_050_i64],
+                )
+                .expect("duplicate message row");
+        }
+
+        let conn = memory_conn_with_project();
+        let first = index_devin_sessions_from_path(&conn, &source_path).expect("first index");
+        assert_eq!(first, (1, 1, 0));
+        let usage: (i64, i64, i64) = conn
+            .query_row(
+                "SELECT total_input_tokens, total_output_tokens, message_count
+                   FROM cc_sessions WHERE jsonl_path = 'devin:steady-session'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("indexed usage");
+        assert_eq!(usage, (135, 20, 1));
+
+        // If steady-state indexing still scans chat_message, SQLite's JSON
+        // functions fail on this payload. The unchanged watermark must skip it.
+        source
+            .execute("UPDATE message_nodes SET chat_message = 'not-json'", [])
+            .expect("replace payload");
+        let second = index_devin_sessions_from_path(&conn, &source_path).expect("steady index");
+        assert_eq!(second, (0, 0, 1));
     }
 
     // Diagnostic (not a CI eval): runs index_devin_sessions against the live

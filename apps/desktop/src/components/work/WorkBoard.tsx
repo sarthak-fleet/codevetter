@@ -37,6 +37,7 @@ import {
   type WorkItem,
   type WorkItemProvider,
   type WorkItemStatus,
+  type WorkSessionLink,
 } from '@/lib/work-items';
 import { cn } from '@/lib/utils';
 
@@ -50,7 +51,9 @@ const COLUMN_COPY: Record<WorkItemStatus, { label: string; hint: string }> = {
 
 interface WorkBoardProps {
   repoProjects: RepoProject[];
+  sessionLinks: WorkSessionLink[];
   onBuild: (item: WorkItem) => void;
+  onAttachSession: (item: WorkItem, session: WorkSessionLink) => Promise<WorkItem>;
 }
 
 interface WorkItemDraft {
@@ -59,6 +62,7 @@ interface WorkItemDraft {
   acceptanceCriteria: string;
   projectPath: string;
   provider: WorkItemProvider;
+  sessionKey: string;
 }
 
 const EMPTY_DRAFT: WorkItemDraft = {
@@ -67,9 +71,15 @@ const EMPTY_DRAFT: WorkItemDraft = {
   acceptanceCriteria: '',
   projectPath: '',
   provider: 'codex',
+  sessionKey: '',
 };
 
-export function WorkBoard({ repoProjects, onBuild }: WorkBoardProps) {
+export function WorkBoard({
+  repoProjects,
+  sessionLinks,
+  onBuild,
+  onAttachSession,
+}: WorkBoardProps) {
   const navigate = useNavigate();
   const [items, setItems] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,6 +137,7 @@ export function WorkBoard({ repoProjects, onBuild }: WorkBoardProps) {
       acceptanceCriteria: item.acceptance_criteria ?? '',
       projectPath: item.project_path ?? '',
       provider: item.preferred_provider,
+      sessionKey: linkedSessionKey(item, sessionLinks),
     });
     setEditorOpen(true);
   }
@@ -137,13 +148,17 @@ export function WorkBoard({ repoProjects, onBuild }: WorkBoardProps) {
     setBusyId(editingItem?.id ?? 'create');
     try {
       if (editingItem) {
-        const updated = await updateWorkItem(editingItem.id, {
+        let updated = await updateWorkItem(editingItem.id, {
           title,
           description: draft.description.trim(),
           acceptance_criteria: draft.acceptanceCriteria.trim(),
           project_path: draft.projectPath || undefined,
           preferred_provider: draft.provider,
         });
+        const selectedSession = sessionLinks.find((session) => session.key === draft.sessionKey);
+        if (selectedSession && !workItemHasSession(editingItem, selectedSession)) {
+          updated = await onAttachSession(updated, selectedSession);
+        }
         setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       } else {
         let created = await createWorkItem({
@@ -156,6 +171,8 @@ export function WorkBoard({ repoProjects, onBuild }: WorkBoardProps) {
         if (createStatus !== 'plan') {
           created = await transitionWorkItem(created.id, createStatus);
         }
+        const selectedSession = sessionLinks.find((session) => session.key === draft.sessionKey);
+        if (selectedSession) created = await onAttachSession(created, selectedSession);
         setItems((current) => [created, ...current]);
       }
       setEditorOpen(false);
@@ -347,6 +364,7 @@ export function WorkBoard({ repoProjects, onBuild }: WorkBoardProps) {
         draft={draft}
         busy={busyId === (editingItem?.id ?? 'create')}
         repoProjects={repoProjects}
+        sessionLinks={sessionLinks}
         onOpenChange={setEditorOpen}
         onDraftChange={setDraft}
         onSave={() => void saveDraft()}
@@ -524,6 +542,7 @@ function WorkItemEditor({
   draft,
   busy,
   repoProjects,
+  sessionLinks,
   onOpenChange,
   onDraftChange,
   onSave,
@@ -534,11 +553,19 @@ function WorkItemEditor({
   draft: WorkItemDraft;
   busy: boolean;
   repoProjects: RepoProject[];
+  sessionLinks: WorkSessionLink[];
   onOpenChange: (open: boolean) => void;
   onDraftChange: (draft: WorkItemDraft) => void;
   onSave: () => void;
   onDelete?: () => void;
 }) {
+  const compatibleSessions = sessionLinks.filter(
+    (session) =>
+      !draft.projectPath ||
+      (item ? workItemHasSession(item, session) : false) ||
+      (session.project_path !== null &&
+        normalizedProjectPath(draft.projectPath) === normalizedProjectPath(session.project_path))
+  );
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -609,6 +636,38 @@ function WorkItemEditor({
                 </select>
               </label>
             </div>
+            <label className="block text-xs text-zinc-400">
+              Existing agent run
+              <select
+                value={draft.sessionKey}
+                onChange={(event) => {
+                  const session = sessionLinks.find(
+                    (candidate) => candidate.key === event.target.value
+                  );
+                  onDraftChange({
+                    ...draft,
+                    sessionKey: event.target.value,
+                    provider: session?.provider ?? draft.provider,
+                    projectPath: draft.projectPath || session?.project_path || '',
+                  });
+                }}
+                className="mt-1.5 h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.035] px-3 text-sm text-zinc-200 outline-none"
+              >
+                <option value="">
+                  {item?.agent_terminal_id || item?.agent_session_id
+                    ? 'Keep linked run'
+                    : 'No linked run'}
+                </option>
+                {compatibleSessions.map((session) => (
+                  <option key={session.key} value={session.key}>
+                    {session.running ? 'Live' : 'Recent'} · {session.label} · {session.detail}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1.5 block text-[11px] leading-4 text-zinc-500">
+                Attaching records this run as evidence. It does not restart or resume the agent.
+              </span>
+            </label>
           </div>
           <div className="mt-6 flex items-center justify-between gap-3">
             {onDelete ? (
@@ -637,4 +696,25 @@ function WorkItemEditor({
       </DialogContent>
     </Dialog>
   );
+}
+
+function linkedSessionKey(item: WorkItem, sessions: WorkSessionLink[]): string {
+  return (
+    sessions.find(
+      (session) =>
+        (item.agent_terminal_id && session.terminal_id === item.agent_terminal_id) ||
+        (item.agent_session_id && session.session_id === item.agent_session_id)
+    )?.key ?? ''
+  );
+}
+
+function workItemHasSession(item: WorkItem, session: WorkSessionLink): boolean {
+  return Boolean(
+    (session.terminal_id && item.agent_terminal_id === session.terminal_id) ||
+      (session.session_id && item.agent_session_id === session.session_id)
+  );
+}
+
+function normalizedProjectPath(value: string): string {
+  return value.trim().replace(/\/+$/, '');
 }

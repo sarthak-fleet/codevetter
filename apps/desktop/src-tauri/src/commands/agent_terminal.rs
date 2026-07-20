@@ -3,6 +3,7 @@ use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
@@ -71,6 +72,7 @@ struct RunningCodexAgent {
     agent_events: Arc<Mutex<Vec<AgentStructuredEvent>>>,
     codex_session_id: Arc<Mutex<Option<String>>>,
     transcript_path: Arc<Mutex<Option<String>>>,
+    stop_requested: Arc<AtomicBool>,
 }
 
 enum AgentPtyCommand {
@@ -177,6 +179,7 @@ pub struct AgentTerminalEvent {
     pub seq: Option<u64>,
     pub exit_code: Option<u32>,
     pub success: Option<bool>,
+    pub intentional_stop: Option<bool>,
 }
 
 #[derive(Serialize, Clone)]
@@ -481,6 +484,7 @@ fn start_agent_terminal_impl(
     let agent_events = Arc::new(Mutex::new(Vec::new()));
     let codex_session_id = Arc::new(Mutex::new(None));
     let transcript_path = Arc::new(Mutex::new(None));
+    let stop_requested = Arc::new(AtomicBool::new(false));
 
     {
         let mut sessions = codex_agents()
@@ -500,6 +504,7 @@ fn start_agent_terminal_impl(
                 agent_events: Arc::clone(&agent_events),
                 codex_session_id: Arc::clone(&codex_session_id),
                 transcript_path: Arc::clone(&transcript_path),
+                stop_requested: Arc::clone(&stop_requested),
             },
         );
     }
@@ -669,6 +674,7 @@ fn start_agent_terminal_impl(
 
     let wait_app = app.clone();
     let wait_session = session_id.clone();
+    let wait_stop_requested = Arc::clone(&stop_requested);
     thread::spawn(move || {
         let status = child.wait();
         let (exit_code, success, data) = match status {
@@ -691,16 +697,14 @@ fn start_agent_terminal_impl(
         if let Ok(mut sessions) = codex_agents().lock() {
             sessions.remove(&wait_session);
         }
-        emit_agent_event(
+        emit_agent_exit_event(
             &wait_app,
             &wait_session,
-            "exit",
-            data,
             pid,
-            None,
-            None,
             exit_code,
             success,
+            data,
+            wait_stop_requested.load(Ordering::Acquire),
         );
     });
 
@@ -891,28 +895,14 @@ fn run_agent_pty_control_loop(
                     .write_all(AGENT_GRACEFUL_EXIT_COMMAND)
                     .and_then(|_| writer.flush())
                 {
-                    emit_agent_event(
-                        &app,
-                        &session_id,
-                        "error",
-                        Some(format!(
-                            "send {} /exit: {error}; forcing stop",
-                            provider.display_name()
-                        )),
-                        pid,
-                        None,
-                        None,
-                        None,
-                        Some(false),
-                    );
                     if let Err(kill_error) = killer.kill() {
                         emit_agent_event(
                             &app,
                             &session_id,
                             "error",
                             Some(format!(
-                                "force stop {} agent: {kill_error}",
-                                provider.display_name()
+                                "stop {} agent after /exit write failed ({error}): {kill_error}",
+                                provider.display_name(),
                             )),
                             pid,
                             None,
@@ -1297,17 +1287,27 @@ pub fn stop_codex_agent_terminal(session_id: String) -> Result<(), String> {
 }
 
 fn stop_agent_terminal_impl(session_id: String) -> Result<(), String> {
-    let (tx, provider) = {
+    let (tx, provider, stop_requested) = {
         let sessions = codex_agents()
             .lock()
             .map_err(|e| format!("agent registry lock poisoned: {e}"))?;
         let session = sessions
             .get(session_id.trim())
             .ok_or_else(|| format!("Agent is not running: {}", session_id.trim()))?;
-        (session.tx.clone(), session.provider)
+        (
+            session.tx.clone(),
+            session.provider,
+            Arc::clone(&session.stop_requested),
+        )
     };
-    tx.send(AgentPtyCommand::Stop)
-        .map_err(|e| format!("send {} stop: {e}", provider.display_name()))
+    let already_requested = stop_requested.swap(true, Ordering::AcqRel);
+    if let Err(error) = tx.send(AgentPtyCommand::Stop) {
+        if !already_requested {
+            stop_requested.store(false, Ordering::Release);
+        }
+        return Err(format!("send {} stop: {error}", provider.display_name()));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1420,8 +1420,51 @@ fn emit_agent_event(
             seq,
             exit_code,
             success,
+            intentional_stop: None,
         },
     );
+}
+
+fn emit_agent_exit_event(
+    app: &AppHandle,
+    session_id: &str,
+    pid: Option<u32>,
+    exit_code: Option<u32>,
+    success: Option<bool>,
+    data: Option<String>,
+    intentional_stop: bool,
+) {
+    let event = agent_exit_event(session_id, pid, exit_code, success, data, intentional_stop);
+    let _ = app.emit(AGENT_TERMINAL_EVENT, event);
+}
+
+fn agent_exit_event(
+    session_id: &str,
+    pid: Option<u32>,
+    exit_code: Option<u32>,
+    success: Option<bool>,
+    data: Option<String>,
+    intentional_stop: bool,
+) -> AgentTerminalEvent {
+    AgentTerminalEvent {
+        session_id: session_id.to_string(),
+        kind: "exit".to_string(),
+        data: if intentional_stop {
+            Some("Stopped by user".to_string())
+        } else {
+            data
+        },
+        pid,
+        idle_ms: None,
+        seq: None,
+        exit_code,
+        success: if intentional_stop {
+            Some(true)
+        } else {
+            success
+        },
+        intentional_stop: Some(intentional_stop),
+    }
 }
 
 fn current_unix_millis() -> u64 {
@@ -1670,6 +1713,41 @@ fn trim_output(raw: String) -> (String, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn intentional_stop_is_a_clean_resumable_exit_even_when_pty_reports_hangup() {
+        let event = agent_exit_event(
+            "agent-1",
+            Some(42),
+            Some(1),
+            Some(false),
+            Some("terminated by Hangup".to_string()),
+            true,
+        );
+
+        assert_eq!(event.kind, "exit");
+        assert_eq!(event.exit_code, Some(1));
+        assert_eq!(event.success, Some(true));
+        assert_eq!(event.intentional_stop, Some(true));
+        assert_eq!(event.data.as_deref(), Some("Stopped by user"));
+    }
+
+    #[test]
+    fn unexpected_hangup_remains_a_failure() {
+        let event = agent_exit_event(
+            "agent-1",
+            Some(42),
+            Some(1),
+            Some(false),
+            Some("terminated by Hangup".to_string()),
+            false,
+        );
+
+        assert_eq!(event.exit_code, Some(1));
+        assert_eq!(event.success, Some(false));
+        assert_eq!(event.intentional_stop, Some(false));
+        assert_eq!(event.data.as_deref(), Some("terminated by Hangup"));
+    }
 
     #[test]
     fn resolves_empty_cwd_to_existing_directory() {
@@ -2004,6 +2082,7 @@ mod tests {
                 agent_events,
                 codex_session_id,
                 transcript_path,
+                stop_requested: Arc::new(AtomicBool::new(false)),
             },
         );
 
@@ -2106,6 +2185,7 @@ mod tests {
             agent_events: Arc::new(Mutex::new(Vec::new())),
             codex_session_id: Arc::new(Mutex::new(None)),
             transcript_path: Arc::new(Mutex::new(None)),
+            stop_requested: Arc::new(AtomicBool::new(false)),
         }
     }
 

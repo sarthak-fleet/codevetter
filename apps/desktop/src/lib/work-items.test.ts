@@ -68,6 +68,14 @@ describe('work-item domain', () => {
     );
   });
 
+  it('distinguishes a live conversation from linked historical evidence', () => {
+    assert.equal(workItemEvidence(item({ agent_terminal_id: 'terminal-1' })).label, 'codex active');
+    assert.equal(
+      workItemEvidence(item({ agent_session_id: 'session-1' })).label,
+      'codex run linked'
+    );
+  });
+
   it('returns the next canonical workflow step', () => {
     assert.equal(nextWorkItemStatus('plan'), 'build');
     assert.equal(nextWorkItemStatus('verify'), 'done');

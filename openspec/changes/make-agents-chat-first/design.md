@@ -72,7 +72,7 @@ Add an `AgentProvider` enum (`codex`, `claude`) to the terminal start request an
 - Codex retains current `-C`, sandbox, approval, model, resume/fork, and structured Codex-Warp behavior.
 - Claude uses its current interactive CLI contract (`--model`, `--permission-mode`, `--resume`, `--fork-session`, and optional initial prompt) and never enables dangerous permission bypass automatically.
 
-Codex-specific structured events remain labelled Codex evidence. Claude initially uses PTY lifecycle plus its indexed session identity; the UI must not imply provider parity where evidence is unavailable. Existing Codex IPC wrappers remain as compatibility delegates during migration. The primary Work UI projects this into goal, status, attention, activity, and follow-up surfaces; it does not expose an xterm canvas by default or fabricate assistant messages from ANSI output.
+Codex-specific structured events remain labelled Codex evidence. Claude initially uses PTY lifecycle plus its indexed session identity; the UI must not imply provider parity where evidence is unavailable. Existing Codex IPC wrappers remain as compatibility delegates during migration. The primary Work UI projects this into goal, status, attention, activity, and follow-up surfaces; it does not expose an xterm canvas by default or fabricate assistant messages from ANSI output. Until live provider-native message identity is available, it keeps a calm, bounded direct-output panel visible, labels the source explicitly, removes only terminal control framing, and does not save that output in the persisted Work workspace.
 
 ### 5. One work item can seed and receive a conversation
 

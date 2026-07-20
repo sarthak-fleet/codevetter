@@ -3,8 +3,8 @@ import AxeBuilder from '@axe-core/playwright';
 
 import { ConsoleErrorCollector, navigateTo } from './helpers';
 
-async function installWorkMock(page: Page) {
-  await page.addInitScript(() => {
+async function installWorkMock(page: Page, withLiveSessions = false) {
+  await page.addInitScript((liveSessions) => {
     let items: Array<Record<string, unknown>> = [];
     const project = {
       id: 'project-1',
@@ -20,20 +20,77 @@ async function installWorkMock(page: Page) {
     const controlled = window as unknown as {
       __TAURI_INTERNALS__: {
         invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
-        transformCallback: () => number;
+        transformCallback: (callback?: (event: unknown) => void) => number;
         unregisterCallback: () => void;
-        callbacks: Record<string, unknown>;
+        callbacks: Record<number, (event: unknown) => void>;
       };
       __WORK_TEST__: {
         startRequests: Array<Record<string, unknown>>;
       };
     };
     const startAttempts = { codex: 0, claude: 0 };
+    const callbacks: Record<number, (event: unknown) => void> = {};
+    const listeners: Record<string, number[]> = {};
+    let nextCallbackId = 1;
     controlled.__WORK_TEST__ = { startRequests: [] };
     controlled.__TAURI_INTERNALS__ = {
       invoke: async (cmd, args = {}) => {
         if (cmd === 'list_repo_projects') return [project];
-        if (cmd === 'list_sessions' || cmd === 'list_agent_terminals') return [];
+        if (cmd === 'list_agent_terminals') {
+          if (!liveSessions) return [];
+          return [
+            {
+              session_id: 'live-codex',
+              provider: 'codex',
+              cwd: '/tmp/codevetter',
+              pid: 5101,
+              started_at_ms: Date.now(),
+              running: true,
+              output_tail: '',
+              codex_session_id: 'codex-live-provider-session',
+            },
+            {
+              session_id: 'live-claude',
+              provider: 'claude',
+              cwd: '/tmp/codevetter',
+              pid: 5102,
+              started_at_ms: Date.now(),
+              running: true,
+              output_tail: '',
+              codex_session_id: 'claude-live-provider-session',
+            },
+          ];
+        }
+        if (cmd === 'list_sessions') {
+          if (args.agentType === 'claude-code') return { sessions: [] };
+          return {
+            sessions: [
+              {
+                id: 'historical-session-1',
+                project_id: 'project-1',
+                agent_type: 'codex',
+                jsonl_path: null,
+                git_branch: 'main',
+                cwd: '/tmp/codevetter',
+                cli_version: null,
+                first_message: 'Fix the Work attachment regression',
+                last_message: '2026-07-20T01:00:00Z',
+                message_count: 12,
+                total_input_tokens: 100,
+                total_output_tokens: 40,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+                compaction_count: 0,
+                estimated_cost_usd: 0,
+                model_used: 'gpt-5',
+                slug: null,
+                file_size_bytes: 1000,
+                indexed_at: '2026-07-20T01:00:00Z',
+                file_mtime: '2026-07-20T01:00:00Z',
+              },
+            ],
+          };
+        }
         if (cmd === 'get_codex_warp_plugin_status') {
           return {
             codex_available: true,
@@ -65,6 +122,22 @@ async function installWorkMock(page: Page) {
             cwd: args.cwd,
             pid: provider === 'claude' ? 4202 : 4201,
           };
+        }
+        if (cmd === 'stop_agent_terminal') {
+          const payload = {
+            session_id: args.sessionId,
+            kind: 'exit',
+            data: 'Stopped by user',
+            exit_code: 1,
+            success: true,
+            intentional_stop: true,
+          };
+          queueMicrotask(() => {
+            for (const callbackId of listeners['agent-terminal-event'] ?? []) {
+              callbacks[callbackId]?.({ event: 'agent-terminal-event', payload });
+            }
+          });
+          return undefined;
         }
         if (cmd === 'create_work_item') {
           const input = args.input as Record<string, unknown>;
@@ -111,23 +184,49 @@ async function installWorkMock(page: Page) {
           );
           return items.find((item) => item.id === id);
         }
+        if (cmd === 'attach_work_item_session') {
+          const id = String(args.id);
+          const input = args.input as Record<string, unknown>;
+          items = items.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  preferred_provider: input.provider,
+                  agent_terminal_id: input.terminal_id ?? null,
+                  agent_session_id: input.session_id ?? null,
+                  updated_at: new Date().toISOString(),
+                }
+              : item
+          );
+          return items.find((item) => item.id === id);
+        }
+        if (cmd === 'plugin:event|listen') {
+          const event = String(args.event);
+          const callbackId = Number(args.handler);
+          listeners[event] = [...(listeners[event] ?? []), callbackId];
+          return callbackId;
+        }
         if (cmd.startsWith('plugin:event|')) return 1;
         return undefined;
       },
-      transformCallback: () => 1,
+      transformCallback: (callback) => {
+        const id = nextCallbackId++;
+        if (callback) callbacks[id] = callback;
+        return id;
+      },
       unregisterCallback: () => undefined,
-      callbacks: {},
+      callbacks,
     };
-  });
+  }, withLiveSessions);
 }
 
 test.describe('Work surface', () => {
   const consoleErrors = new ConsoleErrorCollector();
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page }, testInfo) => {
     consoleErrors.reset();
     consoleErrors.attach(page);
-    await installWorkMock(page);
+    await installWorkMock(page, testInfo.title.includes('focuses live runs'));
     await navigateTo(page, '/agents');
   });
 
@@ -179,6 +278,63 @@ test.describe('Work surface', () => {
         (violation) => violation.impact === 'critical' || violation.impact === 'serious'
       )
     ).toEqual([]);
+  });
+
+  test('attaches historical evidence without launching another agent', async ({ page }) => {
+    await page.getByRole('tab', { name: 'Board' }).click();
+    await page.getByRole('button', { name: 'New work' }).click();
+    await page.getByLabel('Outcome').fill('Connect existing evidence');
+    await page.getByLabel('Existing agent run').selectOption('history:codex:historical-session-1');
+    await page.getByRole('button', { name: 'Create work' }).click();
+
+    await page.getByText('Connect existing evidence').click();
+    await expect(page.getByLabel('Existing agent run')).toHaveValue(
+      'history:codex:historical-session-1'
+    );
+    await expect(page.getByText('Attaching records this run as evidence.')).toBeVisible();
+
+    const startRequests = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __WORK_TEST__: { startRequests: Array<Record<string, unknown>> };
+          }
+        ).__WORK_TEST__.startRequests
+    );
+    expect(startRequests).toEqual([]);
+  });
+
+  test('focuses live runs and attaches one without restarting it', async ({ page }) => {
+    const runSelector = page.getByLabel('Active agent run');
+    await expect(runSelector).toBeVisible();
+    await runSelector.selectOption('live-claude');
+    await expect(page.getByLabel('Claude work session')).toBeVisible();
+
+    await page.getByRole('tab', { name: 'Board' }).click();
+    await page.getByRole('button', { name: 'New work' }).click();
+    await page.getByLabel('Outcome').fill('Attach the live Claude run');
+    await page.getByLabel('Existing agent run').selectOption('terminal:live-claude');
+    await page.getByRole('button', { name: 'Create work' }).click();
+    await expect(page.getByText('claude active')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Open', exact: true }).click();
+    await expect(page.getByLabel('Claude work session')).toBeVisible();
+    await expect(runSelector).toHaveValue('live-claude');
+
+    const startRequests = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __WORK_TEST__: { startRequests: Array<Record<string, unknown>> };
+          }
+        ).__WORK_TEST__.startRequests
+    );
+    expect(startRequests).toEqual([]);
+
+    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await expect(page.getByText('Claude stopped. This session can be resumed.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0);
   });
 
   for (const provider of ['codex', 'claude'] as const) {

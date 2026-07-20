@@ -5,6 +5,7 @@
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tauri::State;
 use uuid::Uuid;
 
@@ -87,6 +88,17 @@ pub struct UpdateWorkItemInput {
     pub attention: Option<bool>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AttachWorkItemSessionInput {
+    pub provider: String,
+    #[serde(default)]
+    pub terminal_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub project_path: Option<String>,
+}
+
 #[tauri::command]
 pub fn list_work_items(
     db: State<'_, DbState>,
@@ -119,6 +131,17 @@ pub fn update_work_item(
 ) -> Result<WorkItem, String> {
     let conn = db.0.lock().map_err(|error| error.to_string())?;
     update_work_item_in_connection(&conn, id.trim(), input).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn attach_work_item_session(
+    db: State<'_, DbState>,
+    id: String,
+    input: AttachWorkItemSessionInput,
+) -> Result<WorkItem, String> {
+    let conn = db.0.lock().map_err(|error| error.to_string())?;
+    attach_work_item_session_in_connection(&conn, id.trim(), input)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -309,6 +332,49 @@ fn transition_work_item_in_connection(
     get_work_item(conn, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
 }
 
+fn attach_work_item_session_in_connection(
+    conn: &Connection,
+    id: &str,
+    input: AttachWorkItemSessionInput,
+) -> rusqlite::Result<WorkItem> {
+    if id.is_empty() {
+        return Err(invalid_input("id is required"));
+    }
+    let provider = normalize_provider(Some(&input.provider))?;
+    let terminal_id = clean_optional(input.terminal_id);
+    let session_id = clean_optional(input.session_id);
+    if terminal_id.is_none() && session_id.is_none() {
+        return Err(invalid_input("terminal_id or session_id is required"));
+    }
+    let project_path = clean_optional(input.project_path);
+    let current = get_work_item(conn, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+    if let (Some(item_path), Some(session_path)) =
+        (current.project_path.as_deref(), project_path.as_deref())
+    {
+        if !same_project_path(item_path, session_path) {
+            return Err(invalid_input(
+                "The agent run belongs to a different repository than this work item",
+            ));
+        }
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    let changed = conn.execute(
+        "UPDATE agent_tasks SET
+            preferred_provider = ?2,
+            agent_terminal_id = ?3,
+            agent_session_id = ?4,
+            project_path = COALESCE(project_path, ?5),
+            attention = 0,
+            updated_at = ?6
+         WHERE id = ?1",
+        params![id, provider, terminal_id, session_id, project_path, now],
+    )?;
+    if changed == 0 {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+    get_work_item(conn, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+}
+
 fn get_work_item(conn: &Connection, id: &str) -> rusqlite::Result<Option<WorkItem>> {
     conn.query_row(
         "SELECT schema_version, id, title, description, acceptance_criteria,
@@ -413,6 +479,22 @@ fn clean_optional(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn same_project_path(left: &str, right: &str) -> bool {
+    match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => normalize_project_path(left) == normalize_project_path(right),
+    }
+}
+
+fn normalize_project_path(value: &str) -> String {
+    let path = Path::new(value.trim());
+    path.components()
+        .collect::<std::path::PathBuf>()
+        .to_string_lossy()
+        .trim_end_matches(std::path::MAIN_SEPARATOR)
+        .to_string()
+}
+
 fn invalid_input(message: &str) -> rusqlite::Error {
     rusqlite::Error::InvalidParameterName(message.to_string())
 }
@@ -471,6 +553,80 @@ mod tests {
         .unwrap();
         assert_eq!(updated.agent_terminal_id.as_deref(), Some("terminal-1"));
         assert!(updated.attention);
+    }
+
+    #[test]
+    fn attaches_live_and_historical_sessions_without_creating_process_state() {
+        let conn = connection();
+        let item = create(&conn);
+
+        let live = attach_work_item_session_in_connection(
+            &conn,
+            &item.id,
+            AttachWorkItemSessionInput {
+                provider: "codex".to_string(),
+                terminal_id: Some("terminal-1".to_string()),
+                session_id: Some("session-1".to_string()),
+                project_path: Some("/tmp/repo/".to_string()),
+            },
+        )
+        .unwrap();
+        assert_eq!(live.preferred_provider, "codex");
+        assert_eq!(live.assigned_agent, None);
+        assert_eq!(live.agent_terminal_id.as_deref(), Some("terminal-1"));
+        assert_eq!(live.agent_session_id.as_deref(), Some("session-1"));
+        assert_eq!(live.project_path.as_deref(), Some("/tmp/repo"));
+
+        let historical = attach_work_item_session_in_connection(
+            &conn,
+            &item.id,
+            AttachWorkItemSessionInput {
+                provider: "claude-code".to_string(),
+                terminal_id: None,
+                session_id: Some("historical-1".to_string()),
+                project_path: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(historical.preferred_provider, "claude");
+        assert_eq!(historical.agent_terminal_id, None);
+        assert_eq!(historical.agent_session_id.as_deref(), Some("historical-1"));
+    }
+
+    #[test]
+    fn attachment_rejects_a_session_from_a_different_repository() {
+        let conn = connection();
+        let item = create(&conn);
+        let error = attach_work_item_session_in_connection(
+            &conn,
+            &item.id,
+            AttachWorkItemSessionInput {
+                provider: "codex".to_string(),
+                terminal_id: Some("terminal-1".to_string()),
+                session_id: None,
+                project_path: Some("/tmp/another-repo".to_string()),
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("different repository"));
+    }
+
+    #[test]
+    fn attachment_requires_a_terminal_or_provider_session_identity() {
+        let conn = connection();
+        let item = create(&conn);
+        let error = attach_work_item_session_in_connection(
+            &conn,
+            &item.id,
+            AttachWorkItemSessionInput {
+                provider: "codex".to_string(),
+                terminal_id: None,
+                session_id: None,
+                project_path: None,
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("terminal_id or session_id"));
     }
 
     #[test]

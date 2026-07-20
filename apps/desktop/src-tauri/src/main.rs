@@ -383,6 +383,7 @@ fn main() {
             commands::work_items::list_work_items,
             commands::work_items::create_work_item,
             commands::work_items::update_work_item,
+            commands::work_items::attach_work_item_session,
             commands::work_items::transition_work_item,
             commands::work_items::delete_work_item,
             commands::resources::get_resource_snapshot,

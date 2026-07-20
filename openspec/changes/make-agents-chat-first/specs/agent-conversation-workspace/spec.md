@@ -45,6 +45,12 @@ The workspace MUST present the goal, provider lifecycle, recorded prompts, atten
 - **THEN** the UI labels the available evidence as process lifecycle only
 - **AND** does not claim Codex-specific event parity
 
+#### Scenario: Live structured message identity is unavailable
+- **WHEN** an active provider run has direct output but CodeVetter cannot safely identify provider-native messages
+- **THEN** Work presents a calm, bounded view of the direct provider stream without requiring a technical toggle
+- **AND** labels that view as direct provider output rather than parsed chat
+- **AND** does not persist the direct output in the saved Work workspace
+
 ### Requirement: Session lifecycle is provider-aware and recoverable
 The workspace SHALL support start, input, resize, stop, resume, and provider-supported fork operations while preserving provider identity and repository context across UI restoration.
 
