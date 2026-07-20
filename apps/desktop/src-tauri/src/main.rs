@@ -398,16 +398,6 @@ fn main() {
             // Repo activity intelligence (shown inside Repo -> Activity)
             // T-Rex sandbox (/review → Test branch)
             commands::sandbox::run_branch_sandbox,
-            // SaaS Maker fleet wireup
-            commands::saas_maker::get_saas_maker_status,
-            commands::saas_maker::set_saas_maker_config,
-            commands::saas_maker::list_saas_maker_projects,
-            // v1.1.76: sign-in + identity + repo detect
-            commands::saas_maker::start_saas_maker_signin,
-            commands::saas_maker::poll_saas_maker_signin,
-            commands::saas_maker::sign_out_of_saas_maker,
-            commands::saas_maker::get_current_user,
-            commands::saas_maker::detect_project_for_repo,
             // v1.1.78: AI acceleration
             // v1.1.79: DORA metrics
             // v1.1.81: real billing + agent observability + notifications

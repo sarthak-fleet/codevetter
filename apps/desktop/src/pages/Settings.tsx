@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import SaasMakerConfigPanel from '@/components/SaasMakerConfigPanel';
 import McpHistoryPanel from '@/components/settings/McpHistoryPanel';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -834,13 +833,6 @@ export default function Settings() {
             </h3>
             <div className="rounded-xl border border-[var(--cv-line)] bg-[var(--cv-surface)] p-6">
               <GitHubConnectionPanel />
-            </div>
-
-            <h3 className="mt-6 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              SaaS Maker
-            </h3>
-            <div className="rounded-xl border border-[var(--cv-line)] bg-[var(--cv-surface)] p-6">
-              <SaasMakerConfigPanel />
             </div>
 
             <h3 className="mt-6 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">

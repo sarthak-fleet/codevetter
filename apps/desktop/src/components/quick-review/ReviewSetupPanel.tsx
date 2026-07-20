@@ -4,7 +4,6 @@ import {
   GitPullRequest,
   ListOrdered,
   Loader2,
-  Sparkles,
   Trash2,
   Zap,
 } from 'lucide-react';
@@ -22,7 +21,6 @@ import type {
   LocalReviewRow,
   PullRequest,
   RawSessionContextItem,
-  RepoDetectResult,
   RepoHistoryContext,
 } from '@/lib/tauri-ipc';
 import { cn } from '@/lib/utils';
@@ -48,7 +46,6 @@ type CommandSignal = NonNullable<RepoHistoryContext['command_signals']>[number];
 
 export interface ReviewSetupPanelProps {
   repoPath: string;
-  detectedFleetProject: RepoDetectResult | null;
   error: string | null;
   activeTab: 'branches' | 'prs';
   setActiveTab: (tab: 'branches' | 'prs') => void;
@@ -95,7 +92,6 @@ export interface ReviewSetupPanelProps {
 
 export default function ReviewSetupPanel({
   repoPath,
-  detectedFleetProject,
   error,
   activeTab,
   setActiveTab,
@@ -142,19 +138,6 @@ export default function ReviewSetupPanel({
   return (
     <div className="min-h-0 w-full max-w-xl shrink-0 overflow-y-auto pr-1">
       <div className="space-y-4 pb-4">
-        {/* Fleet auto-link indicator — surfaces when CodeVetter recognised
-            this repo as a SaaS Maker project (via git_url or local mapping). */}
-        {detectedFleetProject?.project && (
-          <div className="flex items-center gap-1.5 border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[10px] text-amber-300">
-            <Sparkles size={11} className="shrink-0" />
-            Linked to <span className="font-mono">{detectedFleetProject.project.name}</span>
-            <span className="text-amber-500/60">·</span>
-            <span className="text-amber-500/60">
-              {detectedFleetProject.source === 'git_url' ? 'auto' : 'manual'}
-            </span>
-          </div>
-        )}
-
         {error ? (
           <div className="border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">
             {error}

@@ -113,7 +113,6 @@ import type {
   PlaywrightSpecCandidate,
   PullRequest,
   RawSessionContextItem,
-  RepoDetectResult,
   RepoHistoryContext,
   ReviewProcedureEvent,
   ReviewVerificationCommandSuggestion,
@@ -126,7 +125,6 @@ import {
   type UnpackDeepGraphDetectChanges,
   cancelReviewVerificationCommand,
   deleteReview,
-  detectProjectForRepo,
   discardFix,
   discoverPlaywrightSpecs,
   fixFindings,
@@ -200,8 +198,6 @@ export default function QuickReview() {
 
   // Mode: "create" shows the form, "view" shows past review results
   const [mode, setMode] = useState<'create' | 'view'>('create');
-  // SaaS Maker fleet auto-detect: null = unknown, populated after `detectProjectForRepo`.
-  const [detectedFleetProject, setDetectedFleetProject] = useState<RepoDetectResult | null>(null);
   const [branches, setBranches] = useState<string[]>([]);
   const [currentBranch, setCurrentBranch] = useState('');
   const [pullRequests, setPullRequests] = useState<PullRequest[]>([]);
@@ -400,18 +396,6 @@ export default function QuickReview() {
   // ─── Load saved folder + branches on mount ───────────────────────────────
 
   const loadFolderData = useCallback(async (dir: string) => {
-    // Fire-and-forget: ask the fleet which project this repo belongs to and
-    // surface the link if we have one. Soft-failure: if not signed in or
-    // the fleet doesn't know this repo, just stays null.
-    void (async () => {
-      try {
-        const r = await detectProjectForRepo(dir);
-        setDetectedFleetProject(r);
-      } catch {
-        setDetectedFleetProject(null);
-      }
-    })();
-
     const [branchResult, prs] = await Promise.allSettled([
       listGitBranches(dir),
       listPullRequests(dir),
@@ -3169,7 +3153,6 @@ export default function QuickReview() {
           <div className="flex min-h-0 flex-1 gap-4 p-4">
             <ReviewSetupPanel
               repoPath={repoPath}
-              detectedFleetProject={detectedFleetProject}
               error={error}
               activeTab={activeTab}
               setActiveTab={setActiveTab}

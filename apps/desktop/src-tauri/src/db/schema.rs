@@ -222,38 +222,6 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         [],
     );
 
-    // SaaS Maker sync: maps a CodeVetter finding (by id) → the SaaS Maker
-    // task it was pushed as, so re-pushing the same finding is a no-op.
-    // Mirrors reel-pipeline's deduping pattern but keyed locally so we
-    // don't need to round-trip SaaS Maker every check.
-    let _ = conn.execute(
-        "CREATE TABLE IF NOT EXISTS saas_maker_sync (
-            saas_maker_task_id TEXT PRIMARY KEY,
-            local_source_kind  TEXT NOT NULL,
-            local_source_id    TEXT NOT NULL,
-            last_payload       TEXT NOT NULL,
-            synced_at          TEXT NOT NULL
-        )",
-        [],
-    );
-    let _ = conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_saas_maker_sync_local
-            ON saas_maker_sync(local_source_kind, local_source_id)",
-        [],
-    );
-
-    // v1.1.76: persistent repo → fleet project mapping. Auto-detection from
-    // `git remote get-url origin` is the primary path; this is the fallback
-    // for repos whose remote doesn't match a fleet project's git_url (or
-    // when the user wants to override the auto-pick).
-    let _ = conn.execute(
-        "CREATE TABLE IF NOT EXISTS repo_project_mapping (
-            repo_path    TEXT PRIMARY KEY,
-            project_slug TEXT NOT NULL,
-            set_at       TEXT NOT NULL
-        )",
-        [],
-    );
 
     // v1.1.83 — T-Rex v2 watcher state
     let _ = conn.execute(

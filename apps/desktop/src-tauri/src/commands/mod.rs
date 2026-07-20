@@ -30,7 +30,6 @@ pub mod procedure_events;
 pub mod repo_workspace;
 pub mod resources;
 pub mod review;
-pub mod saas_maker;
 pub mod sandbox;
 pub mod scenario_compiler_bridge;
 pub(crate) mod secret_policy;
