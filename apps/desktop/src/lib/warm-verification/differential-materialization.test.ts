@@ -79,6 +79,48 @@ describe('differential source materialization', () => {
     assert.deepEqual(await repositoryState(root), before);
   });
 
+  it('retries one truncated git archive stream without retaining partial output', async () => {
+    const root = await repositoryFixture();
+    const destination = await outputDestination();
+    const sha = await gitText(root, 'rev-parse', 'HEAD');
+    const wrapperRoot = await workspace.temp('codevetter-git-wrapper-');
+    const wrapper = path.join(wrapperRoot, 'git');
+    const attempts = path.join(wrapperRoot, 'archive-attempts');
+    const realGit = await executablePath('git');
+    await writeFile(
+      wrapper,
+      `#!/usr/bin/env node
+const { appendFileSync, existsSync } = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+if (args.includes('archive') && !existsSync(${JSON.stringify(attempts)})) {
+  appendFileSync(${JSON.stringify(attempts)}, '1');
+  const result = spawnSync(${JSON.stringify(realGit)}, args);
+  if (result.status !== 0) process.exit(result.status ?? 1);
+  let end = result.stdout.length;
+  while (end >= 512 && result.stdout.subarray(end - 512, end).every((byte) => byte === 0)) {
+    end -= 512;
+  }
+  process.stdout.write(result.stdout.subarray(0, end), () => process.exit(0));
+} else {
+  const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });
+  process.exit(result.status ?? 1);
+}
+`,
+      { mode: 0o755 }
+    );
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${wrapperRoot}${path.delimiter}${previousPath ?? ''}`;
+    try {
+      const result = await materializeImmutableCommit(root, sha, destination);
+      assert.equal(result.kind, 'commit');
+      assert.equal(await readFile(path.join(destination, 'tracked.ts'), 'utf8'), 'baseline\n');
+      assert.equal(await readFile(attempts, 'utf8'), '1');
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
   it('exports the exact staged index through a private object namespace', async () => {
     const root = await repositoryFixture();
     await writeFile(path.join(root, 'tracked.ts'), 'staged\n');
@@ -404,6 +446,15 @@ async function gitHex(root: string, ...args: string[]): Promise<string> {
     execFile('git', ['-C', root, ...args], { encoding: 'buffer' }, (error, stdout) => {
       if (error) reject(error);
       else resolve(stdout.toString('hex'));
+    });
+  });
+}
+
+async function executablePath(name: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile('/usr/bin/env', ['which', name], { encoding: 'utf8' }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout.trim());
     });
   });
 }

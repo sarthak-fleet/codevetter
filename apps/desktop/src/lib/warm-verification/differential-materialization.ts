@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import {
   DEFAULT_DIFFERENTIAL_ARCHIVE_LIMITS,
+  DifferentialArchiveError,
   type DifferentialArchiveLimits,
   type DifferentialArchiveReport,
   extractValidatedGitArchive,
@@ -441,6 +442,35 @@ async function preflightTree(
 }
 
 async function extractGitArchive(
+  repositoryRoot: string,
+  treeish: string,
+  destination: string,
+  environment: NodeJS.ProcessEnv | undefined,
+  options: MaterializationOptions
+): Promise<DifferentialArchiveReport> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await extractGitArchiveOnce(
+        repositoryRoot,
+        treeish,
+        destination,
+        environment,
+        options
+      );
+    } catch (error) {
+      const retryableStreamFailure =
+        attempt === 0 &&
+        !options.signal?.aborted &&
+        error instanceof DifferentialArchiveError &&
+        error.code === 'invalid_archive';
+      if (!retryableStreamFailure) throw error;
+      await rm(destination, { recursive: true, force: true });
+    }
+  }
+  throw new DifferentialMaterializationError('git_failed', 'Git archive retry was exhausted');
+}
+
+async function extractGitArchiveOnce(
   repositoryRoot: string,
   treeish: string,
   destination: string,
