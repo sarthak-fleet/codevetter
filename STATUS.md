@@ -20,7 +20,7 @@ repeated real use.
   warm verification, deduplicated Repo overview, existing-session attachment,
   authoritative provider/repository attachment checks, bounded live transcript
   indexing, and honest direct provider output are implemented and
-  native-qualified locally; release publication remains pending.
+  native-qualified and shipped in v1.3.0.
 - **External benchmark case curation** — 27 public cases shipped; real
   agent-PR case curation pending before external catch-rate claims.
 - **Repo Unpacked + history workbench** — canonical structural graph,
@@ -44,15 +44,15 @@ repeated real use.
 
 ## Next steps
 
-1. Publish the native-qualified five-pillar Work release.
-2. Add explicit Claude profile selection before claiming managed-harness parity.
+1. Add explicit Claude profile selection before claiming managed-harness parity.
+2. Add isolated workspaces, checkpoints, and crash-safe process ownership.
 3. Continue Repo Unpack calibration against downstream review and QA outcomes.
 
 ## Recent shipped
 
 - 2026-07-20 — Work items can attach live or indexed Codex/Claude sessions
   without launching another process; direct PTY output remains visibly distinct
-  from structured lifecycle evidence (native-qualified; release pending).
+  from structured lifecycle evidence (shipped in v1.3.0).
 - 2026-07-18 — structural graph, release-history slider, and history MCP shipped
   in v1.2.21.
 - 2026-07-13 — Trusted graph paths; release-history graph + time-travel
