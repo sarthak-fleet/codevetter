@@ -7,6 +7,7 @@ const routes = [
   ['Usage', '/'],
   ['Repo Unpack', '/unpack'],
   ['Work', '/agents'],
+  ['Board', '/board'],
   ['Review', '/review'],
   ['Testing', '/trex'],
   ['Settings', '/settings'],
@@ -67,6 +68,11 @@ test.describe('desktop visual system', () => {
   }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await navigateTo(page, '/');
+
+    await page.keyboard.press('g');
+    await page.keyboard.press('b');
+    await expect(page).toHaveURL(/\/board$/);
+    await expect(page.getByRole('link', { name: 'Board' })).toHaveAttribute('aria-current', 'page');
 
     await page.keyboard.press('g');
     await page.keyboard.press('t');

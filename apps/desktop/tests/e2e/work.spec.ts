@@ -17,25 +17,48 @@ async function installWorkMock(page: Page, withLiveSessions = false) {
       unpack_snapshot_count: 0,
       intel_snapshot_count: 0,
     };
+    const secondProject = {
+      ...project,
+      id: 'project-2',
+      repo_path: '/tmp/knowledge-base',
+      display_name: 'Knowledge Base',
+    };
     const controlled = window as unknown as {
       __TAURI_INTERNALS__: {
         invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
         transformCallback: (callback?: (event: unknown) => void) => number;
         unregisterCallback: () => void;
+        unregisterListener: () => void;
         callbacks: Record<number, (event: unknown) => void>;
       };
       __WORK_TEST__: {
         startRequests: Array<Record<string, unknown>>;
+        inputRequests: Array<Record<string, unknown>>;
+        stopRequests: Array<Record<string, unknown>>;
+        directoryRequests: string[][];
+        emitTerminalEvent: (payload: Record<string, unknown>) => void;
+        hasAgentListener: () => boolean;
       };
     };
     const startAttempts = { codex: 0, claude: 0 };
     const callbacks: Record<number, (event: unknown) => void> = {};
     const listeners: Record<string, number[]> = {};
     let nextCallbackId = 1;
-    controlled.__WORK_TEST__ = { startRequests: [] };
+    controlled.__WORK_TEST__ = {
+      startRequests: [],
+      inputRequests: [],
+      stopRequests: [],
+      directoryRequests: [],
+      emitTerminalEvent: (payload) => {
+        for (const callbackId of listeners['agent-terminal-event'] ?? []) {
+          callbacks[callbackId]?.({ event: 'agent-terminal-event', payload });
+        }
+      },
+      hasAgentListener: () => (listeners['agent-terminal-event']?.length ?? 0) > 0,
+    };
     controlled.__TAURI_INTERNALS__ = {
       invoke: async (cmd, args = {}) => {
-        if (cmd === 'list_repo_projects') return [project];
+        if (cmd === 'list_repo_projects') return [project, secondProject];
         if (cmd === 'list_agent_terminals') {
           if (!liveSessions) return [];
           return [
@@ -52,7 +75,7 @@ async function installWorkMock(page: Page, withLiveSessions = false) {
             {
               session_id: 'live-claude',
               provider: 'claude',
-              cwd: '/tmp/codevetter',
+              cwd: '/tmp/knowledge-base',
               pid: 5102,
               started_at_ms: Date.now(),
               running: true,
@@ -62,7 +85,58 @@ async function installWorkMock(page: Page, withLiveSessions = false) {
           ];
         }
         if (cmd === 'list_sessions') {
-          if (args.agentType === 'claude-code') return { sessions: [] };
+          if (args.agentType === 'claude-code') {
+            return {
+              sessions: [
+                {
+                  id: 'historical-session-2',
+                  project_id: 'project-2',
+                  agent_type: 'claude-code',
+                  jsonl_path: null,
+                  git_branch: 'main',
+                  cwd: '/tmp/knowledge-base',
+                  cli_version: null,
+                  first_message: 'Explain repo history',
+                  last_message: '2026-07-20T02:00:00Z',
+                  message_count: 8,
+                  total_input_tokens: 90,
+                  total_output_tokens: 30,
+                  cache_read_tokens: 0,
+                  cache_creation_tokens: 0,
+                  compaction_count: 0,
+                  estimated_cost_usd: 0,
+                  model_used: 'claude-sonnet-4-5',
+                  slug: null,
+                  file_size_bytes: 900,
+                  indexed_at: '2026-07-20T02:00:00Z',
+                  file_mtime: '2026-07-20T02:00:00Z',
+                },
+                {
+                  id: 'missing-session',
+                  project_id: 'project-deleted',
+                  agent_type: 'claude-code',
+                  jsonl_path: null,
+                  git_branch: 'main',
+                  cwd: '/tmp/deleted-project',
+                  cli_version: null,
+                  first_message: 'Deleted checkout thread',
+                  last_message: '2026-07-20T03:00:00Z',
+                  message_count: 4,
+                  total_input_tokens: 50,
+                  total_output_tokens: 10,
+                  cache_read_tokens: 0,
+                  cache_creation_tokens: 0,
+                  compaction_count: 0,
+                  estimated_cost_usd: 0,
+                  model_used: 'claude-sonnet-4-5',
+                  slug: null,
+                  file_size_bytes: 500,
+                  indexed_at: '2026-07-20T03:00:00Z',
+                  file_mtime: '2026-07-20T03:00:00Z',
+                },
+              ],
+            };
+          }
           return {
             sessions: [
               {
@@ -88,9 +162,45 @@ async function installWorkMock(page: Page, withLiveSessions = false) {
                 indexed_at: '2026-07-20T01:00:00Z',
                 file_mtime: '2026-07-20T01:00:00Z',
               },
+              ...(liveSessions
+                ? [
+                    {
+                      id: 'codex-live-provider-session',
+                      project_id: 'project-1',
+                      agent_type: 'codex',
+                      jsonl_path: null,
+                      git_branch: 'main',
+                      cwd: '/tmp/codevetter',
+                      cli_version: null,
+                      first_message: 'Duplicate live Codex',
+                      last_message: '2026-07-20T04:00:00Z',
+                      message_count: 20,
+                      total_input_tokens: 120,
+                      total_output_tokens: 60,
+                      cache_read_tokens: 0,
+                      cache_creation_tokens: 0,
+                      compaction_count: 0,
+                      estimated_cost_usd: 0,
+                      model_used: 'gpt-5',
+                      slug: null,
+                      file_size_bytes: 1200,
+                      indexed_at: '2026-07-20T04:00:00Z',
+                      file_mtime: '2026-07-20T04:00:00Z',
+                    },
+                  ]
+                : []),
             ],
           };
         }
+        if (cmd === 'check_directories_exist') {
+          const paths = args.paths as string[];
+          controlled.__WORK_TEST__.directoryRequests.push(paths);
+          return paths.map((path) => ({
+            path,
+            exists: path !== '/tmp/deleted-project',
+          }));
+        }
+        if (cmd === 'list_reviews') return { reviews: [] };
         if (cmd === 'get_codex_warp_plugin_status') {
           return {
             codex_available: true,
@@ -124,6 +234,7 @@ async function installWorkMock(page: Page, withLiveSessions = false) {
           };
         }
         if (cmd === 'stop_agent_terminal') {
+          controlled.__WORK_TEST__.stopRequests.push({ ...args });
           const payload = {
             session_id: args.sessionId,
             kind: 'exit',
@@ -137,6 +248,10 @@ async function installWorkMock(page: Page, withLiveSessions = false) {
               callbacks[callbackId]?.({ event: 'agent-terminal-event', payload });
             }
           });
+          return undefined;
+        }
+        if (cmd === 'send_agent_terminal_input') {
+          controlled.__WORK_TEST__.inputRequests.push({ ...args });
           return undefined;
         }
         if (cmd === 'create_work_item') {
@@ -215,8 +330,14 @@ async function installWorkMock(page: Page, withLiveSessions = false) {
         return id;
       },
       unregisterCallback: () => undefined,
+      unregisterListener: () => undefined,
       callbacks,
     };
+    (
+      window as unknown as {
+        __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => void };
+      }
+    ).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => undefined };
   }, withLiveSessions);
 }
 
@@ -226,17 +347,189 @@ test.describe('Work surface', () => {
   test.beforeEach(async ({ page }, testInfo) => {
     consoleErrors.reset();
     consoleErrors.attach(page);
-    await installWorkMock(page, testInfo.title.includes('focuses live runs'));
+    await installWorkMock(
+      page,
+      testInfo.title.includes('focuses live runs') ||
+        testInfo.title.includes('groups conversations') ||
+        testInfo.title.includes('pre-fills verified history') ||
+        testInfo.title.includes('reviews confirmed approval') ||
+        testInfo.title.includes('surfaces confirmed') ||
+        testInfo.title.includes('archives a live run')
+    );
     await navigateTo(page, '/agents');
   });
 
   test.afterEach(() => consoleErrors.assertNoErrors());
 
+  test('anchors the conversation sidebar to the left edge on wide windows', async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+
+    const sidebar = page.getByLabel('Conversation sidebar');
+    await expect(sidebar).toBeVisible();
+    const bounds = await sidebar.boundingBox();
+
+    expect(bounds).not.toBeNull();
+    expect(bounds?.x).toBeLessThanOrEqual(32);
+    expect(bounds?.width).toBe(252);
+  });
+
+  test('groups conversations by project and shows searchable operational states', async ({
+    page,
+  }) => {
+    const sidebar = page.getByLabel('Conversation sidebar');
+    const codevetter = sidebar.getByRole('group', {
+      name: 'codevetter project conversations',
+    });
+    const knowledgeBase = sidebar.getByRole('group', {
+      name: 'Knowledge Base project conversations',
+    });
+
+    await expect(codevetter).toContainText('Codex');
+    await expect(codevetter).toContainText('Working');
+    await expect(knowledgeBase).toContainText('Claude');
+    await expect(knowledgeBase).toContainText('Working');
+
+    await page.getByLabel('Search conversations').fill('Knowledge Base');
+    await expect(knowledgeBase).toBeVisible();
+    await expect(codevetter).toHaveCount(0);
+    await page.getByLabel('Search conversations').fill('');
+
+    await knowledgeBase.getByRole('button', { name: /Open Claude run/ }).click();
+    await page.waitForFunction(() =>
+      (
+        window as unknown as {
+          __WORK_TEST__: { hasAgentListener: () => boolean };
+        }
+      ).__WORK_TEST__.hasAgentListener()
+    );
+    await page.evaluate(() => {
+      (
+        window as unknown as {
+          __WORK_TEST__: { emitTerminalEvent: (payload: Record<string, unknown>) => void };
+        }
+      ).__WORK_TEST__.emitTerminalEvent({
+        session_id: 'live-claude',
+        kind: 'agent_event',
+        data: JSON.stringify({
+          agent: 'claude',
+          event: 'question_asked',
+          summary: 'Which approach should I use?',
+        }),
+        seq: 1,
+      });
+    });
+
+    await expect(knowledgeBase).toContainText('Needs help');
+    await page.getByLabel('Search conversations').fill('Needs help');
+    await expect(knowledgeBase).toBeVisible();
+    await expect(codevetter).toHaveCount(0);
+    await page.getByLabel('Search conversations').fill('');
+
+    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await expect(knowledgeBase).toContainText('Paused');
+
+    const results = await new AxeBuilder({ page })
+      .include('[aria-label="Conversation sidebar"]')
+      .analyze();
+    expect(
+      results.violations.filter(
+        (violation) => violation.impact === 'critical' || violation.impact === 'serious'
+      )
+    ).toEqual([]);
+  });
+
+  test('pre-fills verified history behind expandable projects and explicit resume', async ({
+    page,
+  }) => {
+    const sidebar = page.getByLabel('Conversation sidebar');
+    const codevetter = sidebar.getByRole('group', {
+      name: 'codevetter project conversations',
+    });
+    const knowledgeBase = sidebar.getByRole('group', {
+      name: 'Knowledge Base project conversations',
+    });
+    const knowledgeDisclosure = knowledgeBase.getByRole('button', {
+      name: /Knowledge Base/,
+    });
+    const claudeHistory = knowledgeBase.getByRole('button', {
+      name: 'Resume Claude session Explain repo history',
+    });
+
+    await expect(
+      codevetter.getByRole('button', {
+        name: 'Resume Codex session Fix the Work attachment regression',
+      })
+    ).toBeVisible();
+    await expect(claudeHistory).toBeVisible();
+    await expect(sidebar.getByText('Deleted checkout thread')).toHaveCount(0);
+    await expect(sidebar.getByText('Duplicate live Codex')).toHaveCount(0);
+
+    const initialState = await page.evaluate(() => {
+      const testState = (
+        window as unknown as {
+          __WORK_TEST__: {
+            directoryRequests: string[][];
+            startRequests: Array<Record<string, unknown>>;
+          };
+        }
+      ).__WORK_TEST__;
+      return {
+        directoryRequests: testState.directoryRequests,
+        startRequests: testState.startRequests,
+      };
+    });
+    expect(initialState.directoryRequests).toEqual([
+      ['/tmp/codevetter', '/tmp/deleted-project', '/tmp/knowledge-base'],
+    ]);
+    expect(initialState.startRequests).toEqual([]);
+
+    await expect(knowledgeDisclosure).toHaveAttribute('aria-expanded', 'true');
+    await knowledgeDisclosure.click();
+    await expect(knowledgeDisclosure).toHaveAttribute('aria-expanded', 'false');
+    await expect(claudeHistory).toHaveCount(0);
+
+    await page.getByLabel('Search conversations').fill('Explain repo history');
+    await expect(knowledgeDisclosure).toHaveAttribute('aria-expanded', 'true');
+    await expect(claudeHistory).toBeVisible();
+    await page.getByLabel('Search conversations').fill('');
+    await expect(knowledgeDisclosure).toHaveAttribute('aria-expanded', 'false');
+    await expect(claudeHistory).toHaveCount(0);
+
+    await knowledgeDisclosure.click();
+    await claudeHistory.click();
+    const startRequests = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __WORK_TEST__: { startRequests: Array<Record<string, unknown>> };
+          }
+        ).__WORK_TEST__.startRequests
+    );
+    expect(startRequests).toHaveLength(1);
+    expect(startRequests[0]).toMatchObject({
+      provider: 'claude',
+      cwd: '/tmp/knowledge-base',
+      resumeSessionId: 'historical-session-2',
+    });
+
+    const results = await new AxeBuilder({ page })
+      .include('[aria-label="Conversation sidebar"]')
+      .analyze();
+    expect(
+      results.violations.filter(
+        (violation) => violation.impact === 'critical' || violation.impact === 'serious'
+      )
+    ).toEqual([]);
+  });
+
   test('starts calm, creates local work, and moves it with an accessible action', async ({
     page,
   }) => {
     await expect(page.getByRole('heading', { name: 'What should we work on?' })).toBeVisible();
-    await page.getByRole('tab', { name: 'Board' }).click();
+    await expect(page.getByRole('tab', { name: 'Board' })).toHaveCount(0);
+    await page.getByRole('link', { name: 'Board' }).click();
+    await expect(page).toHaveURL(/\/board$/);
+    await expect(page.getByRole('heading', { name: 'Board' })).toBeVisible();
     await page.getByRole('button', { name: 'New work' }).click();
     await page.getByLabel('Outcome').fill('Ship the native Work surface');
     await page.getByLabel('Acceptance criteria').fill('Conversation and board both work');
@@ -260,7 +553,7 @@ test.describe('Work surface', () => {
     );
 
     await page.getByRole('link', { name: 'Usage' }).click();
-    await page.getByRole('link', { name: 'Work' }).click();
+    await page.getByRole('link', { name: 'Board' }).click();
     await expect(page.getByRole('region', { name: 'Review work items' })).toContainText(
       'Ship the native Work surface'
     );
@@ -281,7 +574,7 @@ test.describe('Work surface', () => {
   });
 
   test('attaches historical evidence without launching another agent', async ({ page }) => {
-    await page.getByRole('tab', { name: 'Board' }).click();
+    await page.getByRole('link', { name: 'Board' }).click();
     await page.getByRole('button', { name: 'New work' }).click();
     await page.getByLabel('Outcome').fill('Connect existing evidence');
     await page.getByLabel('Existing agent run').selectOption('history:codex:historical-session-1');
@@ -304,22 +597,63 @@ test.describe('Work surface', () => {
     expect(startRequests).toEqual([]);
   });
 
+  test('routes one board item through Work, Review, Testing, and Repo Unpack', async ({ page }) => {
+    await page.getByRole('link', { name: 'Board' }).click();
+    await page.getByRole('button', { name: 'New work' }).click();
+    await page.getByLabel('Outcome').fill('Qualify the shared handoffs');
+    await page
+      .getByLabel('Acceptance criteria')
+      .fill('Every specialist receives repository context');
+    await page.getByRole('button', { name: 'Create work' }).click();
+
+    await page
+      .getByRole('button', { name: 'Understand Qualify the shared handoffs in Repo Unpack' })
+      .click();
+    await expect(page).toHaveURL(/\/unpack\?repo=%2Ftmp%2Fcodevetter$/);
+
+    await page.getByRole('link', { name: 'Board' }).click();
+    await page.getByRole('button', { name: 'Move Qualify the shared handoffs right' }).click();
+    await page.getByRole('button', { name: 'Open', exact: true }).click();
+    await expect(page).toHaveURL(/\/agents$/);
+    await expect(page.getByLabel('Conversation prompt')).toHaveValue(
+      /Work item: Qualify the shared handoffs/
+    );
+
+    await page.getByRole('link', { name: 'Board' }).click();
+    await page.getByRole('button', { name: 'Move Qualify the shared handoffs right' }).click();
+    await page.getByRole('button', { name: 'Review', exact: true }).click();
+    await expect(page).toHaveURL(/\/review\?project=%2Ftmp%2Fcodevetter$/);
+
+    await page.getByRole('link', { name: 'Board' }).click();
+    await page.getByRole('button', { name: 'Move Qualify the shared handoffs right' }).click();
+    await page.getByRole('button', { name: 'Verify', exact: true }).click();
+    await expect(page).toHaveURL(/\/trex\?project=%2Ftmp%2Fcodevetter$/);
+  });
+
   test('focuses live runs and attaches one without restarting it', async ({ page }) => {
-    const runSelector = page.getByLabel('Active agent run');
-    await expect(runSelector).toBeVisible();
-    await runSelector.selectOption('live-claude');
+    const conversations = page.getByRole('navigation', { name: 'Conversations' });
+    const claudeRun = conversations.getByRole('button', { name: /Open Claude run/ });
+    await expect(conversations).toBeVisible();
+    await page.getByLabel('Search conversations').fill('Claude');
+    await expect(claudeRun).toBeVisible();
+    await expect(conversations.getByRole('button', { name: /Open Codex run/ })).toHaveCount(0);
+    await page.getByLabel('Search conversations').fill('');
+    await claudeRun.click();
     await expect(page.getByLabel('Claude work session')).toBeVisible();
 
-    await page.getByRole('tab', { name: 'Board' }).click();
+    await page.getByRole('link', { name: 'Board' }).click();
+    await expect(page).toHaveURL(/\/board$/);
     await page.getByRole('button', { name: 'New work' }).click();
     await page.getByLabel('Outcome').fill('Attach the live Claude run');
+    await page.getByLabel('Repository').selectOption('/tmp/knowledge-base');
     await page.getByLabel('Existing agent run').selectOption('terminal:live-claude');
     await page.getByRole('button', { name: 'Create work' }).click();
     await expect(page.getByText('claude active')).toBeVisible();
 
     await page.getByRole('button', { name: 'Open', exact: true }).click();
+    await expect(page).toHaveURL(/\/agents$/);
     await expect(page.getByLabel('Claude work session')).toBeVisible();
-    await expect(runSelector).toHaveValue('live-claude');
+    await expect(claudeRun).toHaveAttribute('aria-current', 'page');
 
     const startRequests = await page.evaluate(
       () =>
@@ -335,7 +669,139 @@ test.describe('Work surface', () => {
     await expect(page.getByText('Claude stopped. This session can be resumed.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0);
+
+    await conversations.getByRole('button', { name: /Archive Claude run/ }).click();
+    await expect(claudeRun).toHaveCount(0);
+    await expect(page.getByLabel('Codex work session')).toBeVisible();
   });
+
+  test('archives a live run only after stopping its owned process', async ({ page }) => {
+    const conversations = page.getByRole('navigation', { name: 'Conversations' });
+    await conversations.getByRole('button', { name: /Open Codex run/ }).click();
+    await conversations.getByRole('button', { name: /Archive Codex run/ }).click();
+
+    await expect(conversations.getByRole('button', { name: /Open Codex run/ })).toHaveCount(0);
+    const stopRequests = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __WORK_TEST__: { stopRequests: Array<Record<string, unknown>> };
+          }
+        ).__WORK_TEST__.stopRequests
+    );
+    expect(stopRequests).toContainEqual({ sessionId: 'live-codex' });
+  });
+
+  test('reviews confirmed approval evidence without approving it', async ({ page }) => {
+    await page
+      .getByRole('navigation', { name: 'Conversations' })
+      .getByRole('button', { name: /Open Codex run/ })
+      .click();
+    await page.waitForFunction(() =>
+      (
+        window as unknown as {
+          __WORK_TEST__: { hasAgentListener: () => boolean };
+        }
+      ).__WORK_TEST__.hasAgentListener()
+    );
+    await page.evaluate(() => {
+      (
+        window as unknown as {
+          __WORK_TEST__: { emitTerminalEvent: (payload: Record<string, unknown>) => void };
+        }
+      ).__WORK_TEST__.emitTerminalEvent({
+        session_id: 'live-codex',
+        kind: 'agent_event',
+        data: JSON.stringify({
+          agent: 'codex',
+          event: 'permission_request',
+          summary: 'Allow a shell command?',
+        }),
+        seq: 1,
+      });
+    });
+
+    const attention = page.getByRole('alert', { name: 'Agent attention required' });
+    await expect(attention).toContainText('Codex needs your approval');
+    await attention.getByRole('button', { name: 'Review request' }).click();
+    await expect(page.getByText('Provider output', { exact: true })).toBeFocused();
+
+    const inputRequests = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __WORK_TEST__: { inputRequests: Array<Record<string, unknown>> };
+          }
+        ).__WORK_TEST__.inputRequests
+    );
+    expect(inputRequests).toEqual([]);
+  });
+
+  for (const provider of ['codex', 'claude'] as const) {
+    const label = provider === 'claude' ? 'Claude' : 'Codex';
+    test(`surfaces confirmed ${label} questions globally and keeps attention until resume`, async ({
+      page,
+    }) => {
+      await page
+        .getByRole('navigation', { name: 'Conversations' })
+        .getByRole('button', { name: new RegExp(`Open ${label} run`) })
+        .click();
+      await expect(page.getByText(`Attached to running ${label} process`)).toBeVisible();
+      await page.waitForFunction(() =>
+        (
+          window as unknown as {
+            __WORK_TEST__: { hasAgentListener: () => boolean };
+          }
+        ).__WORK_TEST__.hasAgentListener()
+      );
+      await page.evaluate((selectedProvider) => {
+        (
+          window as unknown as {
+            __WORK_TEST__: { emitTerminalEvent: (payload: Record<string, unknown>) => void };
+          }
+        ).__WORK_TEST__.emitTerminalEvent({
+          session_id: `live-${selectedProvider}`,
+          kind: 'agent_event',
+          data: JSON.stringify({
+            agent: selectedProvider,
+            event: 'question_asked',
+            summary: 'Which migration strategy should I use?',
+          }),
+          seq: 1,
+        });
+      }, provider);
+
+      const attention = page.getByRole('alert', { name: 'Agent attention required' });
+      await expect(attention).toContainText(`${label} is waiting for your answer`);
+      await expect(attention).toContainText('Confirmed provider event');
+      await expect(page.getByLabel('1 agent run needs attention')).toBeVisible();
+
+      await attention.getByRole('button', { name: 'Reply' }).click();
+      await expect(page.getByLabel(`Message ${label}`)).toBeFocused();
+      await page.getByLabel(`Message ${label}`).fill('Use the safest option');
+      await page.getByLabel(`Message ${label}`).press('Shift+Enter');
+      await expect(page.getByLabel(`Message ${label}`)).toHaveValue('Use the safest option\n');
+      await page.getByLabel(`Message ${label}`).fill('Use the safest option');
+      await page.getByLabel(`Message ${label}`).press('Enter');
+      await expect(attention).toContainText('waiting for the provider to resume');
+
+      const inputRequests = await page.evaluate(
+        () =>
+          (
+            window as unknown as {
+              __WORK_TEST__: { inputRequests: Array<Record<string, unknown>> };
+            }
+          ).__WORK_TEST__.inputRequests
+      );
+      expect(inputRequests.slice(-2)).toEqual([
+        {
+          sessionId: `live-${provider}`,
+          data: '\u001b[200~Use the safest option\u001b[201~',
+        },
+        { sessionId: `live-${provider}`, data: '\r' },
+      ]);
+    });
+  }
 
   for (const provider of ['codex', 'claude'] as const) {
     const label = provider === 'claude' ? 'Claude' : 'Codex';
@@ -353,7 +819,8 @@ test.describe('Work surface', () => {
       await page
         .getByPlaceholder('Describe the change, bug, or question…')
         .fill(`Verify the ${label} launch path`);
-      await page.getByRole('button', { name: `Start ${label}`, exact: true }).click();
+      await page.getByLabel('Conversation model').fill(`test-${provider}-model`);
+      await page.getByLabel('Conversation prompt').press('Enter');
 
       const session = page.getByLabel(`${label} work session`);
       await expect(session).toBeVisible();
@@ -367,6 +834,10 @@ test.describe('Work surface', () => {
 
       await session.getByRole('button', { name: `Restart ${label} agent`, exact: true }).click();
       await expect(session.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+      await expect(session.getByRole('status', { name: `${label} is working` })).toContainText(
+        `${label} is thinking`
+      );
+      await expect(session).toContainText(`test-${provider}-model`);
 
       const startRequests = await page.evaluate(
         () =>
@@ -378,6 +849,10 @@ test.describe('Work surface', () => {
       );
       expect(startRequests).toHaveLength(2);
       expect(startRequests.map((request) => request.provider)).toEqual([provider, provider]);
+      expect(startRequests.map((request) => request.model)).toEqual([
+        `test-${provider}-model`,
+        `test-${provider}-model`,
+      ]);
       expect(startRequests.map((request) => request.prompt)).toEqual([
         `Verify the ${label} launch path`,
         `Verify the ${label} launch path`,

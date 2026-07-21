@@ -7,7 +7,7 @@ sidebar:
 
 # Surfaces and navigation
 
-The desktop app has **five product pillars** (defined in
+The desktop app has **six product surfaces** (defined in
 `apps/desktop/src/components/sidebar.tsx`) plus an integrated Settings utility
 and a set of **URL-only surfaces** that are reachable but intentionally off the
 top rail.
@@ -20,21 +20,22 @@ Source: `navItems` in `apps/desktop/src/components/sidebar.tsx`.
 |---|---|---|---|
 | Usage | `/` | `apps/desktop/src/pages/Home.tsx` | Usage/token analytics + session history + acceptance-rate strip. |
 | Repo Unpack | `/unpack` | `apps/desktop/src/pages/RepoPage.tsx` | Whole-repo evidence-backed system brief. Tab `match`es `/unpack` and `/intel`. Scanner in `src-tauri/src/commands/unpack*.rs`; persisted to `repo_unpacked_reports`. See [architecture/repo-unpacked.md](../architecture/repo-unpacked.md). |
-| Work | `/agents` | `apps/desktop/src/pages/AgentPanel.tsx` | Outcome-first Codex/Claude work sessions and a persistent local board. PTY execution stays behind the conversation and activity interface. |
+| Work | `/agents` | `apps/desktop/src/pages/AgentPanel.tsx` | Outcome-first Codex/Claude conversations in expandable repository-project groups with visible operational state. Indexed history appears only when its local working directory still exists, and resumes only through an explicit action. PTY execution stays behind the conversation and activity interface. |
+| Board | `/board` | `apps/desktop/src/pages/AgentPanel.tsx` | Persistent Plan/Build/Review/Verify/Done orchestration with handoffs to Work, Review, Testing, and Repo Unpack. Shares one mounted workspace instance with Work so live provider state survives navigation. |
 | Review | `/review` | `apps/desktop/src/pages/QuickReview.tsx` | AI code review with diff + fix + verification proof. Editor-primary layout with verdict sidebar. |
 | Testing | `/trex` | `apps/desktop/src/pages/TRex.tsx` | Changed-capability verification and PR watchers with retry + per-PR base-branch inference. |
 
 Settings (`/settings`) is a labelled utility at the right of the same top rail,
-not a sixth product pillar. It hosts preferences, Ops, Memories, Rubrics, Agent
+not a seventh product surface. It hosts preferences, Ops, Memories, Rubrics, Agent
 MCP, usage, and About through `?section=`.
 
 The Repo surface (`apps/desktop/src/pages/RepoPage.tsx`) consolidates Unpack,
 Activity, Graph, Inventory, Analysis, Handoff, and past snapshots.
 `RepoUnpacked.tsx` is a child view within it, not the `/unpack` page itself.
 
-Keyboard navigation uses `g` followed by the surface shortcut, plus `g i` →
-`/unpack?section=activity`. The command palette is the canonical shortcut
-reference.
+Keyboard navigation uses `g` followed by the surface shortcut, including `g b`
+for Board, plus `g i` → `/unpack?section=activity`. The command palette is the
+canonical shortcut reference.
 
 ## URL-only surfaces
 

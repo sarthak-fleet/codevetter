@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::io::{Read, Write};
+use std::fs::{self, OpenOptions};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
@@ -36,6 +37,8 @@ const CODEX_WARP_MARKETPLACE: &str = "codex-warp";
 const CODEX_WARP_MARKETPLACE_SOURCE: &str = "warpdotdev/codex-warp";
 const CODEX_WARP_PLUGIN: &str = "warp@codex-warp";
 const CODEX_WARP_ORCHESTRATION_PLUGIN: &str = "orchestration@codex-warp";
+const CLAUDE_HOOK_POLL_INTERVAL_MS: u64 = 25;
+const CLAUDE_HOOK_EVENT_LIMIT_CHARS: usize = 8_000;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -73,6 +76,12 @@ struct RunningCodexAgent {
     codex_session_id: Arc<Mutex<Option<String>>>,
     transcript_path: Arc<Mutex<Option<String>>>,
     stop_requested: Arc<AtomicBool>,
+}
+
+struct ClaudeHookBridge {
+    directory: PathBuf,
+    settings_path: PathBuf,
+    events_path: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -234,7 +243,7 @@ pub struct CodexWarpPluginStatus {
 }
 
 #[derive(Deserialize, Serialize, Clone)]
-pub struct CodexCliAgentNotification {
+pub struct AgentLifecycleNotification {
     pub v: Option<u64>,
     pub agent: Option<String>,
     pub event: Option<String>,
@@ -460,33 +469,6 @@ fn start_agent_terminal_impl(
     if resume_session_id.is_some() && fork_session_id.is_some() {
         return Err("resume_session_id and fork_session_id are mutually exclusive".into());
     }
-    let args = match provider {
-        AgentProvider::Codex => codex_agent_command_args(
-            &cwd,
-            sandbox.as_deref(),
-            approval_policy.as_deref(),
-            model.as_deref(),
-            prompt.as_deref(),
-            resume_session_id,
-            fork_session_id,
-        ),
-        AgentProvider::Claude => claude_agent_command_args(
-            approval_policy.as_deref(),
-            model.as_deref(),
-            prompt.as_deref(),
-            resume_session_id,
-            fork_session_id,
-        ),
-    };
-    let mut command = CommandBuilder::new(&agent_path);
-    for arg in args {
-        command.arg(arg);
-    }
-    for (key, value) in agent_terminal_env(provider) {
-        command.env(key, value);
-    }
-    command.cwd(&cwd);
-
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -504,10 +486,59 @@ fn start_agent_terminal_impl(
         .master
         .take_writer()
         .map_err(|e| format!("open {} PTY writer: {e}", provider.display_name()))?;
-    let mut child = pair
-        .slave
-        .spawn_command(command)
-        .map_err(|e| format!("spawn {} PTY ({agent_path}): {e}", provider.display_name()))?;
+    let claude_hook_bridge = if provider == AgentProvider::Claude {
+        Some(create_claude_hook_bridge(&session_id)?)
+    } else {
+        None
+    };
+    let args = match provider {
+        AgentProvider::Codex => codex_agent_command_args(
+            &cwd,
+            sandbox.as_deref(),
+            approval_policy.as_deref(),
+            model.as_deref(),
+            prompt.as_deref(),
+            resume_session_id,
+            fork_session_id,
+        ),
+        AgentProvider::Claude => claude_agent_command_args(
+            approval_policy.as_deref(),
+            model.as_deref(),
+            prompt.as_deref(),
+            resume_session_id,
+            fork_session_id,
+            claude_hook_bridge
+                .as_ref()
+                .map(|bridge| bridge.settings_path.as_path()),
+        ),
+    };
+    let mut command = CommandBuilder::new(&agent_path);
+    for arg in args {
+        command.arg(arg);
+    }
+    for (key, value) in agent_terminal_env(provider) {
+        command.env(key, value);
+    }
+    if let Some(bridge) = claude_hook_bridge.as_ref() {
+        command.env(
+            "CODEVETTER_AGENT_EVENT_FILE",
+            bridge.events_path.as_os_str(),
+        );
+    }
+    command.cwd(&cwd);
+
+    let mut child = match pair.slave.spawn_command(command) {
+        Ok(child) => child,
+        Err(error) => {
+            if let Some(bridge) = claude_hook_bridge.as_ref() {
+                cleanup_claude_hook_bridge(bridge);
+            }
+            return Err(format!(
+                "spawn {} PTY ({agent_path}): {error}",
+                provider.display_name()
+            ));
+        }
+    };
     let pid = child.process_id();
     let killer = child.clone_killer();
     drop(pair.slave);
@@ -544,6 +575,35 @@ fn start_agent_terminal_impl(
         );
     }
     ensure_agent_heartbeat(app.clone());
+
+    let claude_hook_stop = Arc::new(AtomicBool::new(false));
+    let claude_hook_thread = if let Some(bridge) = claude_hook_bridge.as_ref() {
+        match start_claude_hook_event_reader(
+            app.clone(),
+            session_id.clone(),
+            pid,
+            bridge.events_path.clone(),
+            Arc::clone(&claude_hook_stop),
+            Arc::clone(&last_agent_event),
+            Arc::clone(&agent_events),
+            Arc::clone(&codex_session_id),
+            Arc::clone(&transcript_path),
+        ) {
+            Ok(thread) => Some(thread),
+            Err(error) => {
+                if let Ok(mut sessions) = codex_agents().lock() {
+                    sessions.remove(&session_id);
+                }
+                let mut abort = child.clone_killer();
+                let _ = abort.kill();
+                let _ = child.wait();
+                cleanup_claude_hook_bridge(bridge);
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
 
     emit_agent_event(
         &app,
@@ -632,7 +692,7 @@ fn start_agent_terminal_impl(
                         for notification in notifications {
                             agent_event_seq = agent_event_seq.saturating_add(1);
                             if let Some((codex_id, transcript)) =
-                                codex_agent_identity(&notification)
+                                agent_event_identity(&notification)
                             {
                                 if let Some(codex_id) = codex_id {
                                     if let Ok(mut session_id) = reader_codex_session_id.lock() {
@@ -712,6 +772,13 @@ fn start_agent_terminal_impl(
     let wait_stop_requested = Arc::clone(&stop_requested);
     thread::spawn(move || {
         let status = child.wait();
+        claude_hook_stop.store(true, Ordering::Release);
+        if let Some(hook_thread) = claude_hook_thread {
+            let _ = hook_thread.join();
+        }
+        if let Some(bridge) = claude_hook_bridge.as_ref() {
+            cleanup_claude_hook_bridge(bridge);
+        }
         let (exit_code, success, data) = match status {
             Ok(status) => (
                 Some(status.exit_code()),
@@ -810,14 +877,269 @@ fn codex_agent_command_args(
     args
 }
 
+fn create_claude_hook_bridge(session_id: &str) -> Result<ClaudeHookBridge, String> {
+    static BRIDGE_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let unique = BRIDGE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let parent = std::env::temp_dir().join("codevetter-agent-hooks");
+    fs::create_dir_all(&parent)
+        .map_err(|error| format!("create Claude hook bridge root for {session_id}: {error}"))?;
+    let directory = parent.join(format!(
+        "{}-{}-{unique}",
+        std::process::id(),
+        current_unix_millis()
+    ));
+    let mut directory_options = fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        directory_options.mode(0o700);
+    }
+    directory_options
+        .create(&directory)
+        .map_err(|error| format!("create Claude hook bridge for {session_id}: {error}"))?;
+
+    let settings_path = directory.join("settings.json");
+    let events_path = directory.join("events.jsonl");
+    let mut events_options = OpenOptions::new();
+    events_options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        events_options.mode(0o600);
+    }
+    if let Err(error) = events_options.open(&events_path) {
+        let _ = fs::remove_dir_all(&directory);
+        return Err(format!(
+            "create Claude hook event stream for {session_id}: {error}"
+        ));
+    }
+
+    let hook = json!([{
+        "matcher": "",
+        "hooks": [{
+            "type": "command",
+            "command": "cat >> \"$CODEVETTER_AGENT_EVENT_FILE\"; printf '\\n' >> \"$CODEVETTER_AGENT_EVENT_FILE\"",
+            "timeout": 5
+        }]
+    }]);
+    let mut hooks = serde_json::Map::new();
+    for event in [
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "PermissionRequest",
+        "Stop",
+        "StopFailure",
+        "Notification",
+    ] {
+        hooks.insert(event.to_string(), hook.clone());
+    }
+    let settings = Value::Object(
+        [("hooks".to_string(), Value::Object(hooks))]
+            .into_iter()
+            .collect(),
+    );
+    let settings_bytes = serde_json::to_vec(&settings)
+        .map_err(|error| format!("serialize Claude hook settings: {error}"))?;
+    let mut settings_options = OpenOptions::new();
+    settings_options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        settings_options.mode(0o600);
+    }
+    let settings_result = settings_options
+        .open(&settings_path)
+        .and_then(|mut file| file.write_all(&settings_bytes));
+    if let Err(error) = settings_result {
+        let _ = fs::remove_dir_all(&directory);
+        return Err(format!(
+            "write Claude hook settings for {session_id}: {error}"
+        ));
+    }
+
+    Ok(ClaudeHookBridge {
+        directory,
+        settings_path,
+        events_path,
+    })
+}
+
+fn cleanup_claude_hook_bridge(bridge: &ClaudeHookBridge) {
+    let _ = fs::remove_dir_all(&bridge.directory);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn start_claude_hook_event_reader(
+    app: AppHandle,
+    terminal_id: String,
+    pid: Option<u32>,
+    events_path: PathBuf,
+    stop: Arc<AtomicBool>,
+    last_agent_event: Arc<Mutex<Option<String>>>,
+    agent_events: Arc<Mutex<Vec<AgentStructuredEvent>>>,
+    provider_session_id: Arc<Mutex<Option<String>>>,
+    transcript_path: Arc<Mutex<Option<String>>>,
+) -> Result<thread::JoinHandle<()>, String> {
+    thread::Builder::new()
+        .name(format!("Claude hook reader {terminal_id}"))
+        .spawn(move || {
+            let Ok(file) = OpenOptions::new().read(true).open(events_path) else {
+                return;
+            };
+            let mut reader = BufReader::new(file);
+            let mut pending = String::new();
+            let mut seq = 0_u64;
+            loop {
+                match reader.read_line(&mut pending) {
+                    Ok(0) if stop.load(Ordering::Acquire) => break,
+                    Ok(0) => thread::sleep(Duration::from_millis(CLAUDE_HOOK_POLL_INTERVAL_MS)),
+                    Ok(_) if !pending.ends_with('\n') => continue,
+                    Ok(_) => {
+                        let raw = pending.trim();
+                        if raw.chars().count() <= CLAUDE_HOOK_EVENT_LIMIT_CHARS {
+                            if let Some(event) = normalize_claude_hook_event(raw) {
+                                seq = seq.saturating_add(1);
+                                if let Some((session, transcript)) = agent_event_identity(&event) {
+                                    if let Some(session) = session {
+                                        if let Ok(mut value) = provider_session_id.lock() {
+                                            *value = Some(session);
+                                        }
+                                    }
+                                    if let Some(transcript) = transcript {
+                                        if let Ok(mut value) = transcript_path.lock() {
+                                            *value = Some(transcript);
+                                        }
+                                    }
+                                }
+                                if let Ok(mut last) = last_agent_event.lock() {
+                                    *last = Some(event.clone());
+                                }
+                                append_agent_structured_event(
+                                    &agent_events,
+                                    AgentStructuredEvent {
+                                        seq,
+                                        at_ms: current_unix_millis(),
+                                        data: event.clone(),
+                                    },
+                                );
+                                emit_agent_event(
+                                    &app,
+                                    &terminal_id,
+                                    "agent_event",
+                                    Some(event),
+                                    pid,
+                                    Some(0),
+                                    Some(seq),
+                                    None,
+                                    None,
+                                );
+                            }
+                        }
+                        pending.clear();
+                    }
+                    Err(_) => break,
+                }
+            }
+        })
+        .map_err(|error| format!("start Claude hook event reader: {error}"))
+}
+
+fn normalize_claude_hook_event(raw: &str) -> Option<String> {
+    let input = serde_json::from_str::<Value>(raw).ok()?;
+    let hook = input.get("hook_event_name")?.as_str()?;
+    let tool_name = input.get("tool_name").and_then(Value::as_str);
+    let notification_type = input.get("notification_type").and_then(Value::as_str);
+    let event = match (hook, tool_name, notification_type) {
+        ("SessionStart", _, _) => "session_start",
+        ("SessionEnd", _, _) => "session_end",
+        ("UserPromptSubmit", _, _) => "prompt_submit",
+        ("PermissionRequest", _, _) => "permission_request",
+        ("PreToolUse", Some("AskUserQuestion"), _) => "question_asked",
+        ("PreToolUse", _, _) => "tool_start",
+        ("PostToolUse", _, _) => "tool_complete",
+        ("PostToolUseFailure", _, _) => "tool_error",
+        ("Stop", _, _) => "stop",
+        ("StopFailure", _, _) => "stop_failure",
+        ("Notification", _, Some("permission_prompt")) => "permission_request",
+        ("Notification", _, Some("elicitation_dialog")) => "question_asked",
+        ("Notification", _, Some("idle_prompt")) => "idle_prompt",
+        _ => return None,
+    };
+
+    let mut output = serde_json::Map::new();
+    output.insert("v".to_string(), Value::from(1));
+    output.insert("agent".to_string(), Value::from("claude"));
+    output.insert("event".to_string(), Value::from(event));
+    for key in ["session_id", "transcript_path", "cwd"] {
+        if let Some(value) = input.get(key).and_then(Value::as_str) {
+            output.insert(key.to_string(), Value::from(truncate_hook_text(value)));
+        }
+    }
+    if let Some(tool_name) = tool_name {
+        output.insert(
+            "tool_name".to_string(),
+            Value::from(truncate_hook_text(tool_name)),
+        );
+    }
+
+    let detail = match event {
+        "prompt_submit" => input.get("prompt").and_then(Value::as_str),
+        "question_asked" => input
+            .pointer("/tool_input/questions/0/question")
+            .and_then(Value::as_str),
+        "stop" => input.get("last_assistant_message").and_then(Value::as_str),
+        "tool_error" | "stop_failure" => input
+            .get("error")
+            .and_then(Value::as_str)
+            .or_else(|| input.get("error_message").and_then(Value::as_str)),
+        _ => None,
+    };
+    if let Some(detail) = detail {
+        let field = match event {
+            "prompt_submit" => "query",
+            "stop" => "response",
+            _ => "summary",
+        };
+        output.insert(field.to_string(), Value::from(truncate_hook_text(detail)));
+    } else if event == "permission_request" {
+        output.insert(
+            "summary".to_string(),
+            Value::from(match tool_name {
+                Some(tool) => format!("Claude requested permission for {tool}"),
+                None => "Claude requested permission".to_string(),
+            }),
+        );
+    }
+
+    serde_json::to_string(&Value::Object(output)).ok()
+}
+
+fn truncate_hook_text(value: &str) -> String {
+    const LIMIT: usize = 500;
+    let value = value.trim();
+    if value.chars().count() <= LIMIT {
+        return value.to_string();
+    }
+    value.chars().take(LIMIT).collect::<String>() + "…"
+}
+
 fn claude_agent_command_args(
     approval_policy: Option<&str>,
     model: Option<&str>,
     prompt: Option<&str>,
     resume_session_id: Option<&str>,
     fork_session_id: Option<&str>,
+    settings_path: Option<&Path>,
 ) -> Vec<OsString> {
     let mut args = Vec::new();
+    if let Some(settings_path) = settings_path {
+        args.push(OsString::from("--settings"));
+        args.push(settings_path.as_os_str().to_os_string());
+    }
     if let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) {
         args.push(OsString::from("--model"));
         args.push(OsString::from(model));
@@ -1111,15 +1433,15 @@ fn extract_codex_warp_notifications(buffer: &mut String, chunk: &str) -> Vec<Str
 }
 
 fn is_codex_cli_agent_payload(body: &str) -> bool {
-    serde_json::from_str::<CodexCliAgentNotification>(body)
+    serde_json::from_str::<AgentLifecycleNotification>(body)
         .ok()
         .and_then(|payload| payload.agent)
         .is_some_and(|agent| agent == "codex")
 }
 
-fn codex_agent_identity(notification: &str) -> Option<(Option<String>, Option<String>)> {
-    let payload = serde_json::from_str::<CodexCliAgentNotification>(notification).ok()?;
-    if payload.agent.as_deref() != Some("codex") {
+fn agent_event_identity(notification: &str) -> Option<(Option<String>, Option<String>)> {
+    let payload = serde_json::from_str::<AgentLifecycleNotification>(notification).ok()?;
+    if !matches!(payload.agent.as_deref(), Some("codex" | "claude")) {
         return None;
     }
     let codex_session_id = payload
@@ -1930,10 +2252,13 @@ mod tests {
             Some("review changes"),
             None,
             None,
+            Some(Path::new("/tmp/codevetter/settings.json")),
         ));
         assert_eq!(
             args,
             vec![
+                "--settings",
+                "/tmp/codevetter/settings.json",
                 "--model",
                 "claude-opus-4-6",
                 "--permission-mode",
@@ -1952,6 +2277,7 @@ mod tests {
             None,
             Some("claude-session-1"),
             None,
+            None,
         ));
         assert_eq!(
             resume,
@@ -1969,6 +2295,7 @@ mod tests {
             Some("continue safely"),
             None,
             Some("claude-session-2"),
+            None,
         ));
         assert_eq!(
             fork,
@@ -2081,11 +2408,149 @@ mod tests {
     }
 
     #[test]
-    fn extracts_codex_agent_identity_from_notification() {
+    fn extracts_agent_identity_from_notification() {
         let body = r#"{"v":1,"agent":"codex","event":"stop","session_id":"abc-123","transcript_path":"/tmp/rollout.jsonl"}"#;
-        let identity = codex_agent_identity(body).expect("identity");
+        let identity = agent_event_identity(body).expect("identity");
         assert_eq!(identity.0.as_deref(), Some("abc-123"));
         assert_eq!(identity.1.as_deref(), Some("/tmp/rollout.jsonl"));
+    }
+
+    #[test]
+    fn normalizes_claude_permission_and_question_hooks() {
+        let permission = normalize_claude_hook_event(
+            r#"{"hook_event_name":"PermissionRequest","session_id":"claude-1","transcript_path":"/tmp/claude.jsonl","tool_name":"Bash"}"#,
+        )
+        .expect("permission event");
+        let permission: Value = serde_json::from_str(&permission).expect("permission json");
+        assert_eq!(permission["agent"], "claude");
+        assert_eq!(permission["event"], "permission_request");
+        assert_eq!(
+            permission["summary"],
+            "Claude requested permission for Bash"
+        );
+        assert_eq!(permission["session_id"], "claude-1");
+
+        let question = normalize_claude_hook_event(
+            r#"{"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which release should I use?"}]}}"#,
+        )
+        .expect("question event");
+        let question: Value = serde_json::from_str(&question).expect("question json");
+        assert_eq!(question["event"], "question_asked");
+        assert_eq!(question["summary"], "Which release should I use?");
+    }
+
+    #[test]
+    fn normalizes_claude_resume_and_completion_hooks() {
+        let tool_start =
+            normalize_claude_hook_event(r#"{"hook_event_name":"PreToolUse","tool_name":"Bash"}"#)
+                .expect("tool start event");
+        let tool_start: Value = serde_json::from_str(&tool_start).expect("tool start json");
+        assert_eq!(tool_start["event"], "tool_start");
+
+        let stop = normalize_claude_hook_event(
+            r#"{"hook_event_name":"Stop","last_assistant_message":"All checks pass."}"#,
+        )
+        .expect("stop event");
+        let stop: Value = serde_json::from_str(&stop).expect("stop json");
+        assert_eq!(stop["event"], "stop");
+        assert_eq!(stop["response"], "All checks pass.");
+    }
+
+    #[test]
+    fn ignores_unknown_or_invalid_claude_hook_input() {
+        assert!(normalize_claude_hook_event("not json").is_none());
+        assert!(normalize_claude_hook_event(r#"{"hook_event_name":"Unknown"}"#).is_none());
+        assert!(normalize_claude_hook_event(
+            r#"{"hook_event_name":"Notification","notification_type":"auth_success"}"#
+        )
+        .is_none());
+        let permission = normalize_claude_hook_event(
+            r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#,
+        )
+        .expect("permission notification");
+        assert_eq!(
+            serde_json::from_str::<Value>(&permission).expect("permission json")["event"],
+            "permission_request"
+        );
+    }
+
+    #[test]
+    fn claude_hook_bridge_is_session_scoped_and_cleanup_is_bounded() {
+        let bridge = create_claude_hook_bridge("test-session").expect("bridge");
+        assert!(bridge.directory.starts_with(std::env::temp_dir()));
+        assert!(bridge.settings_path.exists());
+        assert!(bridge.events_path.exists());
+
+        let settings: Value = serde_json::from_slice(
+            &fs::read(&bridge.settings_path).expect("read session settings"),
+        )
+        .expect("settings json");
+        assert!(settings.pointer("/hooks/PermissionRequest/0").is_some());
+        assert!(settings.pointer("/hooks/Stop/0").is_some());
+        assert!(settings.pointer("/hooks/PostToolUse/0").is_some());
+        assert!(settings.pointer("/hooks/PostToolUseFailure/0").is_some());
+        let command = settings
+            .pointer("/hooks/PermissionRequest/0/hooks/0/command")
+            .and_then(Value::as_str)
+            .expect("hook command");
+        assert!(command.contains("CODEVETTER_AGENT_EVENT_FILE"));
+        assert!(settings
+            .pointer("/hooks/PermissionRequest/0/hooks/0/args")
+            .is_none());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&bridge.directory)
+                    .expect("bridge directory metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+            assert_eq!(
+                fs::metadata(&bridge.settings_path)
+                    .expect("settings metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(&bridge.events_path)
+                    .expect("events metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+
+            let mut hook_process = StdCommand::new("/bin/sh")
+                .args(["-c", command])
+                .env("CODEVETTER_AGENT_EVENT_FILE", &bridge.events_path)
+                .stdin(Stdio::piped())
+                .spawn()
+                .expect("run hook command");
+            hook_process
+                .stdin
+                .take()
+                .expect("hook stdin")
+                .write_all(br#"{"hook_event_name":"Stop"}"#)
+                .expect("write hook event");
+            assert!(hook_process
+                .wait()
+                .expect("wait for hook command")
+                .success());
+            assert_eq!(
+                fs::read_to_string(&bridge.events_path).expect("read hook event stream"),
+                "{\"hook_event_name\":\"Stop\"}\n"
+            );
+        }
+
+        let directory = bridge.directory.clone();
+        cleanup_claude_hook_bridge(&bridge);
+        assert!(!directory.exists());
     }
 
     #[test]

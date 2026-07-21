@@ -1,31 +1,46 @@
 import {
   Activity,
+  Archive,
   ChevronDown,
   Bot,
+  Columns3,
   Loader2,
   Play,
   Plus,
   RotateCcw,
+  Search,
   SendHorizontal,
   Square,
   Terminal as TerminalIcon,
 } from 'lucide-react';
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { AgentLiveOutput } from '@/components/work/AgentLiveOutput';
 import { WorkBoard } from '@/components/work/WorkBoard';
 import {
-  isCodexFailureEvent,
-  parseCodexCliAgentPayload,
-  terminalPatchForCodexEvent,
-  type CodexAgentEventPatch,
-  type CodexCliAgentPayload,
-} from '@/lib/codex-agent-events';
+  isAgentFailureEvent,
+  parseAgentLifecyclePayload,
+  terminalPatchForAgentEvent,
+  type AgentLifecyclePatch,
+  type AgentLifecyclePayload,
+} from '@/lib/agent-lifecycle-events';
 import { boundAgentLiveOutput } from '@/lib/agent-live-output';
+import { attentionFromOutput, attentionFromStructuredEvent } from '@/lib/agent-attention';
 import { presentAgentTerminalExit } from '@/lib/agent-terminal-exit';
 import {
   attachWorkItemSession,
+  checkDirectoriesExist,
   getRepoProjectGitStatus,
   isTauriAvailable,
   listSessions,
@@ -53,10 +68,9 @@ import type { WorkItem, WorkSessionLink } from '@/lib/work-items';
 type AgentStatus = 'white' | 'green' | 'yellow' | 'red';
 type AgentSize = 'compact' | 'wide' | 'tall';
 type AgentLayout = 'focus' | 'columns' | 'rows' | 'grid';
-type WorkMode = 'conversation' | 'board';
 type AgentActivityKind = 'info' | 'event' | 'input' | 'attention' | 'error' | 'exit';
 type AgentBlockKind = 'launch' | 'prompt' | 'shell' | 'event' | 'attention' | 'exit';
-type AgentEventSource = 'codex-warp' | 'codex-osc9' | 'terminal';
+type AgentEventSource = 'codex-warp' | 'codex-osc9' | 'claude-hook' | 'terminal';
 type AgentLaunchMode = 'start' | 'resume' | 'fork';
 type AgentComposerMode = 'prompt' | 'shell';
 type AgentLifecycleState =
@@ -138,8 +152,18 @@ interface AgentTerminal {
   workItemId: string | null;
 }
 
+interface ConversationProjectGroup {
+  key: string;
+  label: string;
+  path: string | null;
+  terminals: AgentTerminal[];
+  indexedSessions: SessionRow[];
+}
+
 type RepoStatusByPath = Record<string, RepoProjectGitStatus | null>;
 const STALL_AFTER_MS = 120_000;
+const BRACKETED_PASTE_START = '\x1b[200~';
+const BRACKETED_PASTE_END = '\x1b[201~';
 const OUTPUT_TAIL_CHARS = 6000;
 const OUTPUT_BUFFER_CHARS = 500_000;
 const LIVE_REPO_STATUS_REFRESH_MS = 15_000;
@@ -193,11 +217,11 @@ interface ConversationSeed {
   provider: AgentProvider;
   cwd: string;
   prompt: string;
+  model: string;
   workItemId: string | null;
 }
 
 const AGENT_WORKSPACE_STORAGE_KEY = 'codevetter.agent-panel.workspace.v1';
-const WORK_MODE_STORAGE_KEY = 'codevetter.work.mode.v1';
 const PROMPT_PRESETS = [
   {
     label: 'Review changes',
@@ -256,6 +280,9 @@ const statusMeta: Record<
 };
 
 export default function AgentPanel() {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const isBoardRoute = pathname === '/board' || pathname.startsWith('/board/');
   const savedWorkspaceRef = useRef(loadSavedAgentWorkspace());
   const [terminals, setTerminals] = useState<AgentTerminal[]>(
     () => savedWorkspaceRef.current?.terminals.map(terminalFromSaved) ?? []
@@ -264,11 +291,13 @@ export default function AgentPanel() {
   const [layout, setLayout] = useState<AgentLayout>(
     () => savedWorkspaceRef.current?.layout ?? 'focus'
   );
-  const [workMode, setWorkModeState] = useState<WorkMode>(loadWorkMode);
-  const activeWorkMode: WorkMode = workMode === 'board' ? 'board' : 'conversation';
   const [conversationSeed, setConversationSeed] = useState<ConversationSeed | null>(null);
   const [repoProjects, setRepoProjects] = useState<RepoProject[]>([]);
   const [recentCodexSessions, setRecentCodexSessions] = useState<SessionRow[]>([]);
+  const [verifiedSessionDirectories, setVerifiedSessionDirectories] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [isVerifyingSessionDirectories, setIsVerifyingSessionDirectories] = useState(false);
   const [, setLifecycleNow] = useState(() => Date.now());
   const [defaultCwd, setDefaultCwd] = useState('~');
   const [repoStatusByPath, setRepoStatusByPath] = useState<RepoStatusByPath>({});
@@ -283,9 +312,21 @@ export default function AgentPanel() {
     () => serializeAgentWorkspace({ layout, selectedId, terminals }),
     [layout, selectedId, terminals]
   );
+  const indexedDirectorySignature = useMemo(
+    () => indexedSessionDirectoryPaths(recentCodexSessions).join('\n'),
+    [recentCodexSessions]
+  );
+  const availableIndexedSessions = useMemo(
+    () =>
+      recentCodexSessions.filter((session) => {
+        const path = normalizeProjectPath(session.cwd ?? '');
+        return Boolean(path && verifiedSessionDirectories.has(path));
+      }),
+    [recentCodexSessions, verifiedSessionDirectories]
+  );
   const sessionLinks = useMemo(
-    () => buildWorkSessionLinks(terminals, recentCodexSessions),
-    [recentCodexSessions, terminals]
+    () => buildWorkSessionLinks(terminals, availableIndexedSessions),
+    [availableIndexedSessions, terminals]
   );
 
   const selected =
@@ -293,6 +334,16 @@ export default function AgentPanel() {
     (selectedId ? (terminals[0] ?? null) : null);
   const foregroundTerminals = terminals.filter((terminal) => !terminal.background);
   const runningTerminals = terminals.filter((terminal) => terminal.running);
+  const attentionTerminals = terminals.filter(
+    (terminal) => terminal.started && (terminal.status === 'yellow' || terminal.status === 'red')
+  );
+  const orderedTerminals = useMemo(
+    () =>
+      terminals
+        .filter((terminal) => terminal.started)
+        .toSorted((left, right) => terminalAttentionRank(left) - terminalAttentionRank(right)),
+    [terminals]
+  );
   const hasRunningTerminals = runningTerminals.length > 0;
   const updateTerminal = useCallback((id: string, patch: Partial<AgentTerminal>) => {
     if (typeof patch.cwd === 'string' && patch.cwd.trim()) {
@@ -343,6 +394,40 @@ export default function AgentPanel() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const paths = indexedDirectorySignature ? indexedDirectorySignature.split('\n') : [];
+    if (!isTauriAvailable() || paths.length === 0) {
+      setVerifiedSessionDirectories(new Set());
+      setIsVerifyingSessionDirectories(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsVerifyingSessionDirectories(true);
+    void checkDirectoriesExist(paths)
+      .then((results) => {
+        if (cancelled) return;
+        setVerifiedSessionDirectories(
+          new Set(
+            results
+              .filter((result) => result.exists)
+              .map((result) => normalizeProjectPath(result.path))
+              .filter(Boolean)
+          )
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setVerifiedSessionDirectories(new Set());
+      })
+      .finally(() => {
+        if (!cancelled) setIsVerifyingSessionDirectories(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [indexedDirectorySignature]);
 
   useEffect(() => {
     if (!isTauriAvailable()) return;
@@ -402,17 +487,6 @@ export default function AgentPanel() {
   useEffect(() => {
     saveAgentWorkspace(workspaceSnapshot);
   }, [workspaceSnapshot]);
-
-  function setWorkMode(mode: WorkMode) {
-    setWorkModeState(mode);
-    window.localStorage.setItem(WORK_MODE_STORAGE_KEY, mode);
-  }
-
-  useEffect(() => {
-    if (window.localStorage.getItem(WORK_MODE_STORAGE_KEY) !== 'orchestrate') return;
-    setWorkModeState('conversation');
-    window.localStorage.setItem(WORK_MODE_STORAGE_KEY, 'conversation');
-  }, []);
 
   useEffect(() => {
     if (!hasRunningTerminals) return;
@@ -477,7 +551,7 @@ export default function AgentPanel() {
               lastOutputAt: Date.now(),
             };
           }
-          const blockedReason = codexBlockedReason(chunk);
+          const blockedReason = agentOutputAttentionReason(terminal.provider, chunk);
           if (
             !blockedReason &&
             terminal.running &&
@@ -577,7 +651,10 @@ export default function AgentPanel() {
               waitingSince: null,
             };
           }
-          const blockedReason = codexBlockedReason(getTerminalOutputTail(event.session_id));
+          const blockedReason = agentOutputAttentionReason(
+            terminal.provider,
+            getTerminalOutputTail(event.session_id)
+          );
           if (blockedReason) {
             const next = {
               ...terminal,
@@ -642,9 +719,8 @@ export default function AgentPanel() {
         }
 
         if (event.kind === 'agent_event') {
-          if (terminal.provider !== 'codex') return terminal;
-          const payload = parseCodexCliAgentPayload(event.data);
-          if (!payload) return terminal;
+          const payload = parseAgentLifecyclePayload(event.data);
+          if (!payload || payload.agent !== terminal.provider) return terminal;
           const eventSeq = typeof event.seq === 'number' ? event.seq : null;
           if (
             eventSeq != null &&
@@ -655,11 +731,11 @@ export default function AgentPanel() {
           if (payload.event === 'idle_prompt' && terminal.lastAgentEvent === 'stop') {
             return terminal;
           }
-          const patch = terminalPatchForCodexEvent(payload);
+          const patch = terminalPatchForAgentEvent(payload);
           const now = Date.now();
-          const blockKind = codexBlockKindForStatus(patch.status);
-          const activityKind = codexActivityKindForStatus(patch.status);
-          const eventSource = codexPayloadEventSource(payload);
+          const blockKind = agentBlockKindForStatus(patch.status);
+          const activityKind = agentActivityKindForStatus(patch.status);
+          const eventSource = agentPayloadEventSource(payload);
           return appendActivity(
             appendBlock(
               {
@@ -668,7 +744,7 @@ export default function AgentPanel() {
                 running: true,
                 started: true,
                 structuredEventsActive:
-                  terminal.structuredEventsActive || eventSource === 'codex-warp',
+                  terminal.structuredEventsActive || isConfirmedAgentEventSource(eventSource),
                 pid: event.pid ?? terminal.pid,
                 lastHeartbeatAt: now,
                 lastAgentEventSource: eventSource,
@@ -692,14 +768,14 @@ export default function AgentPanel() {
               {
                 kind: blockKind,
                 status: patch.status ?? terminal.status,
-                title: codexEventBlockTitle(payload, patch),
-                detail: codexEventBlockDetail(payload, patch),
+                title: agentEventBlockTitle(payload, patch),
+                detail: agentEventBlockDetail(payload, patch),
                 at: now,
               }
             ),
             {
               kind: activityKind,
-              label: payload.event ?? 'Codex event',
+              label: payload.event ?? `${providerName} event`,
               detail: patch.statusReason,
             }
           );
@@ -814,16 +890,25 @@ export default function AgentPanel() {
 
   async function startConversation(seed: ConversationSeed) {
     const id = `agent-${Date.now()}`;
-    const terminal = {
-      ...createAgentTerminal({
-        id,
-        index: terminals.length + 1,
-        cwd: seed.cwd || defaultCwd,
-        provider: seed.provider,
-        prompt: seed.prompt,
-      }),
-      workItemId: seed.workItemId,
-    };
+    const terminal = appendBlock(
+      {
+        ...createAgentTerminal({
+          id,
+          index: terminals.length + 1,
+          cwd: seed.cwd || defaultCwd,
+          provider: seed.provider,
+          prompt: seed.prompt,
+        }),
+        model: seed.model,
+        workItemId: seed.workItemId,
+      },
+      {
+        kind: 'prompt',
+        status: 'green',
+        title: 'Prompt',
+        detail: seed.prompt,
+      }
+    );
     setTerminals((current) => [...current, terminal]);
     setSelectedId(id);
     setConversationSeed(null);
@@ -838,17 +923,18 @@ export default function AgentPanel() {
       updateTerminal(attached.id, { workItemId: item.id });
       setConversationSeed(null);
       setSelectedId(attached.id);
-      setWorkMode('conversation');
+      navigate('/agents');
       return;
     }
     setConversationSeed({
       provider: item.preferred_provider,
       cwd: item.project_path ?? defaultCwd,
       prompt: workItemPrompt(item),
+      model: '',
       workItemId: item.id,
     });
     setSelectedId('');
-    setWorkMode('conversation');
+    navigate('/agents');
   }
 
   async function attachExistingSession(
@@ -1168,52 +1254,34 @@ export default function AgentPanel() {
     }
   }
 
-  async function sendInput(id: string, data: string) {
+  async function archiveTerminal(id: string) {
     const terminal = terminals.find((item) => item.id === id);
-    if (!terminal?.running) return;
-    if (data === '\r' || data === '\n' || data === '\x1b') {
-      const label = data === '\x1b' ? 'Escape sent' : 'Input sent';
-      setTerminals((current) =>
-        current.map((item) =>
-          item.id === id
-            ? appendActivity(
-                {
-                  ...item,
-                  status: 'green',
-                  updatedAt: 'running',
-                  statusReason: 'Input sent',
-                  waitingSince: null,
-                  idleMs: 0,
-                  lastAgentEvent:
-                    item.lastAgentEvent === 'stop' && item.lastAgentEventSource !== 'codex-warp'
-                      ? null
-                      : item.lastAgentEvent,
-                  lastAgentEventSource:
-                    item.lastAgentEvent === 'stop' && item.lastAgentEventSource !== 'codex-warp'
-                      ? null
-                      : item.lastAgentEventSource,
-                },
-                { kind: 'input', label }
-              )
-            : item
-        )
-      );
+    if (!terminal) return;
+
+    if (terminal.running) {
+      try {
+        await stopAgentTerminal(id);
+      } catch (error) {
+        updateTerminal(id, {
+          status: 'red',
+          updatedAt: 'archive failed',
+          statusReason:
+            error instanceof Error
+              ? `Could not stop ${providerLabel(terminal.provider)}: ${error.message}`
+              : `Could not stop ${providerLabel(terminal.provider)} before archiving`,
+        });
+        return;
+      }
     }
-    try {
-      await sendAgentTerminalInput(id, data);
-    } catch (error) {
-      const outputTail = appendTerminalOutput(
-        id,
-        `\r\n${error instanceof Error ? error.message : String(error)}\r\n`
-      );
-      updateTerminal(id, {
-        outputTail,
-        status: 'red',
-        running: false,
-        updatedAt: 'input failed',
-        statusReason: error instanceof Error ? error.message : String(error),
-      });
-    }
+
+    outputBuffers.delete(id);
+    outputTails.delete(id);
+    outputSequences.delete(id);
+    notifiedAttentionRef.current.delete(id);
+    setTerminals((current) => current.filter((item) => item.id !== id));
+    setSelectedId((current) =>
+      current === id ? (orderedTerminals.find((item) => item.id !== id)?.id ?? '') : current
+    );
   }
 
   async function sendPrompt(id: string, prompt: string) {
@@ -1240,40 +1308,32 @@ export default function AgentPanel() {
     const blockTitle = 'Prompt';
     const activityLabel = 'Prompt sent';
     setTerminals((current) =>
-      current.map((item) =>
-        item.id === id
-          ? appendActivity(
-              appendBlock(
-                {
-                  ...item,
-                  status: 'green',
-                  updatedAt: 'prompt sent',
-                  statusReason: `Prompt sent to ${providerLabel(item.provider)}`,
-                  waitingSince: null,
-                  idleMs: 0,
-                  lastAgentEvent:
-                    item.lastAgentEvent === 'stop' && item.lastAgentEventSource !== 'codex-warp'
-                      ? null
-                      : item.lastAgentEvent,
-                  lastAgentEventSource:
-                    item.lastAgentEvent === 'stop' && item.lastAgentEventSource !== 'codex-warp'
-                      ? null
-                      : item.lastAgentEventSource,
-                },
-                {
-                  kind: 'prompt',
-                  status: 'green',
-                  title: blockTitle,
-                  detail: message,
-                }
+      current.map((item) => {
+        if (item.id !== id) return item;
+        return appendActivity(
+          appendBlock(
+            {
+              ...item,
+              ...agentInputLifecyclePatch(
+                item,
+                'prompt sent',
+                `Prompt sent to ${providerLabel(item.provider)}`
               ),
-              { kind: 'input', label: activityLabel, detail: truncateText(message, 120) }
-            )
-          : item
-      )
+            },
+            {
+              kind: 'prompt',
+              status: 'green',
+              title: blockTitle,
+              detail: message,
+            }
+          ),
+          { kind: 'input', label: activityLabel, detail: truncateText(message, 120) }
+        );
+      })
     );
     try {
-      await sendAgentTerminalInput(id, `${message}\r`);
+      await sendAgentTerminalInput(id, `${BRACKETED_PASTE_START}${message}${BRACKETED_PASTE_END}`);
+      await sendAgentTerminalInput(id, '\r');
     } catch (error) {
       const outputTail = appendTerminalOutput(
         id,
@@ -1447,20 +1507,44 @@ export default function AgentPanel() {
       <header className="mx-auto flex w-full max-w-7xl shrink-0 items-center justify-between gap-4 px-6 pb-4 pt-6">
         <div className="flex items-center gap-3">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-amber-300/20 bg-amber-300/[0.07] text-amber-200">
-            <Bot size={16} />
+            {isBoardRoute ? <Columns3 size={16} /> : <Bot size={16} />}
           </span>
           <div>
-            <h1 className="text-base font-semibold text-slate-100">Work</h1>
+            <h1 className="text-base font-semibold text-slate-100">
+              {isBoardRoute ? 'Board' : 'Work'}
+            </h1>
             <p className="text-xs text-zinc-400">
-              {activeWorkMode === 'conversation'
-                ? 'Turn an outcome into one focused agent run'
-                : 'Move intent from plan to proof'}
+              {isBoardRoute
+                ? 'Move outcomes from plan to proof'
+                : 'Turn an outcome into one focused agent run'}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {activeWorkMode === 'conversation' && terminals.some((terminal) => terminal.started) ? (
-            <label className="relative hidden sm:block">
+          {attentionTerminals.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                const next = orderedTerminals.find(
+                  (terminal) => terminal.status === 'yellow' || terminal.status === 'red'
+                );
+                if (!next) return;
+                setConversationSeed(null);
+                setSelectedId(next.id);
+                navigate('/agents');
+              }}
+              className="flex h-9 items-center gap-2 rounded-lg border border-amber-200/20 bg-amber-200/[0.06] px-2 text-xs font-medium text-amber-100 hover:bg-amber-200/[0.1] sm:px-3"
+              aria-label={`${attentionTerminals.length} agent ${attentionTerminals.length === 1 ? 'run needs' : 'runs need'} attention`}
+            >
+              <span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" />
+              <span>{attentionTerminals.length}</span>
+              <span className="hidden sm:inline">
+                need{attentionTerminals.length === 1 ? 's' : ''} attention
+              </span>
+            </button>
+          ) : null}
+          {!isBoardRoute && terminals.some((terminal) => terminal.started) ? (
+            <label className="relative hidden sm:block lg:hidden">
               <span className="sr-only">Active agent run</span>
               <select
                 aria-label="Active agent run"
@@ -1472,13 +1556,11 @@ export default function AgentPanel() {
                 className="h-9 max-w-48 appearance-none rounded-lg border border-white/[0.08] bg-black/20 py-0 pl-3 pr-8 text-xs text-zinc-300 outline-none hover:border-white/[0.14] focus:border-amber-300/30"
               >
                 <option value="">New conversation</option>
-                {terminals
-                  .filter((terminal) => terminal.started)
-                  .map((terminal) => (
-                    <option key={terminal.id} value={terminal.id}>
-                      {terminal.running ? 'Live' : 'Recent'} · {terminal.name}
-                    </option>
-                  ))}
+                {orderedTerminals.map((terminal) => (
+                  <option key={terminal.id} value={terminal.id}>
+                    {terminalStatusLabel(terminal)} · {terminal.name}
+                  </option>
+                ))}
               </select>
               <ChevronDown
                 aria-hidden="true"
@@ -1487,8 +1569,7 @@ export default function AgentPanel() {
               />
             </label>
           ) : null}
-          <WorkModeSwitcher value={activeWorkMode} onChange={setWorkMode} />
-          {activeWorkMode === 'conversation' && selected?.started ? (
+          {!isBoardRoute && selected?.started ? (
             <Button
               type="button"
               variant="outline"
@@ -1497,7 +1578,7 @@ export default function AgentPanel() {
                 setConversationSeed(null);
                 setSelectedId('');
               }}
-              className="gap-2"
+              className="gap-2 lg:hidden"
             >
               <Plus size={14} /> New
             </Button>
@@ -1505,7 +1586,7 @@ export default function AgentPanel() {
         </div>
       </header>
 
-      {activeWorkMode === 'board' ? (
+      {isBoardRoute ? (
         <WorkBoard
           repoProjects={repoProjects}
           sessionLinks={sessionLinks}
@@ -1517,34 +1598,366 @@ export default function AgentPanel() {
           aria-label="Agent conversation"
           className="min-h-0 flex-1 overflow-hidden px-6 py-5"
         >
-          {!selected?.started ? (
-            <ConversationStart
-              key={`${conversationSeed?.workItemId ?? 'new'}-${conversationSeed?.provider ?? 'codex'}-${conversationSeed?.cwd ?? defaultCwd}`}
+          <div className="flex h-full w-full gap-5">
+            <WorkConversationSidebar
+              terminals={orderedTerminals}
+              indexedSessions={availableIndexedSessions}
               repoProjects={repoProjects}
-              defaultCwd={conversationSeed?.cwd ?? selected?.cwd ?? defaultCwd}
-              defaultProvider={conversationSeed?.provider ?? selected?.provider ?? 'codex'}
-              defaultPrompt={conversationSeed?.prompt ?? selected?.prompt ?? ''}
-              workItemId={conversationSeed?.workItemId ?? selected?.workItemId ?? null}
-              recentSessions={recentCodexSessions}
+              isVerifyingIndexedDirectories={isVerifyingSessionDirectories}
+              selectedId={selected?.started ? selected.id : ''}
+              onSelect={(id) => {
+                setConversationSeed(null);
+                setSelectedId(id);
+              }}
+              onArchive={(id) => void archiveTerminal(id)}
+              onNew={() => {
+                setConversationSeed(null);
+                setSelectedId('');
+              }}
               onResumeSession={(session) => void launchIndexedSession(session, 'resume')}
-              onForkSession={(session) => void launchIndexedSession(session, 'fork')}
-              onStart={(seed) => void startConversation(seed)}
             />
-          ) : (
-            <WorkSessionView
-              key={selected.id}
-              terminal={selected}
-              repoStatus={repoStatusByPath[selected.cwd] ?? null}
-              onStop={() => void stopTerminal(selected.id)}
-              onRestart={() => void restartTerminal(selected.id)}
-              onResume={() => void resumeTerminal(selected.id)}
-              onInput={(data) => void sendInput(selected.id, data)}
-              onPromptSubmit={(prompt) => void sendPrompt(selected.id, prompt)}
-            />
-          )}
+            <div className="min-w-0 flex-1 overflow-hidden">
+              {!selected?.started ? (
+                <ConversationStart
+                  key={`${conversationSeed?.workItemId ?? 'new'}-${conversationSeed?.provider ?? 'codex'}-${conversationSeed?.cwd ?? defaultCwd}`}
+                  repoProjects={repoProjects}
+                  defaultCwd={conversationSeed?.cwd ?? selected?.cwd ?? defaultCwd}
+                  defaultProvider={conversationSeed?.provider ?? selected?.provider ?? 'codex'}
+                  defaultPrompt={conversationSeed?.prompt ?? selected?.prompt ?? ''}
+                  workItemId={conversationSeed?.workItemId ?? selected?.workItemId ?? null}
+                  recentSessions={availableIndexedSessions}
+                  onResumeSession={(session) => void launchIndexedSession(session, 'resume')}
+                  onForkSession={(session) => void launchIndexedSession(session, 'fork')}
+                  onStart={(seed) => void startConversation(seed)}
+                />
+              ) : (
+                <WorkSessionView
+                  key={selected.id}
+                  terminal={selected}
+                  repoStatus={repoStatusByPath[selected.cwd] ?? null}
+                  onStop={() => void stopTerminal(selected.id)}
+                  onRestart={() => void restartTerminal(selected.id)}
+                  onResume={() => void resumeTerminal(selected.id)}
+                  onPromptSubmit={(prompt) => void sendPrompt(selected.id, prompt)}
+                />
+              )}
+            </div>
+          </div>
         </section>
       )}
     </div>
+  );
+}
+
+function WorkConversationSidebar({
+  terminals,
+  indexedSessions,
+  repoProjects,
+  isVerifyingIndexedDirectories,
+  selectedId,
+  onSelect,
+  onArchive,
+  onNew,
+  onResumeSession,
+}: {
+  terminals: AgentTerminal[];
+  indexedSessions: SessionRow[];
+  repoProjects: RepoProject[];
+  isVerifyingIndexedDirectories: boolean;
+  selectedId: string;
+  onSelect: (id: string) => void;
+  onArchive: (id: string) => void;
+  onNew: () => void;
+  onResumeSession: (session: SessionRow) => void;
+}) {
+  const disclosureId = useId();
+  const [query, setQuery] = useState('');
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
+  const projectGroups = useMemo(
+    () => groupConversationsByProject(terminals, indexedSessions, repoProjects),
+    [indexedSessions, repoProjects, terminals]
+  );
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredGroups = useMemo(() => {
+    if (!normalizedQuery) return projectGroups;
+    return projectGroups
+      .map((group) => {
+        const groupMatches = [group.label, group.path].some((value) =>
+          value?.toLowerCase().includes(normalizedQuery)
+        );
+        const matchingTerminals = group.terminals.filter((terminal) =>
+          [
+            terminal.prompt,
+            terminal.name,
+            terminal.cwd,
+            providerLabel(terminal.provider),
+            conversationStateLabel(terminal),
+          ]
+            .join(' ')
+            .toLowerCase()
+            .includes(normalizedQuery)
+        );
+        const matchingSessions = group.indexedSessions.filter((session) =>
+          [
+            indexedSessionTitle(session),
+            session.cwd,
+            session.model_used,
+            providerLabel(sessionAgentProvider(session)),
+            'Previous',
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
+            .includes(normalizedQuery)
+        );
+        return {
+          ...group,
+          terminals: groupMatches ? group.terminals : matchingTerminals,
+          indexedSessions: groupMatches ? group.indexedSessions : matchingSessions,
+        };
+      })
+      .filter((group) => group.terminals.length + group.indexedSessions.length > 0);
+  }, [normalizedQuery, projectGroups]);
+  const conversationCount = projectGroups.reduce(
+    (total, group) => total + group.terminals.length + group.indexedSessions.length,
+    0
+  );
+
+  return (
+    <aside
+      aria-label="Conversation sidebar"
+      className="hidden w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-white/[0.075] bg-white/[0.018] p-2.5 shadow-[0_18px_60px_rgba(0,0,0,0.16)] lg:flex"
+    >
+      <div className="flex items-center justify-between px-1.5 pb-2 pt-0.5">
+        <div>
+          <h2 className="text-[13px] font-semibold text-zinc-200">Conversations</h2>
+          <p className="mt-0.5 text-[10px] text-zinc-400">Your agent workspace</p>
+        </div>
+        <span className="rounded-md bg-white/[0.045] px-1.5 py-0.5 text-[10px] tabular-nums text-zinc-500">
+          {conversationCount}
+        </span>
+      </div>
+
+      <button
+        type="button"
+        onClick={onNew}
+        aria-current={selectedId ? undefined : 'page'}
+        className={cn(
+          'mt-2 flex h-9 w-full items-center gap-2 rounded-lg border px-2.5 text-left text-xs font-medium transition-colors',
+          selectedId
+            ? 'border-white/[0.08] bg-white/[0.035] text-zinc-300 hover:border-white/[0.13] hover:bg-white/[0.055]'
+            : 'border-amber-200/20 bg-amber-200/[0.07] text-amber-100'
+        )}
+      >
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white/[0.06]">
+          <Plus size={12} />
+        </span>
+        <span>New conversation</span>
+      </button>
+
+      <label className="relative mt-2 block">
+        <span className="sr-only">Search conversations</span>
+        <Search
+          aria-hidden="true"
+          size={12}
+          className="pointer-events-none absolute left-2.5 top-2.5 text-zinc-600"
+        />
+        <input
+          aria-label="Search conversations"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search"
+          className="h-8 w-full rounded-lg border border-transparent bg-black/20 pl-8 pr-2.5 text-[11px] text-zinc-300 outline-none placeholder:text-zinc-400 hover:border-white/[0.06] focus:border-white/[0.12] focus:bg-black/30"
+        />
+      </label>
+
+      <div className="flex items-center justify-between px-1.5 pb-1.5 pt-4">
+        <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400">
+          Recent
+        </span>
+        {isVerifyingIndexedDirectories ? (
+          <span className="text-[10px] text-zinc-500">Checking projects…</span>
+        ) : null}
+      </div>
+
+      <nav aria-label="Conversations" className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+        {filteredGroups.length > 0 ? (
+          <div className="space-y-2 pb-1">
+            {filteredGroups.map((group, index) => {
+              const regionId = `${disclosureId}-project-${index}`;
+              const expanded = Boolean(normalizedQuery) || !collapsedProjects.has(group.key);
+              const groupCount = group.terminals.length + group.indexedSessions.length;
+              return (
+                <div
+                  key={group.key}
+                  role="group"
+                  aria-label={`${group.label} project conversations`}
+                >
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    aria-controls={regionId}
+                    onClick={() =>
+                      setCollapsedProjects((current) => {
+                        const next = new Set(current);
+                        if (next.has(group.key)) next.delete(group.key);
+                        else next.add(group.key);
+                        return next;
+                      })
+                    }
+                    title={group.path ?? group.label}
+                    className="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-left text-[10px] text-zinc-300 outline-none hover:bg-white/[0.035] focus-visible:ring-1 focus-visible:ring-amber-300/40"
+                  >
+                    <ChevronDown
+                      aria-hidden="true"
+                      size={12}
+                      className={cn(
+                        'shrink-0 text-zinc-500 transition-transform',
+                        !expanded && '-rotate-90'
+                      )}
+                    />
+                    <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
+                    <span className="shrink-0 tabular-nums text-zinc-500">{groupCount}</span>
+                  </button>
+                  {expanded ? (
+                    <div id={regionId} className="mt-0.5 space-y-0.5">
+                      {group.terminals.map((terminal) => {
+                        const selected = terminal.id === selectedId;
+                        const title = terminal.prompt.trim() || terminal.name;
+                        const state = conversationStateLabel(terminal);
+
+                        return (
+                          <div
+                            key={terminal.id}
+                            className={cn(
+                              'group relative rounded-lg transition-colors',
+                              selected
+                                ? 'bg-white/[0.065] text-zinc-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.035)]'
+                                : 'text-zinc-400 hover:bg-white/[0.035] hover:text-zinc-200'
+                            )}
+                          >
+                            {selected ? (
+                              <span
+                                aria-hidden="true"
+                                className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-amber-300/80"
+                              />
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => onSelect(terminal.id)}
+                              aria-label={`Open ${providerLabel(terminal.provider)} run ${terminal.name}`}
+                              aria-current={selected ? 'page' : undefined}
+                              title={title}
+                              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 pr-8 text-left outline-none focus-visible:ring-1 focus-visible:ring-amber-300/40"
+                            >
+                              <span
+                                aria-hidden="true"
+                                className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.065] bg-black/20 text-[10px] font-semibold text-zinc-400"
+                              >
+                                {terminal.provider === 'claude' ? 'C' : <Bot size={12} />}
+                                <span
+                                  className={cn(
+                                    'absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-[#0d0e10]',
+                                    terminal.status === 'yellow'
+                                      ? 'bg-amber-300'
+                                      : terminal.status === 'red'
+                                        ? 'bg-red-300'
+                                        : terminal.running
+                                          ? 'bg-emerald-300'
+                                          : 'bg-zinc-600'
+                                  )}
+                                />
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-[11px] font-medium leading-4">
+                                  {title}
+                                </span>
+                                <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-zinc-400">
+                                  <span className="truncate">
+                                    {providerLabel(terminal.provider)}
+                                  </span>
+                                  <span aria-hidden="true">·</span>
+                                  <span
+                                    className={cn(
+                                      'shrink-0',
+                                      state === 'Needs help'
+                                        ? 'text-amber-300/80'
+                                        : state === 'Failed' || state === 'Disconnected'
+                                          ? 'text-red-300/80'
+                                          : state === 'Working'
+                                            ? 'text-emerald-300/80'
+                                            : undefined
+                                    )}
+                                  >
+                                    {state}
+                                  </span>
+                                </span>
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onArchive(terminal.id)}
+                              aria-label={`Archive ${providerLabel(terminal.provider)} run ${terminal.name}`}
+                              title="Archive conversation"
+                              className="absolute right-1.5 top-2 flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 opacity-0 transition hover:bg-black/30 hover:text-zinc-300 focus:opacity-100 focus-visible:ring-1 focus-visible:ring-amber-300/40 group-hover:opacity-100"
+                            >
+                              <Archive size={12} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {group.indexedSessions.map((session) => {
+                        const provider = sessionAgentProvider(session);
+                        const title = indexedSessionTitle(session);
+                        return (
+                          <button
+                            key={`${provider}:${session.id}`}
+                            type="button"
+                            onClick={() => onResumeSession(session)}
+                            aria-label={`Resume ${providerLabel(provider)} session ${title}`}
+                            title={`Resume ${title}`}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-zinc-400 outline-none transition-colors hover:bg-white/[0.035] hover:text-zinc-200 focus-visible:ring-1 focus-visible:ring-amber-300/40"
+                          >
+                            <span
+                              aria-hidden="true"
+                              className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.065] bg-black/20 text-[10px] font-semibold text-zinc-400"
+                            >
+                              {provider === 'claude' ? 'C' : <Bot size={12} />}
+                              <RotateCcw
+                                className="absolute -bottom-1 -right-1 rounded-full bg-[#0d0e10] p-0.5"
+                                size={10}
+                              />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[11px] font-medium leading-4">
+                                {title}
+                              </span>
+                              <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-zinc-400">
+                                <span>{providerLabel(provider)}</span>
+                                <span aria-hidden="true">·</span>
+                                <span>Previous</span>
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="px-2.5 py-2 text-[11px] leading-5 text-zinc-400">
+            {isVerifyingIndexedDirectories && !query
+              ? 'Checking local project history…'
+              : query
+                ? 'No matching conversations.'
+                : 'Your conversations will appear here.'}
+          </p>
+        )}
+      </nav>
+    </aside>
   );
 }
 
@@ -1554,7 +1967,6 @@ function WorkSessionView({
   onStop,
   onRestart,
   onResume,
-  onInput,
   onPromptSubmit,
 }: {
   terminal: AgentTerminal;
@@ -1562,10 +1974,12 @@ function WorkSessionView({
   onStop: () => void;
   onRestart: () => void;
   onResume: () => void;
-  onInput: (data: string) => void;
   onPromptSubmit: (prompt: string) => void;
 }) {
   const [draft, setDraft] = useState('');
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const runDetailsRef = useRef<HTMLDetailsElement>(null);
+  const providerOutputRef = useRef<HTMLDetailsElement>(null);
   const [liveOutput, setLiveOutput] = useState(
     () => getTerminalOutputTail(terminal.id) || terminal.outputTail
   );
@@ -1574,7 +1988,37 @@ function WorkSessionView({
   const quietProcess = isLegacyQuietProcess(terminal);
   const displayStatus: AgentStatus = quietProcess ? 'green' : terminal.status;
   const blocks = compactWorkBlocks(terminal.blocks);
-  const recentSignals = compactWorkActivities(terminal.activities);
+  const conversationBlocks = blocks.filter(isConversationWorkBlock);
+  const detailBlocks = blocks.filter((block) => !isConversationWorkBlock(block));
+  const attention =
+    terminal.status === 'yellow'
+      ? (attentionFromStructuredEvent({
+          provider: terminal.provider,
+          event: terminal.lastAgentEvent,
+          detail: terminal.statusReason,
+        }) ?? attentionFromOutput({ provider: terminal.provider, output: liveOutput }))
+      : null;
+  const latestPromptAt = Math.max(
+    0,
+    ...blocks.filter(isUserConversationBlock).map((block) => block.at)
+  );
+  const latestSettledAt = Math.max(
+    0,
+    ...blocks
+      .filter(
+        (block) =>
+          block.title === 'Turn complete' || block.status === 'red' || block.kind === 'exit'
+      )
+      .map((block) => block.at)
+  );
+  const isThinking =
+    terminal.running &&
+    !attention &&
+    !quietProcess &&
+    terminal.status !== 'red' &&
+    terminal.lastAgentEvent !== 'stop' &&
+    terminal.lastAgentEvent !== 'idle_prompt' &&
+    (latestPromptAt > latestSettledAt || Boolean(terminal.prompt.trim()));
 
   useEffect(() => {
     const refresh = () => {
@@ -1595,225 +2039,285 @@ function WorkSessionView({
     setDraft('');
   }
 
+  function reviewProviderOutput() {
+    if (runDetailsRef.current) runDetailsRef.current.open = true;
+    if (providerOutputRef.current) {
+      providerOutputRef.current.open = true;
+      providerOutputRef.current.scrollIntoView({ block: 'nearest' });
+      providerOutputRef.current.querySelector('summary')?.focus();
+    }
+  }
+
   return (
     <div
       aria-label={`${providerName} work session`}
-      className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4"
+      className="mx-auto flex h-full w-full max-w-5xl flex-col gap-4"
     >
-      <section className="rounded-2xl border border-white/[0.08] bg-white/[0.018] px-5 py-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-              <span className={cn('h-2 w-2 rounded-full', statusMeta[displayStatus].dot)} />
-              <span className={cn('font-medium', statusMeta[displayStatus].text)}>
-                {quietProcess ? 'Running' : terminalStatusLabel(terminal)}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>{providerName}</span>
-              <span aria-hidden="true">·</span>
-              <span className="truncate font-mono">{compactPathLabel(terminal.cwd)}</span>
-            </div>
-            <h2 className="mt-3 max-w-3xl text-xl font-semibold tracking-[-0.025em] text-zinc-100">
-              {terminal.prompt || `Continue work in ${compactPathLabel(terminal.cwd)}`}
-            </h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+      <header className="flex flex-col gap-4 border-b border-white/[0.07] px-1 pb-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+            <span className={cn('h-2 w-2 rounded-full', statusMeta[displayStatus].dot)} />
+            <span className={cn('font-medium', statusMeta[displayStatus].text)}>
               {quietProcess
-                ? 'Process is healthy and has no recent activity.'
-                : terminal.statusReason || `${providerName} is preparing this work.`}
-            </p>
+                ? 'Running'
+                : attention
+                  ? 'Needs your input'
+                  : isThinking
+                    ? 'Thinking'
+                    : terminalStatusLabel(terminal)}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>{repoStatus ? repoGitStatusLabel(repoStatus) : 'Checking repository…'}</span>
+            <span aria-hidden="true">·</span>
+            <span>{terminal.model.trim() || 'Default model'}</span>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {terminal.running ? (
-              <Button type="button" variant="outline" size="sm" onClick={onStop}>
-                <Square size={13} className="mr-2" /> Stop
-              </Button>
-            ) : lifecycle === 'resumable' ? (
-              <Button type="button" size="sm" onClick={onResume}>
-                <Play size={13} className="mr-2" /> Resume
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                size="sm"
-                onClick={onRestart}
-                aria-label={`Restart ${providerName} agent`}
-              >
-                <RotateCcw size={13} className="mr-2" /> Try again
-              </Button>
-            )}
-          </div>
+          <h2 className="mt-2 text-lg font-semibold tracking-[-0.02em] text-zinc-100">
+            {providerName}{' '}
+            <span className="font-normal text-zinc-500">in {compactPathLabel(terminal.cwd)}</span>
+          </h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            {quietProcess
+              ? 'Process is healthy and waiting for work.'
+              : attention
+                ? attention.detail
+                : lifecycle === 'resumable'
+                  ? terminal.statusReason.toLowerCase().includes('resum')
+                    ? terminal.statusReason
+                    : `${providerName} is paused and can be resumed.`
+                  : lifecycle === 'stopped'
+                    ? `${providerName} is stopped.`
+                    : terminal.lastAgentEvent === 'stop'
+                      ? `${providerName} is ready for your next message.`
+                      : terminal.statusReason || `${providerName} is preparing this work.`}
+          </p>
         </div>
-      </section>
+        <div className="flex shrink-0 items-center gap-2">
+          {terminal.running ? (
+            <Button type="button" variant="outline" size="sm" onClick={onStop}>
+              <Square size={13} className="mr-2" /> Stop
+            </Button>
+          ) : lifecycle === 'resumable' ? (
+            <Button type="button" size="sm" onClick={onResume}>
+              <Play size={13} className="mr-2" /> Resume
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              onClick={onRestart}
+              aria-label={`Restart ${providerName} agent`}
+            >
+              <RotateCcw size={13} className="mr-2" /> Try again
+            </Button>
+          )}
+        </div>
+      </header>
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      {attention ? (
         <section
-          aria-label="Agent activity"
-          className="min-h-0 overflow-y-auto rounded-2xl border border-white/[0.08] bg-[#0b0c0f] p-4"
+          aria-label="Agent attention required"
+          role="alert"
+          className="mx-auto w-full max-w-3xl rounded-2xl border border-amber-200/25 bg-amber-200/[0.07] px-5 py-4 shadow-[0_16px_44px_-34px_rgba(251,191,36,0.8)]"
         >
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-zinc-100">Activity</h3>
-              <p className="mt-1 text-xs text-zinc-400">
-                Prompts and verified process events from this run
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-sm font-semibold text-amber-100">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" />
+                {attention.title}
+              </div>
+              <p className="mt-1 text-sm text-amber-100/75">{attention.detail}</p>
+              <p className="mt-1 text-[11px] text-amber-100/50">
+                {attention.evidence}
+                {terminal.waitingSince
+                  ? ` · waiting ${formatDuration(Date.now() - terminal.waitingSince)}`
+                  : ''}
               </p>
             </div>
-            <span className="rounded-md border border-white/[0.07] px-2 py-1 font-mono text-[10px] text-zinc-400">
-              {blocks.length}
-            </span>
+            <Button
+              type="button"
+              size="sm"
+              className="shrink-0 bg-amber-300 text-zinc-950 hover:bg-amber-200"
+              onClick={() => {
+                if (attention.primaryAction === 'review-output') reviewProviderOutput();
+                else composerRef.current?.focus();
+              }}
+            >
+              {attention.confidence === 'possible'
+                ? 'Review prompt'
+                : attention.primaryAction === 'review-output'
+                  ? 'Review request'
+                  : 'Reply'}
+            </Button>
           </div>
+        </section>
+      ) : null}
 
-          <div className="mb-4">
-            <AgentLiveOutput
-              provider={terminal.provider}
-              rawOutput={liveOutput}
-              running={terminal.running}
-              structuredEventsActive={terminal.structuredEventsActive}
-            />
+      {terminal.running && terminal.status === 'yellow' && !quietProcess && !attention ? (
+        <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-xl border border-amber-300/18 bg-amber-300/[0.055] px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-amber-100">Agent needs attention</p>
+            <p className="mt-1 truncate text-[11px] text-amber-100/55">{terminal.statusReason}</p>
           </div>
+          <Button type="button" variant="outline" size="sm" onClick={reviewProviderOutput}>
+            Review output
+          </Button>
+        </div>
+      ) : null}
 
-          {terminal.running && terminal.status === 'yellow' && !quietProcess ? (
-            <div className="mb-3">
-              <AgentAttentionActions
-                terminal={terminal}
-                onEnter={() => onInput('\r')}
-                onEscape={() => onInput('\x1b')}
-                onContinue={() => onPromptSubmit('continue')}
-              />
-            </div>
-          ) : null}
-
-          <div className="space-y-3">
-            {blocks.map((block) =>
-              block.kind === 'prompt' ? (
+      <section aria-label="Agent conversation" className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-1">
+          <div className="flex-1 space-y-7 py-5">
+            {conversationBlocks.map((block) =>
+              isUserConversationBlock(block) ? (
+                <article key={block.id} className="flex justify-end">
+                  <div className="max-w-[82%] rounded-2xl rounded-br-md bg-white/[0.07] px-4 py-3">
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-100">
+                      {block.detail}
+                    </p>
+                  </div>
+                </article>
+              ) : block.status === 'red' ? (
                 <article
                   key={block.id}
-                  className="ml-auto max-w-[88%] rounded-2xl rounded-br-md border border-amber-300/16 bg-amber-300/[0.055] px-4 py-3"
+                  className="rounded-xl border border-red-300/20 bg-red-300/[0.035] px-4 py-3"
                 >
-                  <div className="text-[11px] font-medium text-amber-200">You</div>
-                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-zinc-200">
-                    {block.detail}
-                  </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium text-red-100">{block.title}</span>
+                    <time className="text-[10px] tabular-nums text-red-100/40">
+                      {formatActivityTime(block.at)}
+                    </time>
+                  </div>
+                  {block.detail ? (
+                    <p className="mt-1 text-sm leading-6 text-red-100/60">{block.detail}</p>
+                  ) : null}
                 </article>
               ) : (
-                <article
-                  key={block.id}
-                  className={cn('rounded-xl border px-4 py-3', statusMeta[block.status].row)}
-                >
-                  <div className="flex items-start gap-3">
-                    <span
-                      className={cn(
-                        'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.07] bg-black/20',
-                        blockIconClass(block)
-                      )}
-                    >
-                      {blockKindIcon(block.kind)}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h4 className="text-sm font-medium text-zinc-100">{block.title}</h4>
-                        <time className="font-mono text-[10px] text-zinc-400">
-                          {formatActivityTime(block.at)}
-                        </time>
-                      </div>
-                      {block.detail && block.kind !== 'launch' ? (
-                        <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-zinc-400">
-                          {block.detail}
-                        </p>
-                      ) : null}
-                      {block.output ? (
-                        <details className="mt-2 text-xs text-zinc-400">
-                          <summary className="cursor-pointer select-none hover:text-zinc-200">
-                            Technical output
-                          </summary>
-                          <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-white/[0.06] bg-black/25 p-3 font-mono text-[11px] leading-5 text-zinc-400">
-                            {stripAnsi(block.output).trimEnd()}
-                          </pre>
-                        </details>
-                      ) : null}
+                <article key={block.id} className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-zinc-300">
+                    <Bot size={14} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="font-medium text-zinc-300">{providerName}</span>
+                      <time className="tabular-nums text-zinc-600">
+                        {formatActivityTime(block.at)}
+                      </time>
                     </div>
+                    {block.title !== 'Turn complete' ? (
+                      <p className="mt-1 text-xs font-medium text-zinc-500">{block.title}</p>
+                    ) : null}
+                    {block.detail ? (
+                      <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-zinc-200">
+                        {block.detail}
+                      </p>
+                    ) : null}
                   </div>
                 </article>
               )
             )}
-            {blocks.length === 0 ? (
-              <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.07] text-center">
+
+            {isThinking ? (
+              <div
+                role="status"
+                aria-label={`${providerName} is working`}
+                className="flex items-center gap-3"
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-zinc-300">
+                  <Bot size={14} />
+                </span>
+                <div className="flex items-center gap-2 text-sm text-zinc-500">
+                  <Loader2 size={13} className="motion-safe:animate-spin" />
+                  <span>{providerName} is thinking…</span>
+                </div>
+              </div>
+            ) : null}
+
+            {conversationBlocks.length === 0 ? (
+              <div className="flex min-h-52 flex-col items-center justify-center text-center">
                 {terminal.running ? (
-                  <Loader2 className="mb-3 animate-spin text-amber-200" size={18} />
+                  <Loader2 className="mb-3 animate-spin text-zinc-500" size={18} />
                 ) : null}
-                <p className="text-sm font-medium text-zinc-200">
-                  {terminal.running ? `${providerName} is starting…` : 'No activity recorded'}
+                <p className="text-sm font-medium text-zinc-300">
+                  {terminal.running ? `${providerName} is starting…` : 'No conversation yet'}
                 </p>
-                <p className="mt-1 text-xs text-zinc-400">
-                  Process events and prompts will appear here.
+                <p className="mt-1 text-xs text-zinc-500">
+                  Your messages and {providerName} responses will appear here.
                 </p>
               </div>
             ) : null}
           </div>
-        </section>
 
-        <aside className="min-h-0 space-y-3 overflow-y-auto" aria-label="Work context">
-          <section className="rounded-2xl border border-white/[0.08] bg-white/[0.018] p-4">
-            <h3 className="text-sm font-semibold text-zinc-100">Context</h3>
-            <dl className="mt-3 space-y-3 text-xs">
-              <div>
-                <dt className="text-zinc-400">Repository</dt>
-                <dd className="mt-1 truncate font-mono text-zinc-200">
-                  {compactPathLabel(terminal.cwd)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-zinc-400">Branch</dt>
-                <dd className="mt-1 text-zinc-200">
-                  {repoStatus ? repoGitStatusLabel(repoStatus) : 'Checking repository…'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-zinc-400">Evidence</dt>
-                <dd className="mt-1 text-zinc-200">
-                  {terminal.structuredEventsActive
-                    ? 'Structured lifecycle events'
-                    : 'Process lifecycle only'}
-                </dd>
-              </div>
-            </dl>
-          </section>
-
-          <section className="rounded-2xl border border-white/[0.08] bg-white/[0.018] p-4">
-            <h3 className="text-sm font-semibold text-zinc-100">Recent signals</h3>
-            <div className="mt-3 space-y-3">
-              {recentSignals.map((entry) => (
-                <div key={entry.id} className="border-l border-white/[0.09] pl-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className={cn('truncate text-xs', activityTextClass(entry.kind))}>
-                      {entry.label}
-                    </span>
-                    <time className="font-mono text-[10px] text-zinc-400">
-                      {formatActivityTime(entry.at)}
-                    </time>
+          <details
+            ref={runDetailsRef}
+            open={!terminal.structuredEventsActive}
+            className="group mb-2 border-t border-white/[0.07] py-1"
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3 text-xs text-zinc-500 marker:content-none hover:text-zinc-300">
+              <span>
+                Run details · {detailBlocks.length} {detailBlocks.length === 1 ? 'event' : 'events'}
+              </span>
+              <ChevronDown size={14} className="transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="space-y-1 pb-3">
+              {detailBlocks.map((block) => (
+                <div key={block.id} className="flex items-start gap-3 rounded-lg px-2 py-2">
+                  <span className={cn('mt-0.5', blockIconClass(block))}>
+                    {blockKindIcon(block.kind)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-zinc-400">{block.title}</span>
+                      <time className="text-[10px] tabular-nums text-zinc-600">
+                        {formatActivityTime(block.at)}
+                      </time>
+                    </div>
+                    {block.detail ? (
+                      <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-zinc-600">
+                        {block.detail}
+                      </p>
+                    ) : null}
                   </div>
-                  {entry.detail ? (
-                    <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-zinc-400">
-                      {entry.detail}
-                    </p>
-                  ) : null}
                 </div>
               ))}
-              {recentSignals.length === 0 ? (
-                <p className="text-xs text-zinc-400">No runtime signals yet.</p>
-              ) : null}
+              <details
+                ref={providerOutputRef}
+                className="rounded-lg border border-white/[0.06] bg-white/[0.015]"
+              >
+                <summary className="cursor-pointer list-none px-3 py-2.5 text-xs text-zinc-500 marker:content-none hover:text-zinc-300">
+                  Provider output
+                </summary>
+                <div className="border-t border-white/[0.06] p-3">
+                  <AgentLiveOutput
+                    provider={terminal.provider}
+                    rawOutput={liveOutput}
+                    running={terminal.running}
+                    structuredEventsActive={terminal.structuredEventsActive}
+                  />
+                </div>
+              </details>
             </div>
-          </section>
-        </aside>
-      </div>
+          </details>
+        </div>
+      </section>
 
       <form
         onSubmit={submit}
-        className="flex shrink-0 items-end gap-3 rounded-2xl border border-white/[0.09] bg-[#0b0c0f] p-3 focus-within:border-amber-300/25"
+        className="mx-auto flex w-full max-w-3xl shrink-0 items-end gap-3 rounded-2xl border border-white/[0.09] bg-[#0b0c0f] p-3 shadow-[0_18px_60px_-42px_rgba(0,0,0,0.9)] focus-within:border-amber-300/25"
       >
         <textarea
+          ref={composerRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder={terminal.running ? `Message ${providerName}…` : 'This run is not active'}
+          onKeyDown={submitComposerOnEnter}
+          placeholder={
+            terminal.running
+              ? attention?.kind === 'question'
+                ? `Answer ${providerName}…`
+                : attention
+                  ? `Respond to ${providerName}…`
+                  : `Message ${providerName}…`
+              : 'This run is not active'
+          }
           aria-label={`Message ${providerName}`}
           disabled={!terminal.running}
           rows={2}
@@ -1823,44 +2327,6 @@ function WorkSessionView({
           <SendHorizontal size={14} /> Send
         </Button>
       </form>
-    </div>
-  );
-}
-
-function WorkModeSwitcher({
-  value,
-  onChange,
-}: {
-  value: WorkMode;
-  onChange: (mode: WorkMode) => void;
-}) {
-  const modes: Array<{ value: WorkMode; label: string }> = [
-    { value: 'conversation', label: 'Conversation' },
-    { value: 'board', label: 'Board' },
-  ];
-  return (
-    <div
-      role="tablist"
-      aria-label="Work mode"
-      className="flex rounded-xl border border-white/[0.075] bg-black/25 p-1"
-    >
-      {modes.map((mode) => (
-        <button
-          key={mode.value}
-          type="button"
-          role="tab"
-          aria-selected={value === mode.value}
-          onClick={() => onChange(mode.value)}
-          className={cn(
-            'h-8 rounded-lg px-3 text-xs font-medium transition',
-            value === mode.value
-              ? 'border border-white/[0.08] bg-white/[0.075] text-zinc-100 shadow-sm'
-              : 'text-zinc-400 hover:text-zinc-100'
-          )}
-        >
-          {mode.label}
-        </button>
-      ))}
     </div>
   );
 }
@@ -1889,11 +2355,30 @@ function ConversationStart({
   const [provider, setProvider] = useState<AgentProvider>(defaultProvider);
   const [cwd, setCwd] = useState(defaultCwd);
   const [prompt, setPrompt] = useState(defaultPrompt);
+  const [model, setModel] = useState('');
+  const recentModels = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          recentSessions
+            .filter((session) => sessionAgentProvider(session) === provider)
+            .map((session) => session.model_used?.trim())
+            .filter((value): value is string => Boolean(value))
+        )
+      ).slice(0, 8),
+    [provider, recentSessions]
+  );
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!prompt.trim()) return;
-    onStart({ provider, cwd: cwd.trim() || '~', prompt: prompt.trim(), workItemId });
+    onStart({
+      provider,
+      cwd: cwd.trim() || '~',
+      prompt: prompt.trim(),
+      model: model.trim(),
+      workItemId,
+    });
   }
 
   return (
@@ -1913,6 +2398,8 @@ function ConversationStart({
           <textarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={submitComposerOnEnter}
+            aria-label="Conversation prompt"
             placeholder="Describe the change, bug, or question…"
             className="min-h-44 w-full resize-none bg-transparent px-5 py-5 text-base leading-7 text-zinc-100 outline-none placeholder:text-zinc-500"
           />
@@ -1923,7 +2410,10 @@ function ConversationStart({
                   <button
                     key={option}
                     type="button"
-                    onClick={() => setProvider(option)}
+                    onClick={() => {
+                      setProvider(option);
+                      setModel('');
+                    }}
                     className={cn(
                       'h-8 rounded-md px-3 text-xs capitalize transition',
                       provider === option
@@ -1935,6 +2425,22 @@ function ConversationStart({
                   </button>
                 ))}
               </div>
+              <label className="relative">
+                <span className="sr-only">Conversation model</span>
+                <input
+                  aria-label="Conversation model"
+                  list={`conversation-models-${provider}`}
+                  value={model}
+                  onChange={(event) => setModel(event.target.value)}
+                  placeholder="Default model"
+                  className="h-9 w-40 rounded-lg border border-white/[0.08] bg-black/25 px-3 text-xs text-zinc-400 outline-none placeholder:text-zinc-500 hover:text-zinc-200 focus:border-amber-300/25"
+                />
+                <datalist id={`conversation-models-${provider}`}>
+                  {recentModels.map((recentModel) => (
+                    <option key={recentModel} value={recentModel} />
+                  ))}
+                </datalist>
+              </label>
               {repoProjects.length > 0 ? (
                 <select
                   value={repoProjects.some((project) => project.repo_path === cwd) ? cwd : ''}
@@ -2020,59 +2526,6 @@ function ConversationStart({
   );
 }
 
-function AgentAttentionActions({
-  terminal,
-  onEnter,
-  onEscape,
-  onContinue,
-}: {
-  terminal: AgentTerminal;
-  onEnter: () => void;
-  onEscape: () => void;
-  onContinue: () => void;
-}) {
-  const waitingFor = terminal.waitingSince
-    ? `waiting ${formatDuration(Date.now() - terminal.waitingSince)}`
-    : 'needs input';
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-300/18 bg-amber-300/[0.055] px-2 py-1.5">
-      <div className="min-w-0">
-        <div className="text-[11px] font-medium text-amber-100">
-          {attentionActionTitle(terminal.statusReason)}
-        </div>
-        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[10px] text-amber-100/55">
-          <span>{waitingFor}</span>
-          <span className="max-w-[360px] truncate">{terminal.statusReason}</span>
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <button
-          type="button"
-          onClick={onEnter}
-          className="rounded border border-amber-200/15 bg-black/20 px-2 py-1 font-mono text-[10px] text-amber-100 hover:bg-amber-200/[0.08]"
-        >
-          Enter
-        </button>
-        <button
-          type="button"
-          onClick={onEscape}
-          className="rounded border border-amber-200/15 bg-black/20 px-2 py-1 font-mono text-[10px] text-amber-100/80 hover:bg-amber-200/[0.08]"
-        >
-          Esc
-        </button>
-        <button
-          type="button"
-          onClick={onContinue}
-          className="rounded border border-emerald-200/15 bg-emerald-300/[0.07] px-2 py-1 text-[10px] text-emerald-100 hover:bg-emerald-300/[0.11]"
-        >
-          Continue
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function terminalStatusLabel(terminal: AgentTerminal): string {
   const lifecycle = agentLifecycleState(terminal);
   if (lifecycle === 'detached') return 'Detached';
@@ -2082,6 +2535,91 @@ function terminalStatusLabel(terminal: AgentTerminal): string {
     return terminal.statusReason.startsWith('No terminal output') ? 'Stalled' : 'Needs input';
   }
   return statusMeta[terminal.status].label;
+}
+
+function conversationStateLabel(terminal: AgentTerminal): string {
+  switch (agentLifecycleState(terminal)) {
+    case 'live':
+      return 'Working';
+    case 'waiting':
+      return 'Needs help';
+    case 'resumable':
+      return 'Paused';
+    case 'failed':
+      return 'Failed';
+    case 'detached':
+      return 'Disconnected';
+    case 'stopped':
+      return 'Completed';
+    case 'ready':
+      return 'Ready';
+  }
+}
+
+function groupConversationsByProject(
+  terminals: readonly AgentTerminal[],
+  indexedSessions: readonly SessionRow[],
+  repoProjects: readonly RepoProject[]
+): ConversationProjectGroup[] {
+  const registeredProjects = new Map(
+    repoProjects.map((project) => [normalizeProjectPath(project.repo_path), project])
+  );
+  const groups = new Map<string, ConversationProjectGroup>();
+  const representedSessions = new Set(
+    terminals.flatMap((terminal) =>
+      terminal.codexSessionId ? [`${terminal.provider}:${terminal.codexSessionId.trim()}`] : []
+    )
+  );
+  const indexedKeys = new Set<string>();
+
+  const projectGroup = (normalizedPath: string): ConversationProjectGroup => {
+    const path = normalizedPath || null;
+    const key = path ?? 'other';
+    const existing = groups.get(key);
+    if (existing) return existing;
+    const registered = normalizedPath ? registeredProjects.get(normalizedPath) : undefined;
+    const label = registered?.display_name.trim() || (path ? compactPathLabel(path) : 'Other');
+    const created = { key, label, path, terminals: [], indexedSessions: [] };
+    groups.set(key, created);
+    return created;
+  };
+
+  for (const terminal of terminals) {
+    const normalizedPath = normalizeProjectPath(terminal.cwd);
+    projectGroup(normalizedPath).terminals.push(terminal);
+  }
+
+  for (const session of indexedSessions) {
+    const normalizedPath = normalizeProjectPath(session.cwd ?? '');
+    if (!normalizedPath) continue;
+    const identity = `${sessionAgentProvider(session)}:${session.id.trim()}`;
+    if (!session.id.trim() || representedSessions.has(identity) || indexedKeys.has(identity)) {
+      continue;
+    }
+    indexedKeys.add(identity);
+    projectGroup(normalizedPath).indexedSessions.push(session);
+  }
+
+  return [...groups.values()];
+}
+
+function indexedSessionDirectoryPaths(sessions: readonly SessionRow[]): string[] {
+  return Array.from(
+    new Set(sessions.map((session) => normalizeProjectPath(session.cwd ?? '')).filter(Boolean))
+  ).sort();
+}
+
+function normalizeProjectPath(value: string): string {
+  const path = value.trim();
+  if (!path || path === '~' || path.startsWith('~/')) return '';
+  return path.length > 1 ? path.replace(/\/+$/, '') : path;
+}
+
+function terminalAttentionRank(terminal: AgentTerminal): number {
+  if (terminal.status === 'yellow') return 0;
+  if (terminal.status === 'red') return 1;
+  if (terminal.running) return 2;
+  return 3;
 }
 
 function isLegacyQuietProcess(terminal: AgentTerminal): boolean {
@@ -2109,17 +2647,6 @@ function agentLifecycleState(terminal: AgentTerminal): AgentLifecycleState {
 function isDetachedTerminal(terminal: AgentTerminal): boolean {
   if (!terminal.running || terminal.lastHeartbeatAt == null) return false;
   return Date.now() - terminal.lastHeartbeatAt > STALL_AFTER_MS * 2;
-}
-
-function attentionActionTitle(reason: string): string {
-  const normalized = reason.toLowerCase();
-  if (normalized.includes('hook')) return 'Hook review waiting';
-  if (normalized.includes('approval') || normalized.includes('permission')) {
-    return 'Approval waiting';
-  }
-  if (normalized.includes('confirm')) return 'Confirmation waiting';
-  if (normalized.includes('silent') || normalized.includes('quiet')) return 'Agent is quiet';
-  return 'Agent needs attention';
 }
 
 function launchVerb(mode: AgentLaunchMode): string {
@@ -2311,12 +2838,6 @@ function providerLabel(provider: AgentProvider): 'Codex' | 'Claude' {
 
 function sessionAgentProvider(session: SessionRow): AgentProvider {
   return session.agent_type.toLowerCase().includes('claude') ? 'claude' : 'codex';
-}
-
-function loadWorkMode(): WorkMode {
-  if (typeof window === 'undefined') return 'conversation';
-  const saved = window.localStorage.getItem(WORK_MODE_STORAGE_KEY);
-  return saved === 'board' ? saved : 'conversation';
 }
 
 function workItemPrompt(item: WorkItem): string {
@@ -2718,8 +3239,8 @@ function applySnapshotAgentEvent(
       : [];
 
   return events.reduce((current, event) => {
-    const payload = parseCodexCliAgentPayload(event.data);
-    if (!payload) return current;
+    const payload = parseAgentLifecyclePayload(event.data);
+    if (!payload || payload.agent !== snapshot.provider) return current;
     return applySnapshotStructuredAgentEvent(
       current,
       snapshot,
@@ -2733,13 +3254,13 @@ function applySnapshotAgentEvent(
 function applySnapshotStructuredAgentEvent(
   terminal: AgentTerminal,
   snapshot: AgentTerminalSnapshot,
-  payload: CodexCliAgentPayload,
+  payload: AgentLifecyclePayload,
   eventSeq: number,
   at: number
 ): AgentTerminal {
   if (!payload) return terminal;
-  const patch = terminalPatchForCodexEvent(payload);
-  const eventSource = codexPayloadEventSource(payload);
+  const patch = terminalPatchForAgentEvent(payload);
+  const eventSource = agentPayloadEventSource(payload);
 
   return appendActivity(
     appendBlock(
@@ -2748,7 +3269,8 @@ function applySnapshotStructuredAgentEvent(
         ...patch,
         running: snapshot.running,
         started: true,
-        structuredEventsActive: terminal.structuredEventsActive || eventSource === 'codex-warp',
+        structuredEventsActive:
+          terminal.structuredEventsActive || isConfirmedAgentEventSource(eventSource),
         lastAgentEventSource: eventSource,
         lastAgentEventAt: at,
         lastStructuredEventSeq: maxStructuredEventSeq(terminal.lastStructuredEventSeq, eventSeq),
@@ -2764,16 +3286,16 @@ function applySnapshotStructuredAgentEvent(
         waitingSince: patch.status === 'yellow' ? (terminal.waitingSince ?? at) : null,
       },
       {
-        kind: codexBlockKindForStatus(patch.status),
+        kind: agentBlockKindForStatus(patch.status),
         status: patch.status ?? terminal.status,
-        title: codexEventBlockTitle(payload, patch),
-        detail: codexEventBlockDetail(payload, patch),
+        title: agentEventBlockTitle(payload, patch),
+        detail: agentEventBlockDetail(payload, patch),
         at,
       }
     ),
     {
-      kind: codexActivityKindForStatus(patch.status),
-      label: payload.event ?? 'Codex event',
+      kind: agentActivityKindForStatus(patch.status),
+      label: payload.event ?? `${providerLabel(payload.agent)} event`,
       detail: patch.statusReason,
       at,
     }
@@ -2793,7 +3315,7 @@ function appendStructuredEventLog(
   entries: AgentStructuredEventEntry[],
   event: {
     terminalId: string;
-    payload: CodexCliAgentPayload;
+    payload: AgentLifecyclePayload;
     source: AgentEventSource;
     seq: number | null;
     at: number;
@@ -2812,25 +3334,25 @@ function appendStructuredEventLog(
       source: event.source,
       event: eventName,
       status: event.status,
-      title: codexStructuredEventTitle(event.payload),
-      detail: event.detail ?? codexStructuredEventDetail(event.payload),
+      title: agentStructuredEventTitle(event.payload),
+      detail: event.detail ?? agentStructuredEventDetail(event.payload),
     },
     ...entries,
   ].slice(0, STRUCTURED_EVENT_LOG_LIMIT);
 }
 
-function codexStructuredEventTitle(payload: CodexCliAgentPayload): string {
+function agentStructuredEventTitle(payload: AgentLifecyclePayload): string {
   if (payload.event === 'tool_start' && payload.tool_name) return `tool: ${payload.tool_name}`;
   if (payload.event === 'tool_complete' && payload.tool_name)
     return `tool done: ${payload.tool_name}`;
   if (payload.event === 'permission_request') return 'permission request';
-  if (payload.event === 'ask_user') return 'question';
+  if (payload.event === 'ask_user' || payload.event === 'question_asked') return 'question';
   if (payload.event === 'stop') return 'turn complete';
   if (payload.event === 'error') return 'error';
-  return payload.event ?? 'Codex event';
+  return payload.event ?? `${providerLabel(payload.agent)} event`;
 }
 
-function codexStructuredEventDetail(payload: CodexCliAgentPayload): string | undefined {
+function agentStructuredEventDetail(payload: AgentLifecyclePayload): string | undefined {
   if (payload.summary) return payload.summary;
   if (payload.query) return payload.query;
   if (payload.response) return payload.response;
@@ -2869,6 +3391,12 @@ function compactPathLabel(path: string): string {
   return trimmed.split('/').filter(Boolean).at(-1) ?? trimmed;
 }
 
+function submitComposerOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+  if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+  event.preventDefault();
+  event.currentTarget.form?.requestSubmit();
+}
+
 function compactSessionId(value: string): string {
   const trimmed = value.trim();
   if (trimmed.length <= 12) return trimmed;
@@ -2877,44 +3405,49 @@ function compactSessionId(value: string): string {
 
 function compactWorkBlocks(blocks: AgentBlockEntry[]): AgentBlockEntry[] {
   const seen = new Set<string>();
-  const newest = blocks.filter((block) => {
-    if (block.title === 'Silent process') return false;
-    const key = `${block.kind}:${block.title}:${block.detail ?? ''}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  return newest.slice(0, 12).reverse();
-}
-
-function compactWorkActivities(activities: AgentActivityEntry[]): AgentActivityEntry[] {
-  const seen = new Set<string>();
-  return activities
-    .filter((entry) => {
-      if (entry.label === 'Silent process') return false;
-      const key = `${entry.kind}:${entry.label}:${entry.detail ?? ''}`;
+  const hasStructuredSessionStart = blocks.some((block) => block.title === 'Session started');
+  const newest = blocks
+    .filter((block) => {
+      if (block.title === 'Silent process') return false;
+      if (
+        block.title === 'Idle prompt' ||
+        block.title === 'Ready for input' ||
+        block.title === 'session_end' ||
+        block.title === 'Session ended'
+      ) {
+        return false;
+      }
+      if (hasStructuredSessionStart && block.kind === 'launch') return false;
+      const detail = compactWorkBlockDetail(block.detail);
+      const key = isUserConversationBlock(block)
+        ? `prompt:${detail}`
+        : `${block.kind}:${block.title}:${detail}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     })
-    .slice(0, 6);
+    .map((block) => ({ ...block, detail: compactWorkBlockDetail(block.detail) }));
+  return newest.slice(0, 12).reverse();
 }
 
-function activityTextClass(kind: AgentActivityKind): string {
-  switch (kind) {
-    case 'attention':
-      return 'text-amber-200';
-    case 'error':
-      return 'text-red-200';
-    case 'exit':
-      return 'text-slate-300';
-    case 'event':
-      return 'text-cyan-100';
-    case 'input':
-      return 'text-emerald-200/85';
-    default:
-      return 'text-slate-300';
-  }
+function compactWorkBlockDetail(detail: string | undefined): string | undefined {
+  if (!detail) return undefined;
+  const [summary] = detail.split(/\s+·\s+(?:transcript|session):/i, 1);
+  return summary?.trim() || undefined;
+}
+
+function isConversationWorkBlock(block: AgentBlockEntry): boolean {
+  return (
+    block.kind === 'prompt' ||
+    block.status === 'yellow' ||
+    block.status === 'red' ||
+    block.title === 'Prompt submitted' ||
+    block.title === 'Turn complete'
+  );
+}
+
+function isUserConversationBlock(block: AgentBlockEntry): boolean {
+  return block.kind === 'prompt' || block.title === 'Prompt submitted';
 }
 
 function blockKindIcon(kind: AgentBlockKind) {
@@ -3080,7 +3613,12 @@ function isAgentBlockKind(value: unknown): value is AgentBlockKind {
 }
 
 function isAgentEventSource(value: unknown): value is AgentEventSource {
-  return value === 'codex-warp' || value === 'codex-osc9' || value === 'terminal';
+  return (
+    value === 'codex-warp' ||
+    value === 'codex-osc9' ||
+    value === 'claude-hook' ||
+    value === 'terminal'
+  );
 }
 
 function isComposerMode(value: unknown): value is AgentComposerMode {
@@ -3177,24 +3715,59 @@ function isApprovalPolicy(value: unknown): value is AgentTerminal['approvalPolic
   return value === 'untrusted' || value === 'on-request' || value === 'never';
 }
 
-function codexPayloadEventSource(payload: CodexCliAgentPayload): AgentEventSource {
+function agentPayloadEventSource(payload: AgentLifecyclePayload): AgentEventSource {
+  if (payload.agent === 'claude') return 'claude-hook';
   return payload.fallback === 'osc9' ? 'codex-osc9' : 'codex-warp';
 }
 
-function codexBlockKindForStatus(status: AgentStatus | undefined): AgentBlockKind {
+function isConfirmedAgentEventSource(source: AgentEventSource): boolean {
+  return source === 'codex-warp' || source === 'claude-hook';
+}
+
+function agentInputLifecyclePatch(
+  terminal: AgentTerminal,
+  updatedAt: string,
+  statusReason: string
+): Pick<
+  AgentTerminal,
+  | 'status'
+  | 'updatedAt'
+  | 'statusReason'
+  | 'waitingSince'
+  | 'idleMs'
+  | 'lastAgentEvent'
+  | 'lastAgentEventSource'
+> {
+  const awaitingConfirmedResume = terminal.status === 'yellow' && terminal.structuredEventsActive;
+  const clearCompletedTurn = terminal.lastAgentEvent === 'stop' && !awaitingConfirmedResume;
+  return {
+    status: awaitingConfirmedResume ? terminal.status : 'green',
+    updatedAt: awaitingConfirmedResume ? 'reply sent' : updatedAt,
+    statusReason: awaitingConfirmedResume
+      ? 'Reply sent; waiting for the provider to resume'
+      : statusReason,
+    waitingSince: awaitingConfirmedResume ? terminal.waitingSince : null,
+    idleMs: 0,
+    lastAgentEvent: clearCompletedTurn ? null : terminal.lastAgentEvent,
+    lastAgentEventSource: clearCompletedTurn ? null : terminal.lastAgentEventSource,
+  };
+}
+
+function agentBlockKindForStatus(status: AgentStatus | undefined): AgentBlockKind {
   if (status === 'yellow') return 'attention';
   if (status === 'red') return 'exit';
   return 'event';
 }
 
-function codexActivityKindForStatus(status: AgentStatus | undefined): AgentActivityKind {
+function agentActivityKindForStatus(status: AgentStatus | undefined): AgentActivityKind {
   if (status === 'yellow') return 'attention';
   if (status === 'red') return 'error';
   return 'event';
 }
 
-function codexEventBlockTitle(payload: CodexCliAgentPayload, patch: CodexAgentEventPatch): string {
-  if (isCodexFailureEvent(payload.event)) return 'Codex failure';
+function agentEventBlockTitle(payload: AgentLifecyclePayload, patch: AgentLifecyclePatch): string {
+  const providerName = payload.agent === 'claude' ? 'Claude' : 'Codex';
+  if (isAgentFailureEvent(payload.event)) return `${providerName} failure`;
   switch (payload.event) {
     case 'prompt_submit':
       return 'Prompt submitted';
@@ -3211,31 +3784,31 @@ function codexEventBlockTitle(payload: CodexCliAgentPayload, patch: CodexAgentEv
     case 'session_start':
       return 'Session started';
     case 'idle_prompt':
-      return 'Idle prompt';
+      return 'Ready for input';
+    case 'session_end':
+      return 'Session ended';
     default:
       return payload.event ?? patch.lastAgentEvent;
   }
 }
 
-function codexEventBlockDetail(payload: CodexCliAgentPayload, patch: CodexAgentEventPatch): string {
-  const toolPreview = codexToolInputPreview(payload.tool_input);
-  if (payload.event === 'prompt_submit' && payload.query) return truncateText(payload.query, 220);
+function agentEventBlockDetail(payload: AgentLifecyclePayload, patch: AgentLifecyclePatch): string {
+  const toolPreview = agentToolInputPreview(payload.tool_input);
+  if (payload.event === 'prompt_submit' && payload.query) return payload.query;
   if (payload.event === 'stop' && (payload.response || payload.query)) {
-    return truncateText(payload.response ?? payload.query ?? '', 220);
-  }
-  if (payload.event === 'stop' && payload.transcript_path) {
-    return `Transcript: ${truncateText(payload.transcript_path, 200)}`;
+    return payload.response ?? payload.query ?? '';
   }
   if (toolPreview) return toolPreview;
-  const details = [
-    patch.statusReason ?? payload.summary ?? payload.event ?? 'Codex event',
-    payload.transcript_path ? `transcript: ${payload.transcript_path}` : '',
-    payload.session_id ? `session: ${payload.session_id}` : '',
-  ].filter(Boolean);
-  return truncateText(details.join(' · '), 220);
+  return truncateText(
+    patch.statusReason ??
+      payload.summary ??
+      payload.event ??
+      `${providerLabel(payload.agent)} event`,
+    220
+  );
 }
 
-function codexToolInputPreview(toolInput: CodexCliAgentPayload['tool_input']): string | null {
+function agentToolInputPreview(toolInput: AgentLifecyclePayload['tool_input']): string | null {
   if (!toolInput || typeof toolInput !== 'object') return null;
   const command = 'command' in toolInput ? toolInput.command : undefined;
   if (typeof command === 'string' && command.trim()) return truncateText(command, 220);
@@ -3288,25 +3861,6 @@ function truncateText(value: string, maxLength: number): string {
   return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
 }
 
-function stripAnsi(value: string): string {
-  const ansiEscapePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, 'g');
-  return value.replace(ansiEscapePattern, '');
-}
-
-function codexBlockedReason(chunk: string): string | null {
-  const plain = stripAnsi(chunk).replace(/\s+/g, ' ').toLowerCase();
-  const signals: Array<[string, string]> = [
-    ['requires approval', 'approval requested'],
-    ['approval required', 'approval requested'],
-    ['allow command', 'approval requested'],
-    ['allow this command', 'approval requested'],
-    ['enter to review hooks', 'hook review needed'],
-    ['hooks need review', 'hook review needed'],
-    ['review hooks', 'hook review needed'],
-    ['press enter', 'waiting for Enter'],
-    ['continue?', 'waiting for confirmation'],
-    ['waiting for', 'waiting'],
-    ['y/n', 'waiting for confirmation'],
-  ];
-  return signals.find(([needle]) => plain.includes(needle))?.[1] ?? null;
+function agentOutputAttentionReason(provider: AgentProvider, output: string): string | null {
+  return attentionFromOutput({ provider, output })?.title ?? null;
 }

@@ -1,7 +1,26 @@
+use serde::Serialize;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
+
+const MAX_DIRECTORY_CHECKS: usize = 256;
+const MAX_DIRECTORY_PATH_BYTES: usize = 4096;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DirectoryExistence {
+    pub path: String,
+    pub exists: bool,
+}
+
+/// Check a bounded set of local paths without reading directory contents.
+#[tauri::command]
+pub async fn check_directories_exist(
+    paths: Vec<String>,
+) -> Result<Vec<DirectoryExistence>, String> {
+    directory_existence(paths)
+}
 
 /// Read the first N lines of a file and detect language from extension.
 #[tauri::command]
@@ -193,6 +212,35 @@ fn editor_goto_target(source: &Path, line: u32, column: u32) -> Result<String, S
     Ok(format!("{source}:{line}:{column}"))
 }
 
+fn directory_existence(paths: Vec<String>) -> Result<Vec<DirectoryExistence>, String> {
+    let mut seen = HashSet::new();
+    let mut distinct = Vec::new();
+
+    for raw_path in paths {
+        let path = raw_path.trim();
+        if path.is_empty() || !seen.insert(path.to_string()) {
+            continue;
+        }
+        if path.len() > MAX_DIRECTORY_PATH_BYTES || path.contains('\0') {
+            return Err("Directory path is invalid".to_string());
+        }
+        distinct.push(path.to_string());
+        if distinct.len() > MAX_DIRECTORY_CHECKS {
+            return Err(format!(
+                "Too many directory checks; maximum is {MAX_DIRECTORY_CHECKS}"
+            ));
+        }
+    }
+
+    Ok(distinct
+        .into_iter()
+        .map(|path| DirectoryExistence {
+            exists: Path::new(&path).is_dir(),
+            path,
+        })
+        .collect())
+}
+
 // ─── Internal helpers ───────────────────────────────────────────────────────
 
 /// Detect programming language from file extension.
@@ -287,5 +335,43 @@ mod tests {
             "PAYMENTS.cbl"
         )
         .is_err());
+    }
+
+    #[test]
+    fn directory_checks_are_bounded_deduplicated_and_fail_closed() {
+        let existing = tempdir().expect("existing directory");
+        let existing_path = existing.path().to_string_lossy().to_string();
+        let missing_path = existing
+            .path()
+            .join("missing")
+            .to_string_lossy()
+            .to_string();
+
+        let result = directory_existence(vec![
+            "".to_string(),
+            format!("  {existing_path}  "),
+            existing_path.clone(),
+            missing_path.clone(),
+        ])
+        .expect("bounded checks");
+
+        assert_eq!(
+            result,
+            vec![
+                DirectoryExistence {
+                    path: existing_path,
+                    exists: true,
+                },
+                DirectoryExistence {
+                    path: missing_path,
+                    exists: false,
+                },
+            ]
+        );
+
+        let over_limit = (0..=MAX_DIRECTORY_CHECKS)
+            .map(|index| format!("/missing-{index}"))
+            .collect();
+        assert!(directory_existence(over_limit).is_err());
     }
 }

@@ -3,9 +3,7 @@
 ## Purpose
 
 Define a fast local workflow board that connects agent execution, review, verification, and repository intelligence without fabricating evidence.
-
 ## Requirements
-
 ### Requirement: Work items persist locally with bounded workflow context
 
 The system SHALL persist local work items containing intent, acceptance criteria, repository identity, workflow stage, agent/session pointers, change identity, review pointer, verification pointer/status, completion disposition, and timestamps without requiring network access.
@@ -23,7 +21,13 @@ The system SHALL persist local work items containing intent, acceptance criteria
 
 ### Requirement: Board projects the product workflow
 
-The Board SHALL group work items into the ordered stages Plan, Build, Review, Verify, and Done and SHALL show status movement through pointer and keyboard-accessible controls.
+The Board SHALL be a primary top-level orchestration surface and SHALL group work items into the ordered stages Plan, Build, Review, Verify, and Done with status movement through pointer and keyboard-accessible controls.
+
+#### Scenario: Open Board from primary navigation
+
+- **WHEN** the user activates Board in the primary navigation
+- **THEN** the application opens the persistent Board route directly
+- **AND** does not present Board as a mode inside Work
 
 #### Scenario: Move a card with a pointer
 
@@ -77,7 +81,13 @@ Each card SHALL show its repository, provider or agent state, acceptance progres
 
 ### Requirement: Work detail connects existing specialist surfaces
 
-The work-item detail view SHALL provide contextual actions for Conversation, Review, T-Rex, and Repo/history while leaving those surfaces authoritative for their own evidence.
+The work-item detail view SHALL provide contextual actions for Work, Review, Testing, and Repo/history while leaving those surfaces authoritative for their own execution and evidence.
+
+#### Scenario: Open Work from a build item
+
+- **WHEN** the user chooses Build or Open from a board item
+- **THEN** the application opens Work with the item's repository, provider, intent, and acceptance criteria prepared as an editable unsent conversation
+- **AND** does not restart or duplicate an already attached live session
 
 #### Scenario: Open Review from a work item
 

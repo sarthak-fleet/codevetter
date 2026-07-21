@@ -3439,6 +3439,15 @@ export interface FilePreview {
   language: string;
 }
 
+export interface DirectoryExistence {
+  path: string;
+  exists: boolean;
+}
+
+export async function checkDirectoriesExist(paths: string[]): Promise<DirectoryExistence[]> {
+  return safeInvoke('check_directories_exist', { paths });
+}
+
 export async function readFilePreview(filePath: string, maxLines?: number): Promise<FilePreview> {
   return safeInvoke('read_file_preview', {
     filePath: filePath,

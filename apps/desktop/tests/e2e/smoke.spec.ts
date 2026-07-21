@@ -49,7 +49,18 @@ test.describe('Smoke tests', () => {
 
     // Product pillars plus the Settings utility.
     const links = nav.locator('a');
-    await expect(links).toHaveCount(6);
+    await expect(links).toHaveCount(7);
+    for (const label of [
+      'Usage',
+      'Work',
+      'Board',
+      'Review',
+      'Testing',
+      'Repo Unpack',
+      'Settings',
+    ]) {
+      await expect(nav.getByRole('link', { name: label })).toBeVisible();
+    }
     await expect(nav.getByText('Roadmap')).toHaveCount(0);
     await expect(nav.getByText('Now')).toHaveCount(0);
   });

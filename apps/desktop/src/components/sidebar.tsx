@@ -1,4 +1,4 @@
-import { Activity, Bot, Eye, ScanSearch, Settings, Zap } from 'lucide-react';
+import { Activity, Bot, Columns3, Eye, ScanSearch, Settings, Zap } from 'lucide-react';
 import { type ReactNode, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
@@ -37,6 +37,13 @@ const productNavItems: NavItem[] = [
     icon: <Bot size={17} />,
     shortcut: 'A',
     description: 'Build with Codex and Claude',
+  },
+  {
+    label: 'Board',
+    href: '/board',
+    icon: <Columns3 size={17} />,
+    shortcut: 'B',
+    description: 'Move outcomes from plan to proof',
   },
   {
     label: 'Review',

@@ -222,7 +222,6 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         [],
     );
 
-
     // v1.1.83 — T-Rex v2 watcher state
     let _ = conn.execute(
         "CREATE TABLE IF NOT EXISTS trex_watchers (

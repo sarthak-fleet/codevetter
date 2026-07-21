@@ -61,7 +61,7 @@ node scripts/check-docs.mjs   # Validate docs (links, frontmatter, structure)
 - **`isTauriAvailable()` guard**: all IPC calls wrapped so React code also works in plain browser.
 - **DB is `rusqlite`, not `@tauri-apps/plugin-sql`.** Do not re-add `plugin-sql` (removed in the 2026-07-11 desloppification sweep). See `docs/architecture/data-model.md`.
 - **Single package manager: pnpm.** Do not reintroduce `package-lock.json` — dual-lockfile drift broke Cloudflare Pages in May 2026. See `docs/knowledge/failed-approaches.md`.
-- **Nav (6 tabs)**: Home (`/`), Review (`/review`), Repo (`/unpack`), Agents (`/agents`), T-Rex (`/trex`), Settings (`/settings`). Full surface map in `docs/product/surfaces.md`.
+- **Nav (7 tabs)**: Usage (`/`), Repo Unpack (`/unpack`), Work (`/agents`), Board (`/board`), Review (`/review`), Testing (`/trex`), Settings (`/settings`). Full surface map in `docs/product/surfaces.md`.
 - **GH Actions**: `ci.yml` (lint + typecheck + unit + MCP + build), `auto-release.yml` → `release.yml` (Tauri binaries), `deploy-landing.yml` (Cloudflare Pages), `weekly.yml` (Mon cron canary), `docs.yml` (doc validation). See `docs/operations/`.
 - Husky pre-commit runs lint-staged on `apps/desktop/src/**/*.{ts,tsx}`; pre-push runs lint + secret scan.
 

@@ -3,12 +3,10 @@
 ## Purpose
 
 Define the provider-aware process lifecycle retained beneath Work's focused conversation surface.
-
 ## Requirements
-
 ### Requirement: Provider execution remains internal to Work
 
-The app SHALL retain the supported local-provider process lifecycle needed by Conversation while removing the top-level multi-terminal board from primary Work presentation.
+The app SHALL retain the supported local-provider process lifecycle needed by Conversation while removing board and terminal-orchestration modes from primary Work presentation.
 
 #### Scenario: Start an agent run
 
@@ -18,9 +16,9 @@ The app SHALL retain the supported local-provider process lifecycle needed by Co
 
 #### Scenario: Open Work
 
-- **WHEN** the user opens Work without a saved mode preference
-- **THEN** Conversation is shown instead of the multi-agent board
-- **AND** only Conversation and Board are presented as Work modes
+- **WHEN** the user opens Work
+- **THEN** Conversation is shown directly
+- **AND** Board is available through its own primary navigation destination
 
 ### Requirement: Terminal Command Execution
 
@@ -62,10 +60,10 @@ Each agent run SHALL expose automatic white, green, yellow, and red status state
 
 ### Requirement: Terminal management is not a primary mode
 
-The app MUST NOT present grid layout, batch launch, broadcast, background-lane, or terminal-inspector controls as a third Work mode.
+The app MUST NOT present grid layout, batch launch, broadcast, background-lane, terminal-inspector, or Board controls as alternate modes inside Work.
 
 #### Scenario: Inspect Work mode choices
 
 - **WHEN** the user opens the Work surface
-- **THEN** the mode switch contains Conversation and Board only
+- **THEN** no mode switch is shown
 - **AND** raw terminal and orchestration controls do not appear in the primary shell

@@ -435,6 +435,7 @@ fn main() {
             // File operations (used by Review)
             commands::files::read_file_preview,
             commands::files::read_file_around_line,
+            commands::files::check_directories_exist,
             commands::files::open_in_app,
             commands::files::open_repository_source_in_editor,
             // Setup

@@ -30,7 +30,11 @@ const PERSISTENT_PAGES: PersistentPage[] = [
   },
   {
     id: 'agents',
-    match: (pathname) => pathname === '/agents' || pathname.startsWith('/agents/'),
+    match: (pathname) =>
+      pathname === '/agents' ||
+      pathname.startsWith('/agents/') ||
+      pathname === '/board' ||
+      pathname.startsWith('/board/'),
     Component: AgentPanel,
   },
   {
