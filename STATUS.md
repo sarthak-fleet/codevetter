@@ -16,10 +16,10 @@ workflow, and Repo Unpack remains the deepest intelligence investment.
 
 ## Active work
 
-- **v1.5.4 desktop release candidate** — deterministic Review, local Agent PR
+- **v1.5.4 desktop release** — deterministic Review, local Agent PR
   X-Ray export, structured Codex/Claude lifecycle streams, the opt-in native
   Agent Island, and calm read-only Work history are fully implemented and
-  locally qualified. New reviews resolve an immutable Git target, cover every changed
+   locally qualified and shipped. New reviews resolve an immutable Git target, cover every changed
   file through bounded resumable units, qualify source evidence before it can
   become a finding, retain explicit limitations, and expose a redacted manifest
   through Tauri and repository-scoped MCP. Completed reviews can generate
@@ -60,15 +60,16 @@ workflow, and Repo Unpack remains the deepest intelligence investment.
 1. Dogfood deterministic Review and X-Ray against real public agent PRs.
 2. Publish reviewed examples only after the sanitizer output is manually
    compared with the public source and CI evidence.
-3. Confirm the signed universal Agent Island helper, updater installation, and
-   rollback path in the v1.5.4 release workflow. Earlier preflights exposed and
-   fixed sidecar ordering, the helper deployment target, the MCP benchmark's
-   stale tool count, the final verifier's architecture checks, and the unsigned
-   nested helper. Release preparation now signs and verifies it before bundling.
+3. Keep Agent Island off by default while repeated local use confirms stable
+   attention routing and zero false actions.
 4. Continue Repo Unpack calibration against downstream review and QA outcomes.
 
 ## Recent shipped
 
+- 2026-07-24 — v1.5.4 shipped deterministic Review, local Agent PR X-Ray
+  export, structured Codex/Claude lifecycle streams, calm Work history, and the
+  opt-in native Agent Island with a signed universal helper and verified updater
+  payload.
 - 2026-07-21 — v1.4.0 shipped the conversation-first Work workspace: model
   selection, lifecycle-derived thinking and attention, explicit review-before-
   approval, Enter-to-send, safe archive, verified project-grouped history, and
