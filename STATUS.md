@@ -16,7 +16,7 @@ workflow, and Repo Unpack remains the deepest intelligence investment.
 
 ## Active work
 
-- **v1.5.0 desktop release candidate** — deterministic Review, local Agent PR
+- **v1.5.1 desktop release candidate** — deterministic Review, local Agent PR
   X-Ray export, structured Codex/Claude lifecycle streams, the opt-in native
   Agent Island, and calm read-only Work history are fully implemented and
   locally qualified. New reviews resolve an immutable Git target, cover every changed
@@ -61,7 +61,9 @@ workflow, and Repo Unpack remains the deepest intelligence investment.
 2. Publish reviewed examples only after the sanitizer output is manually
    compared with the public source and CI evidence.
 3. Confirm the signed universal Agent Island helper, updater installation, and
-   rollback path in the v1.5.0 release workflow.
+   rollback path in the v1.5.1 release workflow. The v1.5.0 preflight stopped
+   before bundling because the helper was prepared after the first Cargo build;
+   v1.5.1 prepares both sidecars before qualification.
 4. Continue Repo Unpack calibration against downstream review and QA outcomes.
 
 ## Recent shipped

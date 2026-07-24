@@ -65,6 +65,15 @@ jobs:
           TAURI_ENV_TARGET_TRIPLE: aarch64-apple-darwin
         run: pnpm run prepare:mcp-sidecar:release
 
+      # Tauri merges tauri.macos.conf.json before every Cargo build, including
+      # the release-only graph benchmark below. Prepare the declared native
+      # helper before that first build rather than waiting for tauri-action.
+      - name: Prepare release Agent Island sidecar
+        working-directory: apps/desktop
+        env:
+          TAURI_ENV_TARGET_TRIPLE: aarch64-apple-darwin
+        run: pnpm run prepare:agent-island:release
+
       - name: Qualify canonical graph and MCP performance
         working-directory: apps/desktop
         env:
