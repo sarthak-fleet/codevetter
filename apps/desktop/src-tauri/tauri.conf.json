@@ -54,6 +54,6 @@
     "shortDescription": "AI code review and agent management",
     "longDescription": "CodeVetter Desktop combines AI-powered code review, agent session management (Mission Control), and unified chat history into a single desktop application.",
     "copyright": "Copyright 2026 CodeVetter",
-    "externalBin": ["binaries/codevetter-mcp", "binaries/codevetter-agent-island"]
+    "externalBin": ["binaries/codevetter-mcp"]
   }
 }

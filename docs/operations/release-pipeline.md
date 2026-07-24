@@ -81,6 +81,7 @@ x86_64 slices plus its nested code signature before assets are uploaded.
 - `.github/workflows/auto-release.yml`
 - `.github/workflows/release.yml`
 - `apps/desktop/src-tauri/tauri.conf.json` (version + updater config)
+- `apps/desktop/src-tauri/tauri.macos.conf.json` (macOS-only Agent Island sidecar)
 - `apps/desktop/scripts/prepare-mcp-sidecar.mjs` (sidecar bundling)
 - `apps/desktop/scripts/prepare-agent-island.mjs` (universal native helper)
 - `scripts/verify-release-manifest.mjs` (post-upload manifest linkage check;
