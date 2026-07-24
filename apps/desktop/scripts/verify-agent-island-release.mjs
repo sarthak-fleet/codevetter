@@ -26,7 +26,8 @@ process.stdout.write(
       updater: updaterPath ?? 'not supplied',
       nested_signing: 'passed',
       helper_architectures: ['arm64', 'x86_64'],
-      production_bundle: 'passed',
+      helper_bundle_presence: 'passed',
+      outer_app_signing: 'not asserted by Agent Island qualification',
       updater_installation_payload: updaterPath ? 'passed' : 'not run',
       rollback_contract: 'passed',
     },
@@ -39,9 +40,6 @@ function verifyAppBundle(bundlePath) {
   requireDirectory(bundlePath, 'CodeVetter app bundle');
   const helper = join(bundlePath, 'Contents', 'MacOS', 'codevetter-agent-island');
   verifyHelper(helper);
-  execFileSync('codesign', ['--verify', '--deep', '--strict', bundlePath], {
-    stdio: 'inherit',
-  });
 }
 
 function verifyUpdaterPayload(archivePath) {

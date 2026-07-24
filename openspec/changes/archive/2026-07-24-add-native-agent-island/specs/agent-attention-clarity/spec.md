@@ -3,8 +3,8 @@
 ### Requirement: No permission bypass
 Attention actions MUST NOT send inferred provider input, alter sandbox or approval policy, or simulate approval through blind terminal keystrokes. A native reply, approval, or denial MAY be dispatched only when the exact pending event is confirmed, the provider exposes a supported session-bound response contract, the event advertises that action, and Rust revalidates its current single-use identity before dispatch. All other attention actions MUST reveal the relevant provider output or focus the normal composer without sending input.
 
-#### Scenario: User reviews an unstructured approval request
-- GIVEN an approval or confirmation prompt is visible only in provider output
+#### Scenario: User reviews an approval request
+- GIVEN an approval or confirmation prompt is visible
 - WHEN the user activates the attention action
 - THEN Work reveals the relevant provider output and sends no input to the provider
 

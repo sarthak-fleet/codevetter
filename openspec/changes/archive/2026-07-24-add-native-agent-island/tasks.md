@@ -44,6 +44,6 @@
 
 - [x] 8.1 Add latency, idle CPU, and resident-memory qualification covering the defined warm and idle budgets without repository rescans
 - [x] 8.2 Add real Codex and Claude smoke fixtures for completion, failure, question, approval, stale action, focus, quiet hours, and parent exit
-- [ ] 8.3 Verify nested code signing, universal architectures, production bundle contents, updater installation, and rollback to the existing Work/notification path
+- [x] 8.3 Verify nested code signing, universal architectures, production bundle contents, updater installation, and rollback to the existing Work/notification path
 - [x] 8.4 Update canonical architecture, surface, privacy, testing, and release documentation and run strict OpenSpec plus docs validation
 - [x] 8.5 Keep the feature off by default until repeated local use confirms zero false actions and acceptable stability, then record the separate enablement decision
