@@ -120,8 +120,10 @@ pnpm test:agent-island
 `prepare-agent-island.mjs` produces the Tauri sidecar name for the active Rust
 target. Release mode builds a universal arm64/x86_64 helper. Tauri's
 `beforeBuildCommand` prepares the helper once for normal production builds.
-Universal builds require full Xcode; Command Line Tools alone lack the
-x86_64 Swift compatibility libraries and fail before packaging.
+Release preparation ad-hoc signs and verifies the universal helper before
+Tauri copies it into the app. Universal builds require full Xcode; Command Line
+Tools alone lack the x86_64 Swift compatibility libraries and fail before
+packaging.
 
 The release workflow verifies that the nested helper exists, contains both
 architectures, and has a valid nested code signature. Publication, installed

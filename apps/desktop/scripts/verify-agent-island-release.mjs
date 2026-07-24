@@ -62,9 +62,11 @@ function verifyUpdaterPayload(archivePath) {
 
 function verifyHelper(helper) {
   requireFile(helper, 'nested Agent Island helper');
-  execFileSync('lipo', ['-verify_arch', 'arm64', 'x86_64', helper], {
-    stdio: 'inherit',
-  });
+  for (const architecture of ['arm64', 'x86_64']) {
+    execFileSync('lipo', [helper, '-verify_arch', architecture], {
+      stdio: 'inherit',
+    });
+  }
   execFileSync('codesign', ['--verify', '--strict', helper], {
     stdio: 'inherit',
   });

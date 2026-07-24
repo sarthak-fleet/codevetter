@@ -41,6 +41,14 @@ mkdirSync(dirname(destination), { recursive: true });
 try {
   copyFileSync(built, temporary);
   assertNonEmpty(temporary, 'prepared Agent Island helper');
+  if (release) {
+    execFileSync('codesign', ['--force', '--sign', '-', '--timestamp=none', temporary], {
+      stdio: 'inherit',
+    });
+    execFileSync('codesign', ['--verify', '--strict', temporary], {
+      stdio: 'inherit',
+    });
+  }
   renameSync(temporary, destination);
 } finally {
   rmSync(temporary, { force: true });
