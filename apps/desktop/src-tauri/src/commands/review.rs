@@ -7,7 +7,79 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command as StdCommand, Stdio};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, OnceLock,
+};
+use std::time::Duration;
 use tauri::{Emitter, Manager, State};
+use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::process::Command as TokioCommand;
+
+static ACTIVE_REVIEW_CANCELLATIONS: OnceLock<
+    Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>,
+> = OnceLock::new();
+
+struct ReviewCancellationGuard {
+    repository_root: String,
+}
+
+impl Drop for ReviewCancellationGuard {
+    fn drop(&mut self) {
+        if let Ok(mut active) = ACTIVE_REVIEW_CANCELLATIONS
+            .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+            .lock()
+        {
+            active.remove(&self.repository_root);
+        }
+    }
+}
+
+fn register_review_cancellation(repository_root: &str) -> Result<ReviewCancellationGuard, String> {
+    let mut active = ACTIVE_REVIEW_CANCELLATIONS
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .map_err(|_| "Review cancellation state is unavailable".to_string())?;
+    if active.contains_key(repository_root) {
+        return Err("A review is already active for this repository".to_string());
+    }
+    active.insert(
+        repository_root.to_string(),
+        Arc::new(AtomicBool::new(false)),
+    );
+    Ok(ReviewCancellationGuard {
+        repository_root: repository_root.to_string(),
+    })
+}
+
+fn review_cancellation(repo_path: &str) -> Arc<AtomicBool> {
+    let key = std::fs::canonicalize(repo_path)
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| repo_path.to_string());
+    ACTIVE_REVIEW_CANCELLATIONS
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .ok()
+        .and_then(|active| active.get(&key).cloned())
+        .unwrap_or_else(|| Arc::new(AtomicBool::new(false)))
+}
+
+#[tauri::command]
+pub async fn cancel_cli_review(repo_path: String) -> Result<Value, String> {
+    let key = std::fs::canonicalize(&repo_path)
+        .map_err(|_| "Review repository is unavailable".to_string())?
+        .to_string_lossy()
+        .into_owned();
+    let active = ACTIVE_REVIEW_CANCELLATIONS
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .map_err(|_| "Review cancellation state is unavailable".to_string())?;
+    let Some(cancellation) = active.get(&key) else {
+        return Ok(json!({"cancelled": false, "reason": "no_active_review"}));
+    };
+    cancellation.store(true, Ordering::SeqCst);
+    Ok(json!({"cancelled": true}))
+}
 
 /// Resolve a CLI binary (e.g. "claude", "gemini") to an absolute path.
 ///
@@ -193,6 +265,13 @@ struct ReviewPlan {
     sensitive_paths: Vec<String>,
     specialists: Vec<ReviewSpecialist>,
     uses_coordinator: bool,
+}
+
+#[derive(Clone)]
+struct ReviewPromptJob {
+    specialist: ReviewSpecialist,
+    prompt: String,
+    unit_indexes: Vec<usize>,
 }
 
 fn changed_line_count(diff: &str) -> usize {
@@ -1000,12 +1079,13 @@ Output format:
 Think through the review first (you may use tools and write reasoning notes). Then output **exactly one** ```json fenced block as the very LAST thing in your response, matching this shape. Do not emit any other ```json fenced blocks anywhere — examples in your reasoning should be unfenced or use a different language tag.
 
 JSON shape (literal text, not a fenced example):
-{{"findings":[{{"severity":"critical|high|medium|low","title":"...","summary":"... — include the specific lines that prove the problem","suggestion":"...","filePath":"...","line":42,"confidence":0.9}}],"score":75,"summary":"Overall assessment","talk":{{"files_read":["src/file.ts"],"files_modified":[],"actions_summary":"What you reviewed and found","unfinished_work":null,"key_decisions":"Important observations about the code","recommended_next_steps":"What should happen next"}}}}
+{{"findings":[{{"severity":"critical|high|medium|low","title":"...","summary":"... — include the specific lines that prove the problem","suggestion":"...","filePath":"...","line":42,"sourceAnchor":"exact trimmed source line at line 42","confidence":0.9}}],"score":75,"summary":"Overall assessment","talk":{{"files_read":["src/file.ts"],"files_modified":[],"actions_summary":"What you reviewed and found","unfinished_work":null,"key_decisions":"Important observations about the code","recommended_next_steps":"What should happen next"}}}}
 
 Rules:
 - severity must be one of: critical, high, medium, low
 - confidence is 0.0-1.0 — be honest; downgrade rather than overclaim
 - line is optional (null if unknown); filePath relative to repo root
+- sourceAnchor is required for findings and must be the exact trimmed source line at line
 - score is 0-100 (100 = perfect)
 - Each finding's `summary` must reference the specific line(s) or symbol(s) that prove the problem
 - The "talk" object captures context for the next review/fix run — populate `files_read` with anything you actually opened
@@ -1015,37 +1095,156 @@ Diff:
     )
 }
 
-/// Spawn a review CLI agent and parse its JSON output.
-///
-/// The CLI call is a long-running blocking process, so the spawn + wait runs
-/// inside `tokio::task::spawn_blocking` to avoid stalling the async runtime
-/// (mirrors the fix path in `run_fix`). All inputs are taken by value so the
-/// closure can own them across the thread boundary.
+const REVIEW_EXECUTOR_TIMEOUT: Duration =
+    Duration::from_secs(crate::commands::deterministic_review::REVIEW_WALL_TIME_SECONDS);
+const REVIEW_EXECUTOR_OUTPUT_BYTES: usize =
+    crate::commands::deterministic_review::REVIEW_OUTPUT_BYTES;
+
+async fn read_review_output<R: AsyncRead + Unpin>(
+    reader: R,
+    max_output_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    reader
+        .take((max_output_bytes + 1) as u64)
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|error| format!("Could not read review executor output: {error}"))?;
+    if bytes.len() > max_output_bytes {
+        return Err(format!(
+            "Review executor output exceeded {} bytes",
+            max_output_bytes
+        ));
+    }
+    Ok(bytes)
+}
+
+/// Spawn one explicitly selected review executor with bounded output, wall
+/// time, and owned-process cleanup. Dropping or timing out the future kills the
+/// process group so child tools cannot outlive the review.
 async fn run_agent_json(
     cli_path: String,
     cli_cmd: &str,
     repo_path: String,
     prompt: String,
 ) -> Result<(Value, String), String> {
-    let cli_cmd_owned = cli_cmd.to_string();
-    let raw_output = tokio::task::spawn_blocking(move || {
-        let cli_output = StdCommand::new(&cli_path)
-            .args(["-p", &prompt])
-            .current_dir(&repo_path)
-            .output()
-            .map_err(|e| {
-                format!("Failed to spawn {cli_cmd_owned} (resolved to {cli_path}): {e}")
-            })?;
-
-        if !cli_output.status.success() {
-            let stderr = String::from_utf8_lossy(&cli_output.stderr);
-            return Err(format!("{cli_cmd_owned} failed: {stderr}"));
-        }
-
-        Ok::<String, String>(String::from_utf8_lossy(&cli_output.stdout).to_string())
-    })
+    run_agent_json_with_limits(
+        cli_path,
+        cli_cmd,
+        repo_path,
+        prompt,
+        REVIEW_EXECUTOR_TIMEOUT,
+        REVIEW_EXECUTOR_OUTPUT_BYTES,
+    )
     .await
-    .map_err(|e| format!("Task join error: {e}"))??;
+}
+
+async fn run_agent_json_with_limits(
+    cli_path: String,
+    cli_cmd: &str,
+    repo_path: String,
+    prompt: String,
+    deadline: Duration,
+    max_output_bytes: usize,
+) -> Result<(Value, String), String> {
+    if !matches!(cli_cmd, "claude" | "gemini") {
+        return Err(format!("Unsupported review executor: {cli_cmd}"));
+    }
+    if cli_path == cli_cmd && resolve_cli_path(cli_cmd) == cli_cmd {
+        return Err(format!(
+            "Review executor `{cli_cmd}` is unavailable. Install it or select another configured executor."
+        ));
+    }
+
+    let mut command = TokioCommand::new(&cli_path);
+    command
+        .args(["-p", &prompt])
+        .current_dir(&repo_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setpgid(0, 0) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = command.spawn().map_err(|error| {
+        format!("Review executor `{cli_cmd}` is unavailable at `{cli_path}`: {error}")
+    })?;
+    let pid = child.id();
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| format!("{cli_cmd} stdout was unavailable"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("{cli_cmd} stderr was unavailable"))?;
+    let stdout_task = tokio::spawn(read_review_output(stdout, max_output_bytes));
+    let stderr_task = tokio::spawn(read_review_output(stderr, max_output_bytes));
+    enum ProcessWait {
+        Completed(std::io::Result<std::process::ExitStatus>),
+        TimedOut,
+        Cancelled,
+    }
+    let cancellation = review_cancellation(&repo_path);
+    let wait = tokio::select! {
+        status = child.wait() => ProcessWait::Completed(status),
+        _ = tokio::time::sleep(deadline) => ProcessWait::TimedOut,
+        _ = async {
+            while !cancellation.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        } => ProcessWait::Cancelled,
+    };
+    let was_cancelled = matches!(&wait, ProcessWait::Cancelled);
+    let status = match wait {
+        ProcessWait::Completed(status) => {
+            status.map_err(|error| format!("{cli_cmd} wait failed: {error}"))?
+        }
+        ProcessWait::TimedOut | ProcessWait::Cancelled => {
+            #[cfg(unix)]
+            if let Some(pid) = pid {
+                unsafe {
+                    libc::kill(-(pid as i32), libc::SIGKILL);
+                }
+            }
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            stdout_task.abort();
+            stderr_task.abort();
+            return if was_cancelled {
+                Err(format!(
+                    "{cli_cmd} review was cancelled and its process tree was stopped"
+                ))
+            } else {
+                Err(format!(
+                    "{cli_cmd} timed out after {} seconds and its process tree was stopped",
+                    deadline.as_secs_f64()
+                ))
+            };
+        }
+    };
+    let stdout = stdout_task
+        .await
+        .map_err(|error| format!("{cli_cmd} stdout task failed: {error}"))??;
+    let stderr = stderr_task
+        .await
+        .map_err(|error| format!("{cli_cmd} stderr task failed: {error}"))??;
+    if !status.success() {
+        return Err(format!(
+            "{cli_cmd} failed (exit {:?}): {}",
+            status.code(),
+            String::from_utf8_lossy(&stderr)
+        ));
+    }
+    let raw_output =
+        String::from_utf8(stdout).map_err(|_| format!("{cli_cmd} returned non-UTF-8 output"))?;
 
     let json_str = extract_json_from_output(&raw_output)
         .ok_or_else(|| format!("Could not find JSON in {cli_cmd} output"))?;
@@ -1061,6 +1260,19 @@ fn findings_from(parsed: &Value) -> Vec<Value> {
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default()
+}
+
+fn checkpoint_projection(parsed: &Value, file_path: &str) -> Value {
+    let findings = findings_from(parsed)
+        .into_iter()
+        .filter(|finding| finding.get("filePath").and_then(Value::as_str) == Some(file_path))
+        .collect::<Vec<_>>();
+    json!({
+        "findings": findings,
+        "summary": parsed.get("summary").and_then(Value::as_str).unwrap_or("Checkpointed review unit"),
+        "score": parsed.get("score").and_then(Value::as_f64),
+        "specialist": parsed.get("specialist").cloned().unwrap_or(Value::Null),
+    })
 }
 
 fn score_from_findings(parsed: &Value, findings: &[Value]) -> f64 {
@@ -1273,11 +1485,12 @@ Specialist outputs:
 Output exactly one final ```json fenced block as the last thing in your response.
 
 JSON shape:
-{{"findings":[{{"severity":"critical|high|medium|low","title":"...","summary":"... — include the specific lines that prove the problem","suggestion":"...","filePath":"...","line":42,"confidence":0.9}}],"score":75,"summary":"Coordinator summary including what was deduplicated and why the remaining findings matter","talk":{{"files_read":[],"files_modified":[],"actions_summary":"Coordinated specialist findings for {mode} review","unfinished_work":null,"key_decisions":"Why final findings were kept or dropped","recommended_next_steps":"What should happen next"}}}}
+{{"findings":[{{"severity":"critical|high|medium|low","title":"...","summary":"... — include the specific lines that prove the problem","suggestion":"...","filePath":"...","line":42,"sourceAnchor":"exact trimmed source line at line 42","confidence":0.9}}],"score":75,"summary":"Coordinator summary including what was deduplicated and why the remaining findings matter","talk":{{"files_read":[],"files_modified":[],"actions_summary":"Coordinated specialist findings for {mode} review","unfinished_work":null,"key_decisions":"Why final findings were kept or dropped","recommended_next_steps":"What should happen next"}}}}
 
 Rules:
 - severity must be one of: critical, high, medium, low
 - confidence is 0.0-1.0
+- sourceAnchor must be the exact trimmed current source line named by line
 - score is 0-100
 - The summary must mention the review tier, whether deduplication changed the finding set, and any confirmed/contradicted/open assumptions that matter."#,
         tier = plan.tier,
@@ -1309,51 +1522,21 @@ pub async fn get_local_diff(
     repo_path: String,
     diff_range: Option<String>,
 ) -> Result<Value, String> {
-    // Run git diff
-    let mut cmd = StdCommand::new("git");
-    cmd.arg("diff");
-    if let Some(ref range) = diff_range {
-        cmd.arg(range);
-    }
-    cmd.current_dir(&repo_path);
-
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run git diff: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git diff failed: {stderr}"));
-    }
-
-    let diff_text = String::from_utf8_lossy(&output.stdout).to_string();
-
-    // Get changed file list
-    let name_status_output = StdCommand::new("git")
-        .args(["diff", "--name-status"])
-        .args(diff_range.as_deref().map(|r| vec![r]).unwrap_or_default())
-        .current_dir(&repo_path)
-        .output()
-        .map_err(|e| format!("git diff --name-status failed: {e}"))?;
-
-    let files: Vec<Value> = String::from_utf8_lossy(&name_status_output.stdout)
-        .lines()
-        .filter_map(|line| {
-            let parts: Vec<&str> = line.splitn(2, '\t').collect();
-            if parts.len() == 2 {
-                let status = match parts[0] {
-                    "A" => "added",
-                    "M" => "modified",
-                    "D" => "removed",
-                    "R" => "renamed",
-                    _ => "modified",
-                };
-                Some(json!({"path": parts[1], "status": status}))
-            } else {
-                None
-            }
+    let range = diff_range.as_deref().unwrap_or("WORKTREE");
+    let target = crate::commands::deterministic_review::resolve_target(&repo_path, range)?;
+    let diff_text = crate::commands::deterministic_review::read_target_diff(&target)?;
+    let files = crate::commands::deterministic_review::plan_units(&target, "preview")?
+        .into_iter()
+        .map(|unit| {
+            let status = match unit.file_status.as_str() {
+                "A" => "added",
+                "D" => "removed",
+                "R" => "renamed",
+                _ => "modified",
+            };
+            json!({"path": unit.file_path, "status": status})
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     Ok(json!({
         "diff": diff_text,
@@ -1371,6 +1554,26 @@ pub async fn get_review(db: State<'_, DbState>, id: String) -> Result<Value, Str
     Ok(json!({
         "review": review,
         "findings": findings,
+    }))
+}
+
+#[tauri::command]
+pub async fn get_review_manifest(
+    db: State<'_, DbState>,
+    review_id: String,
+) -> Result<Value, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    if let Some(manifest) =
+        crate::commands::deterministic_review::load_manifest_for_review(&conn, &review_id)?
+    {
+        return serde_json::to_value(manifest).map_err(|error| error.to_string());
+    }
+    Ok(json!({
+        "schema_version": 1,
+        "review_id": review_id,
+        "coverage_kind": "legacy_aggregate",
+        "complete_coverage": false,
+        "limitation": "This review predates deterministic per-file coverage. Existing findings remain readable, but coverage completeness is unknown."
     }))
 }
 
@@ -1461,56 +1664,60 @@ pub async fn run_cli_review_core(
     standards_pack: Option<String>,
 ) -> Result<Value, String> {
     let agent = agent.unwrap_or_else(|| "claude".to_string());
+    if !matches!(agent.as_str(), "claude" | "gemini") {
+        return Err(format!(
+            "Unsupported review executor `{agent}`. Choose `claude` or `gemini`."
+        ));
+    }
     let qa_runs = qa_runs.unwrap_or_default();
     let start_time = std::time::Instant::now();
 
-    // 1. Get the diff
-    let mut cmd = StdCommand::new("git");
-    cmd.arg("diff").arg(&diff_range).current_dir(&repo_path);
-
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run git diff: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git diff failed: {stderr}"));
-    }
-
-    let raw_diff = String::from_utf8_lossy(&output.stdout).to_string();
+    // 1. Resolve a safe immutable target and create the zero-model coverage manifest
+    // before any provider process starts. Unknown option-like ranges fail closed.
+    let target = crate::commands::deterministic_review::resolve_target(&repo_path, &diff_range)?;
+    let planning_context = json!({
+        "project_description": project_description,
+        "change_description": change_description,
+        "qa_runs": qa_runs,
+        "standards_pack": standards_pack,
+    })
+    .to_string();
+    let units = crate::commands::deterministic_review::plan_units_with_context(
+        &target,
+        &agent,
+        &planning_context,
+    )?;
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let mut review_manifest =
+        crate::commands::deterministic_review::new_manifest(run_id, target, agent.clone(), units);
+    let raw_diff =
+        crate::commands::deterministic_review::read_target_diff(&review_manifest.target)?;
 
     if raw_diff.trim().is_empty() {
         return Err("Empty diff — nothing to review".to_string());
     }
+    {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        crate::commands::deterministic_review::claim_manifest(&conn, &review_manifest)?;
+    }
+    let _cancellation_guard =
+        register_review_cancellation(&review_manifest.target.repository_root)?;
 
     const MAX_DIFF_BYTES: usize = 100 * 1024;
-    let was_truncated = raw_diff.len() > MAX_DIFF_BYTES;
-    let mut diff_text = raw_diff;
-    if was_truncated {
-        let mut end = MAX_DIFF_BYTES;
-        while end > 0 && !diff_text.is_char_boundary(end) {
-            end -= 1;
-        }
-        diff_text.truncate(end);
-        diff_text.push_str(
-            "\n\n[DIFF TRUNCATED at 100KB — see file list above for the full change surface]",
-        );
-    }
+    // One-release rollback: setting CODEVETTER_REVIEW_PIPELINE=legacy keeps
+    // the previous aggregate executor path while preserving readable manifest
+    // records. The default remains the qualified per-unit path for broad diffs.
+    let manifest_pipeline_enabled = std::env::var("CODEVETTER_REVIEW_PIPELINE")
+        .map(|value| !value.eq_ignore_ascii_case("legacy"))
+        .unwrap_or(true);
+    let requires_unit_execution = manifest_pipeline_enabled && raw_diff.len() > MAX_DIFF_BYTES;
+    let diff_text = raw_diff;
 
-    let changed_files: Vec<String> = StdCommand::new("git")
-        .args(["diff", "--name-only", &diff_range])
-        .current_dir(&repo_path)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
+    let changed_files = review_manifest
+        .units
+        .iter()
+        .map(|unit| unit.file_path.clone())
+        .collect::<Vec<_>>();
 
     let files_section = if changed_files.is_empty() {
         String::new()
@@ -1520,20 +1727,11 @@ pub async fn run_cli_review_core(
             .map(|f| format!("- {f}"))
             .collect::<Vec<_>>()
             .join("\n");
-        let header = if was_truncated {
-            format!(
-                "\nFiles changed in this range ({} total — diff below was truncated to 100KB, use your file-read tools to inspect any not fully shown):\n{}\n",
-                changed_files.len(),
-                listed
-            )
-        } else {
-            format!(
-                "\nFiles changed in this range ({} total):\n{}\n",
-                changed_files.len(),
-                listed
-            )
-        };
-        header
+        format!(
+            "\nFiles changed in this range ({} total):\n{}\n",
+            changed_files.len(),
+            listed
+        )
     };
 
     let blast_summary =
@@ -1617,101 +1815,301 @@ pub async fn run_cli_review_core(
     let qa_evidence_json = json!(qa_runs.iter().take(5).cloned().collect::<Vec<_>>());
 
     // 4. Spawn the CLI agent for the selected tier/specialists.
-    let cli_cmd = match agent.as_str() {
-        "gemini" => "gemini",
-        _ => "claude",
-    };
+    let cli_cmd = agent.as_str();
     let cli_path = resolve_cli_path(cli_cmd);
 
     let mut raw_outputs: Vec<String> = Vec::new();
     let mut prompts_used: Vec<String> = Vec::new();
 
-    // Build every specialist prompt up front (sequential — this is the only
-    // step that touches the DB lock, and it's cheap), then run the independent
-    // specialist CLI passes concurrently with a bounded join so N blocking LLM
-    // calls overlap instead of running back-to-back on the runtime.
-    let mut specialist_prompts: Vec<(ReviewSpecialist, String)> =
-        Vec::with_capacity(plan.specialists.len());
-    for specialist in &plan.specialists {
-        let specialist_block = build_specialist_block(specialist, &plan);
-        let base_prompt = build_review_prompt(
-            &project_description,
-            &change_description,
-            &conventions_section,
-            &files_section,
-            &blast_section,
-            &history_section,
-            &graph_section,
-            &qa_evidence_section,
-            &evidence_section,
-            &procedure_section,
-            &specialist_block,
-            &diff_text,
-        );
+    let mut specialist_outputs: Vec<Value> = Vec::new();
+    let mut unit_outputs = vec![Vec::<Value>::new(); review_manifest.units.len()];
+    let mut pending_units = Vec::new();
+    let checkpoint_context = review_manifest.clone();
+    {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        for (index, unit) in review_manifest.units.iter_mut().enumerate() {
+            if matches!(
+                unit.coverage_state,
+                crate::commands::deterministic_review::ReviewCoverageState::Skipped
+            ) {
+                continue;
+            }
+            if let Some(outputs) = crate::commands::deterministic_review::load_checkpoint_outputs(
+                &conn,
+                &checkpoint_context,
+                unit,
+            )? {
+                unit.coverage_state =
+                    crate::commands::deterministic_review::ReviewCoverageState::Reused;
+                unit.coverage_reason = Some("fingerprint_checkpoint_match".to_string());
+                specialist_outputs.extend(outputs.clone());
+                unit_outputs[index] = outputs;
+            } else {
+                pending_units.push(index);
+            }
+        }
+    }
 
-        let prompt = {
-            let conn = db.0.lock().map_err(|e| e.to_string())?;
-            let p = maybe_prepend_talk_context(&conn, &repo_path, &base_prompt);
-            drop(conn);
-            p
-        };
-        specialist_prompts.push((*specialist, prompt));
+    // The fast path remains one aggregate payload. Once the aggregate exceeds
+    // 100 KiB (or a partial resume exists), each unfinished file becomes its
+    // own bounded execution unit. Nothing is silently truncated.
+    let use_unit_execution = requires_unit_execution
+        || pending_units.len()
+            < review_manifest
+                .units
+                .iter()
+                .filter(|unit| {
+                    !matches!(
+                        unit.coverage_state,
+                        crate::commands::deterministic_review::ReviewCoverageState::Skipped
+                    )
+                })
+                .count();
+    let mut execution_batches: Vec<(Vec<usize>, String, String)> = Vec::new();
+    if use_unit_execution {
+        for index in pending_units {
+            let unit = &mut review_manifest.units[index];
+            let unit_diff = crate::commands::deterministic_review::read_unit_diff(
+                &review_manifest.target,
+                &unit.file_path,
+            )?;
+            if unit_diff.len() > unit.prompt_budget_bytes {
+                unit.coverage_state =
+                    crate::commands::deterministic_review::ReviewCoverageState::Failed;
+                unit.coverage_reason = Some("file_diff_exceeds_prompt_budget".to_string());
+                continue;
+            }
+            execution_batches.push((
+                vec![index],
+                unit_diff,
+                format!("\nReview unit file:\n- {}\n", unit.file_path),
+            ));
+        }
+    } else if !pending_units.is_empty() {
+        execution_batches.push((pending_units, diff_text.clone(), files_section.clone()));
+    }
+
+    let mut specialist_prompts = Vec::<ReviewPromptJob>::new();
+    for (unit_indexes, batch_diff, batch_files) in execution_batches {
+        for specialist in &plan.specialists {
+            let specialist_block = build_specialist_block(specialist, &plan);
+            let base_prompt = build_review_prompt(
+                &project_description,
+                &change_description,
+                &conventions_section,
+                &batch_files,
+                &blast_section,
+                &history_section,
+                &graph_section,
+                &qa_evidence_section,
+                &evidence_section,
+                &procedure_section,
+                &specialist_block,
+                &batch_diff,
+            );
+            let prompt = {
+                let conn = db.0.lock().map_err(|e| e.to_string())?;
+                maybe_prepend_talk_context(&conn, &repo_path, &base_prompt)
+            };
+            specialist_prompts.push(ReviewPromptJob {
+                specialist: *specialist,
+                prompt,
+                unit_indexes: unit_indexes.clone(),
+            });
+        }
+    }
+    {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        crate::commands::deterministic_review::persist_manifest(
+            &conn,
+            &review_manifest,
+            "running",
+        )?;
     }
 
     // Bounded concurrency: at most MAX_CONCURRENT specialist CLI calls in
     // flight at once. Results are collected by index so the order matches the
     // plan regardless of completion order.
-    const MAX_CONCURRENT_SPECIALISTS: usize = 3;
+    const MAX_CONCURRENT_SPECIALISTS: usize =
+        crate::commands::deterministic_review::REVIEW_MAX_CONCURRENCY;
     let total = specialist_prompts.len();
-    let mut results: Vec<Option<(Value, String)>> = (0..total).map(|_| None).collect();
-    type SpecialistTaskResult = (usize, Result<(Value, String), String>);
+    type SpecialistOutcome = Result<(Value, String), String>;
+    type RecordedSpecialistOutcome = (String, SpecialistOutcome);
+    type SpecialistTaskResult = (usize, String, SpecialistOutcome);
+    let mut results: Vec<Option<RecordedSpecialistOutcome>> = (0..total).map(|_| None).collect();
     let mut join_set: tokio::task::JoinSet<SpecialistTaskResult> = tokio::task::JoinSet::new();
     let mut next = 0usize;
 
     while next < total || !join_set.is_empty() {
         while join_set.len() < MAX_CONCURRENT_SPECIALISTS && next < total {
             let idx = next;
-            let (specialist, prompt) = specialist_prompts[idx].clone();
+            let job = specialist_prompts[idx].clone();
             let cli_path = cli_path.clone();
             let cli_cmd = cli_cmd.to_string();
             let repo_path = repo_path.clone();
             join_set.spawn(async move {
-                let outcome = run_agent_json(cli_path, &cli_cmd, repo_path, prompt)
+                let started_at = chrono::Utc::now().to_rfc3339();
+                let outcome = run_agent_json(cli_path, &cli_cmd, repo_path, job.prompt)
                     .await
                     .map(|(mut parsed, raw_output)| {
                         if let Some(obj) = parsed.as_object_mut() {
                             obj.insert(
                                 "specialist".to_string(),
                                 json!({
-                                    "id": specialist.id,
-                                    "name": specialist.name,
-                                    "focus": specialist.focus,
+                                    "id": job.specialist.id,
+                                    "name": job.specialist.name,
+                                    "focus": job.specialist.focus,
                                 }),
                             );
                         }
                         (parsed, raw_output)
                     });
-                (idx, outcome)
+                (idx, started_at, outcome)
             });
             next += 1;
         }
 
         if let Some(joined) = join_set.join_next().await {
-            let (idx, outcome) = joined.map_err(|e| format!("Task join error: {e}"))?;
-            results[idx] = Some(outcome?);
+            let (idx, started_at, outcome) = joined.map_err(|e| format!("Task join error: {e}"))?;
+            results[idx] = Some((started_at, outcome));
         }
     }
 
-    let mut specialist_outputs: Vec<Value> = Vec::with_capacity(total);
     for (idx, slot) in results.into_iter().enumerate() {
-        let (parsed, raw_output) = slot.expect("every specialist slot is filled");
-        specialist_outputs.push(parsed);
-        raw_outputs.push(raw_output);
-        prompts_used.push(specialist_prompts[idx].1.clone());
+        let job = &specialist_prompts[idx];
+        let (started_at, outcome) = slot.expect("every specialist slot is filled");
+        match outcome {
+            Ok((parsed, raw_output)) => {
+                for unit_index in &job.unit_indexes {
+                    let unit = &review_manifest.units[*unit_index];
+                    unit_outputs[*unit_index].push(checkpoint_projection(&parsed, &unit.file_path));
+                    let conn = db.0.lock().map_err(|e| e.to_string())?;
+                    crate::commands::deterministic_review::record_attempt(
+                        &conn,
+                        &review_manifest,
+                        &unit.id,
+                        idx + 1,
+                        "completed",
+                        None,
+                        raw_output.len(),
+                        &started_at,
+                        None,
+                    )?;
+                }
+                specialist_outputs.push(parsed);
+                raw_outputs.push(raw_output);
+                prompts_used.push(job.prompt.clone());
+            }
+            Err(error) => {
+                let cancelled = error.contains("review was cancelled");
+                if cancelled {
+                    review_manifest.cancelled = true;
+                }
+                for unit_index in &job.unit_indexes {
+                    let unit_id = {
+                        let unit = &mut review_manifest.units[*unit_index];
+                        unit.coverage_state = if cancelled {
+                            crate::commands::deterministic_review::ReviewCoverageState::Cancelled
+                        } else {
+                            crate::commands::deterministic_review::ReviewCoverageState::Failed
+                        };
+                        unit.coverage_reason = Some(if cancelled {
+                            "user_cancelled".to_string()
+                        } else {
+                            "executor_failed".to_string()
+                        });
+                        unit.id.clone()
+                    };
+                    let conn = db.0.lock().map_err(|e| e.to_string())?;
+                    crate::commands::deterministic_review::record_attempt(
+                        &conn,
+                        &review_manifest,
+                        &unit_id,
+                        idx + 1,
+                        if cancelled { "cancelled" } else { "failed" },
+                        Some(&error.chars().take(2_048).collect::<String>()),
+                        0,
+                        &started_at,
+                        Some((
+                            if cancelled { "cancelled" } else { "failed" },
+                            if cancelled {
+                                "user_cancelled"
+                            } else {
+                                "executor_failed"
+                            },
+                        )),
+                    )?;
+                }
+            }
+        }
+    }
+
+    for (index, outputs) in unit_outputs.iter().enumerate() {
+        if outputs.len() == plan.specialists.len()
+            && !matches!(
+                review_manifest.units[index].coverage_state,
+                crate::commands::deterministic_review::ReviewCoverageState::Reused
+            )
+        {
+            review_manifest.units[index].coverage_state =
+                crate::commands::deterministic_review::ReviewCoverageState::Reviewed;
+            review_manifest.units[index].coverage_reason = None;
+            let conn = db.0.lock().map_err(|e| e.to_string())?;
+            crate::commands::deterministic_review::persist_unit_checkpoint(
+                &conn,
+                &review_manifest,
+                &review_manifest.units[index],
+                outputs,
+            )?;
+        }
+    }
+    if specialist_outputs.is_empty() {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        crate::commands::deterministic_review::persist_manifest(
+            &conn,
+            &review_manifest,
+            if review_manifest.cancelled {
+                "cancelled"
+            } else {
+                "failed"
+            },
+        )?;
+        return Err("No review unit completed successfully".to_string());
+    }
+
+    // Qualify every specialist candidate before the optional coordinator sees
+    // it. The coordinator can rank and deduplicate only source-backed evidence;
+    // it never gets a chance to upgrade an unsafe path or stale line.
+    let mut prequalification_counts =
+        crate::commands::deterministic_review::QualificationCounts::default();
+    let mut prequalification_diagnostics = Vec::new();
+    for output in &mut specialist_outputs {
+        let qualified = crate::commands::deterministic_review::qualify_candidates(
+            &repo_path,
+            &changed_files,
+            findings_from(output),
+        );
+        prequalification_counts.qualified += qualified.counts.qualified;
+        prequalification_counts.stale += qualified.counts.stale;
+        prequalification_counts.unresolved += qualified.counts.unresolved;
+        prequalification_counts.rejected += qualified.counts.rejected;
+        let offset = prequalification_diagnostics.len();
+        prequalification_diagnostics.extend(qualified.diagnostics.into_iter().map(
+            |mut diagnostic| {
+                diagnostic.candidate_index += offset;
+                diagnostic
+            },
+        ));
+        if let Some(object) = output.as_object_mut() {
+            object.insert("findings".to_string(), Value::Array(qualified.findings));
+        }
     }
 
     let mut coordinator_failed: Option<String> = None;
-    let parsed = if plan.uses_coordinator {
+    let parsed = if plan.uses_coordinator
+        && !specialist_prompts.is_empty()
+        && !review_manifest.cancelled
+    {
         let coordinator_prompt = build_coordinator_prompt(
             &project_description,
             &change_description,
@@ -1737,6 +2135,9 @@ pub async fn run_cli_review_core(
                 parsed
             }
             Err(err) => {
+                if err.contains("review was cancelled") {
+                    review_manifest.cancelled = true;
+                }
                 coordinator_failed = Some(err.clone());
                 let merged_findings = dedupe_findings(
                     specialist_outputs
@@ -1795,8 +2196,77 @@ pub async fn run_cli_review_core(
         })
     };
 
-    // 5. Extract findings and score from the final/merged review output.
-    let findings_val = dedupe_findings(findings_from(&parsed));
+    // 5. Qualify candidates against exact current repository source before
+    // dedupe, scoring, persistence, proof, or actionable UI.
+    let final_candidates = findings_from(&parsed);
+    review_manifest.stale =
+        !crate::commands::deterministic_review::target_is_current(&review_manifest.target);
+    if review_manifest.stale {
+        for diagnostic in &mut prequalification_diagnostics {
+            diagnostic.state =
+                crate::commands::deterministic_review::CandidateQualificationState::Stale;
+            diagnostic.reason = "target_mutated_during_review".to_string();
+            diagnostic.resolved_line = None;
+        }
+        prequalification_counts = crate::commands::deterministic_review::QualificationCounts {
+            stale: prequalification_diagnostics.len(),
+            ..Default::default()
+        };
+    }
+    let qualified = if review_manifest.stale {
+        crate::commands::deterministic_review::invalidate_candidates(
+            final_candidates,
+            crate::commands::deterministic_review::CandidateQualificationState::Stale,
+            "target_mutated_during_review",
+        )
+    } else if review_manifest.cancelled {
+        crate::commands::deterministic_review::invalidate_candidates(
+            final_candidates,
+            crate::commands::deterministic_review::CandidateQualificationState::Rejected,
+            "review_cancelled_before_final_qualification",
+        )
+    } else {
+        crate::commands::deterministic_review::qualify_candidates(
+            &repo_path,
+            &changed_files,
+            final_candidates,
+        )
+    };
+    let findings_val = dedupe_findings(qualified.findings);
+    review_manifest.qualification_counts =
+        crate::commands::deterministic_review::QualificationCounts {
+            qualified: prequalification_counts.qualified + qualified.counts.qualified,
+            stale: prequalification_counts.stale + qualified.counts.stale,
+            unresolved: prequalification_counts.unresolved + qualified.counts.unresolved,
+            rejected: prequalification_counts.rejected + qualified.counts.rejected,
+        };
+    let diagnostic_offset = prequalification_diagnostics.len();
+    prequalification_diagnostics.extend(qualified.diagnostics.into_iter().map(|mut diagnostic| {
+        diagnostic.candidate_index += diagnostic_offset;
+        diagnostic
+    }));
+    review_manifest.qualification_diagnostics = prequalification_diagnostics;
+    if review_manifest.stale {
+        for unit in &mut review_manifest.units {
+            if !matches!(
+                unit.coverage_state,
+                crate::commands::deterministic_review::ReviewCoverageState::Skipped
+            ) {
+                unit.coverage_state =
+                    crate::commands::deterministic_review::ReviewCoverageState::Failed;
+                unit.coverage_reason = Some("target_mutated_during_review".to_string());
+            }
+        }
+        review_manifest.complete_coverage = false;
+    } else {
+        review_manifest.complete_coverage = review_manifest.units.iter().all(|unit| {
+            matches!(
+                unit.coverage_state,
+                crate::commands::deterministic_review::ReviewCoverageState::Reviewed
+                    | crate::commands::deterministic_review::ReviewCoverageState::Reused
+            )
+        });
+    }
 
     let summary = parsed
         .get("summary")
@@ -1899,6 +2369,22 @@ pub async fn run_cli_review_core(
     )
     .map_err(|e| e.to_string())?;
 
+    review_manifest.review_id = Some(review_id.clone());
+    review_manifest.completed_at = Some(chrono::Utc::now().to_rfc3339());
+    crate::commands::deterministic_review::persist_manifest(
+        &conn,
+        &review_manifest,
+        if review_manifest.cancelled {
+            "cancelled"
+        } else if review_manifest.stale {
+            "stale"
+        } else if review_manifest.complete_coverage {
+            "completed"
+        } else {
+            "completed_with_limitations"
+        },
+    )?;
+
     // 9. Log activity
     queries::log_activity(
         &conn,
@@ -1927,6 +2413,7 @@ pub async fn run_cli_review_core(
                     "evidence_candidates": evidence_candidates_json.clone(),
                     "evidence_procedure_steps": evidence_procedure_steps_json.clone(),
                     "coordinator_failed": coordinator_failed,
+                    "review_manifest": review_manifest.clone(),
                 })
                 .to_string(),
             ),
@@ -1975,6 +2462,7 @@ pub async fn run_cli_review_core(
         "qa_evidence": qa_evidence_json,
         "evidence_candidates": evidence_candidates_json,
         "evidence_procedure_steps": evidence_procedure_steps_json,
+        "review_manifest": review_manifest,
     }))
 }
 
@@ -3215,6 +3703,151 @@ mod tests {
         assert_eq!(models[0].group, "Open Source");
         assert_eq!(models[1].id, "claude-sonnet-5");
         assert_eq!(models[1].group, "Anthropic");
+    }
+
+    #[cfg(unix)]
+    fn executable_script(temp: &tempfile::TempDir, name: &str, body: &str) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp.path().join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("script");
+        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&path, permissions).expect("permissions");
+        path.to_string_lossy().into_owned()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn review_executor_is_bounded_and_rejects_malformed_output() {
+        let temp = tempfile::tempdir().expect("temp");
+        let valid = executable_script(
+            &temp,
+            "valid",
+            "printf '```json\\n{\"findings\":[],\"summary\":\"ok\"}\\n```'",
+        );
+        let (parsed, _) = run_agent_json_with_limits(
+            valid,
+            "claude",
+            temp.path().to_string_lossy().into_owned(),
+            "review".into(),
+            Duration::from_secs(1),
+            1024,
+        )
+        .await
+        .expect("valid");
+        assert_eq!(parsed["summary"], "ok");
+
+        let malformed = executable_script(&temp, "malformed", "printf 'not-json'");
+        assert!(run_agent_json_with_limits(
+            malformed,
+            "claude",
+            temp.path().to_string_lossy().into_owned(),
+            "review".into(),
+            Duration::from_secs(1),
+            1024,
+        )
+        .await
+        .expect_err("malformed")
+        .contains("Could not find JSON"));
+
+        let oversized = executable_script(&temp, "oversized", "head -c 256 /dev/zero");
+        assert!(run_agent_json_with_limits(
+            oversized,
+            "claude",
+            temp.path().to_string_lossy().into_owned(),
+            "review".into(),
+            Duration::from_secs(1),
+            64,
+        )
+        .await
+        .expect_err("oversized")
+        .contains("exceeded 64 bytes"));
+
+        assert!(run_agent_json_with_limits(
+            temp.path()
+                .join("missing-executor")
+                .to_string_lossy()
+                .into_owned(),
+            "claude",
+            temp.path().to_string_lossy().into_owned(),
+            "review".into(),
+            Duration::from_secs(1),
+            1024,
+        )
+        .await
+        .expect_err("unavailable")
+        .contains("is unavailable"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn review_executor_timeout_and_cancellation_leave_no_child() {
+        let temp = tempfile::tempdir().expect("temp");
+        let timeout_script = executable_script(&temp, "timeout", "sleep 2");
+        assert!(run_agent_json_with_limits(
+            timeout_script,
+            "claude",
+            temp.path().to_string_lossy().into_owned(),
+            "review".into(),
+            Duration::from_millis(30),
+            1024,
+        )
+        .await
+        .expect_err("timeout")
+        .contains("timed out"));
+
+        let marker = temp.path().join("orphan-marker");
+        let cancel_script = executable_script(
+            &temp,
+            "cancel",
+            &format!("sleep 1; touch '{}'", marker.to_string_lossy()),
+        );
+        let task = tokio::spawn(run_agent_json_with_limits(
+            cancel_script,
+            "claude",
+            temp.path().to_string_lossy().into_owned(),
+            "review".into(),
+            Duration::from_secs(5),
+            1024,
+        ));
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        task.abort();
+        let _ = task.await;
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        assert!(!marker.exists(), "cancelled executor left a live child");
+
+        let signal_marker = temp.path().join("signal-marker");
+        let signal_script = executable_script(
+            &temp,
+            "signal-cancel",
+            &format!("sleep 1; touch '{}'", signal_marker.to_string_lossy()),
+        );
+        let canonical = std::fs::canonicalize(temp.path())
+            .expect("canonical")
+            .to_string_lossy()
+            .into_owned();
+        let guard = register_review_cancellation(&canonical).expect("register");
+        let task = tokio::spawn(run_agent_json_with_limits(
+            signal_script,
+            "claude",
+            canonical.clone(),
+            "review".into(),
+            Duration::from_secs(5),
+            1024,
+        ));
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        review_cancellation(&canonical).store(true, Ordering::SeqCst);
+        assert!(task
+            .await
+            .expect("join")
+            .expect_err("cancelled")
+            .contains("review was cancelled"));
+        drop(guard);
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        assert!(
+            !signal_marker.exists(),
+            "signaled cancellation left a live child"
+        );
     }
 }
 

@@ -81,6 +81,11 @@ pub(crate) fn tool_definitions() -> Vec<Tool> {
             &["ids"],
         ),
         (
+            "review_list_manifests",
+            "List bounded deterministic review coverage manifests for this authorized repository",
+            &[],
+        ),
+        (
             "archaeology_list_rules",
             "List or search bounded evidence-traced business rules",
             &[],
@@ -134,7 +139,16 @@ pub(crate) fn tool_definitions() -> Vec<Tool> {
 
 fn input_schema(name: &str, required: &[&str]) -> Arc<JsonObject> {
     let mut properties = Map::new();
-    for field in ["query", "node", "from", "to", "entity", "cursor", "rule_id"] {
+    for field in [
+        "query",
+        "node",
+        "from",
+        "to",
+        "entity",
+        "cursor",
+        "rule_id",
+        "review_id",
+    ] {
         properties.insert(
             field.to_string(),
             json!({"type": "string", "maxLength": 4096}),
@@ -361,6 +375,7 @@ pub(crate) fn tool_fields(name: &str) -> Option<&'static [&'static str]> {
         "history_trace" => &["selector", "limit", "cursor"],
         "history_compare" => &["before", "after"],
         "history_get_evidence" => &["ids"],
+        "review_list_manifests" => &["review_id", "limit", "cursor"],
         "archaeology_list_rules" => &["filter", "limit", "cursor"],
         "archaeology_list_domains" => &["limit", "cursor"],
         "archaeology_get_rule" => &["rule_id"],

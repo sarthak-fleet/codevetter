@@ -103,6 +103,24 @@ export interface SessionRow {
   file_mtime: string | null;
 }
 
+export interface SessionTranscriptMessage {
+  id: string;
+  message_index: number;
+  role: string | null;
+  kind: string;
+  timestamp: string | null;
+  content_text: string | null;
+  content_truncated: boolean;
+  tool_name: string | null;
+}
+
+export interface SessionTranscript {
+  session_id: string;
+  messages: SessionTranscriptMessage[];
+  total_messages: number;
+  truncated: boolean;
+}
+
 export interface ResourceProcessSample {
   pid: number;
   name: string;
@@ -227,6 +245,28 @@ export interface AgentTerminalEvent {
   intentional_stop?: boolean | null;
 }
 
+export interface NativeAgentIslandReceipt {
+  at_ms: number;
+  provider?: string | null;
+  session_id?: string | null;
+  event_id?: string | null;
+  action: string;
+  disposition: string;
+}
+
+export interface NativeAgentIslandStatus {
+  enabled: boolean;
+  connected: boolean;
+  session_count: number;
+  helper_path?: string | null;
+  last_error?: string | null;
+  receipts: NativeAgentIslandReceipt[];
+}
+
+export interface NativeAgentIslandFocusEvent {
+  session_id: string;
+}
+
 export interface CodexWarpPluginStatus {
   codex_available: boolean;
   marketplace_installed: boolean;
@@ -340,6 +380,28 @@ export async function listenToAgentTerminalEvents(
   onEvent: (event: AgentTerminalEvent) => void
 ): Promise<UnlistenFn> {
   return listen<AgentTerminalEvent>('agent-terminal-event', (event) => onEvent(event.payload));
+}
+
+export async function setNativeAgentIslandEnabled(
+  enabled: boolean
+): Promise<NativeAgentIslandStatus> {
+  return safeInvoke('set_native_agent_island_enabled', { enabled });
+}
+
+export async function getNativeAgentIslandStatus(): Promise<NativeAgentIslandStatus> {
+  return safeInvoke('get_native_agent_island_status');
+}
+
+export async function previewNativeAgentIsland(): Promise<NativeAgentIslandStatus> {
+  return safeInvoke('preview_native_agent_island');
+}
+
+export async function listenToNativeAgentIslandFocus(
+  onEvent: (event: NativeAgentIslandFocusEvent) => void
+): Promise<UnlistenFn> {
+  return listen<NativeAgentIslandFocusEvent>('native-agent-island-focus', (event) =>
+    onEvent(event.payload)
+  );
 }
 
 export async function runAgentTerminalCommand(input: {
@@ -611,6 +673,10 @@ export async function getReview(
   return safeInvoke('get_review', { id });
 }
 
+export async function getReviewManifest(reviewId: string): Promise<ReviewManifest> {
+  return safeInvoke('get_review_manifest', { reviewId });
+}
+
 export async function deleteReview(id: string): Promise<{ deleted: boolean }> {
   return safeInvoke('delete_review', { id });
 }
@@ -861,6 +927,153 @@ export interface CliReviewResult {
   qa_evidence?: ReviewQaRunEvidence[];
   evidence_candidates?: EvidenceCandidate[];
   evidence_procedure_steps?: EvidenceProcedureStep[];
+  review_manifest?: ReviewManifest;
+}
+
+export type ReviewCoverageState = 'reviewed' | 'reused' | 'skipped' | 'failed' | 'cancelled';
+
+export interface DeterministicReviewManifestUnit {
+  id: string;
+  file_path: string;
+  file_status: string;
+  fingerprint: string;
+  diff_bytes: number;
+  prompt_budget_bytes: number;
+  coverage_state: ReviewCoverageState;
+  coverage_reason?: string | null;
+}
+
+export interface DeterministicReviewManifest {
+  schema_version: 1;
+  run_id: string;
+  review_id?: string | null;
+  target: {
+    schema_version: 1;
+    identity: string;
+    repository_root?: string;
+    diff_mode: string;
+    requested_range: string;
+    head_sha: string;
+    base_sha?: string | null;
+    source_fingerprint: string;
+  };
+  executor_id: string;
+  executor_version: string;
+  policy_fingerprint: string;
+  budgets: {
+    max_concurrency: number;
+    prompt_bytes_per_unit: number;
+    output_bytes_per_attempt: number;
+    attempt_limit: number;
+    wall_time_seconds_per_attempt: number;
+  };
+  units: DeterministicReviewManifestUnit[];
+  qualification_counts: {
+    qualified: number;
+    stale: number;
+    unresolved: number;
+    rejected: number;
+  };
+  complete_coverage: boolean;
+  stale: boolean;
+  cancelled: boolean;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+export interface LegacyReviewManifest {
+  schema_version: 1;
+  review_id: string;
+  coverage_kind: 'legacy_aggregate';
+  complete_coverage: false;
+  limitation: string;
+}
+
+export type ReviewManifest = DeterministicReviewManifest | LegacyReviewManifest;
+
+export type XrayOutcome = 'verified' | 'needs_review' | 'blocked' | 'incomplete';
+export type XrayFormat = 'json' | 'markdown' | 'html';
+
+export interface AgentPrXray {
+  schema_version: 1;
+  xray_id: string;
+  source: string;
+  generated_at: string;
+  corpus_state: string;
+  outcome: XrayOutcome;
+  confidence: string;
+  score?: number | null;
+  review_status: string;
+  findings: Array<{
+    severity: string;
+    title: string;
+    summary: string;
+    confidence?: number | null;
+    disposition: string;
+    review_source: string;
+    locator: { file_path: string; line?: number | null };
+    excerpt_approved: boolean;
+    approved_suggestion_excerpt?: string | null;
+  }>;
+  stages: Array<{
+    id: string;
+    label: string;
+    status: string;
+    provenance: string;
+    recorded_at?: string | null;
+    evidence: string[];
+    caveats: string[];
+    omission_reason?: string | null;
+  }>;
+  coverage: {
+    kind: string;
+    complete: boolean;
+    reviewed: number;
+    reused: number;
+    skipped: number;
+    failed: number;
+    cancelled: number;
+    rejected_candidates: number;
+    unresolved_candidates: number;
+    stale_candidates: number;
+    limitation?: string | null;
+  };
+  changed_behavior: string[];
+  trusted_impact_paths: string[];
+  checks_run: string[];
+  verified_claims: string[];
+  missing_proof: string[];
+  unresolved_risks: string[];
+}
+
+export interface XrayRequest {
+  review_id: string;
+  public_source_confirmed: boolean;
+  public_source?: string | null;
+  approved_excerpt_finding_ids?: string[];
+  corpus_state?: 'dogfood' | 'reviewed_public' | 'benchmark_ground_truth' | null;
+}
+
+export interface XrayBuildResult {
+  eligible: boolean;
+  missing_requirements: string[];
+  sanitizer_issues: string[];
+  payload: AgentPrXray;
+  json: string;
+  markdown: string;
+  html: string;
+}
+
+export async function buildAgentPrXray(request: XrayRequest): Promise<XrayBuildResult> {
+  return safeInvoke('build_agent_pr_xray', { request });
+}
+
+export async function saveAgentPrXray(
+  xray: XrayRequest,
+  format: XrayFormat,
+  path: string
+): Promise<string> {
+  return safeInvoke('save_agent_pr_xray', { request: { xray, format, path } });
 }
 
 export type AudienceResponseProvenance = 'agent' | 'human' | 'imported';
@@ -1309,6 +1522,12 @@ export async function runCliReview(
     qaRuns: options?.qaRuns ?? null,
     standardsPack: getActiveStandardsPackId(),
   });
+}
+
+export async function cancelCliReview(
+  repoPath: string
+): Promise<{ cancelled: boolean; reason?: string }> {
+  return safeInvoke('cancel_cli_review', { repoPath });
 }
 
 export async function fixFindings(
@@ -2874,6 +3093,10 @@ export async function listSessions(
   return resp.sessions;
 }
 
+export async function getSessionTranscript(sessionId: string): Promise<SessionTranscript> {
+  return safeInvoke<SessionTranscript>('get_session_transcript', { sessionId });
+}
+
 export async function listenToSessionArchiveUpdates(
   handler: (event: SessionArchiveUpdatedEvent) => void
 ): Promise<UnlistenFn> {
@@ -3424,6 +3647,23 @@ export async function pickGraphJsonFile(): Promise<string | null> {
     });
     if (Array.isArray(selected)) return selected[0] ?? null;
     return selected;
+  } catch {
+    return null;
+  }
+}
+
+export async function pickXrayExportPath(
+  format: XrayFormat,
+  defaultName = 'agent-pr-xray'
+): Promise<string | null> {
+  try {
+    const { save } = await (dialogModulePromise ?? import('@tauri-apps/plugin-dialog'));
+    const extension = format === 'markdown' ? 'md' : format;
+    return await save({
+      title: 'Save Agent PR X-Ray',
+      defaultPath: `${defaultName}.${extension}`,
+      filters: [{ name: 'Agent PR X-Ray', extensions: [extension] }],
+    });
   } catch {
     return null;
   }

@@ -1,0 +1,12 @@
+{
+  "method": "turn/completed",
+  "params": {
+    "threadId": "thread-codex",
+    "turn": {
+      "id": "turn-failed",
+      "status": "failed",
+      "error": { "message": "Model unavailable" },
+      "items": []
+    }
+  }
+}

@@ -17,13 +17,20 @@ The application SHALL keep Usage as its initial/default surface, and the Work ro
 #### Scenario: Open Work for the first time
 
 - **WHEN** the user opens Work without prior workspace state
-- **THEN** the application shows Conversation mode with one clear start flow
+- **THEN** the application shows an unselected Conversation start canvas with one clear start flow
 - **AND** multi-agent orchestration controls do not dominate the initial view
 
-#### Scenario: Open Work
+#### Scenario: Open Work with existing conversations
 
-- **WHEN** the user opens Work from navigation or a Board handoff
-- **THEN** the application shows Conversation with one clear start or active-run flow
+- **WHEN** saved, indexed, or reattached live conversations are available without an explicit target
+- **THEN** the application keeps every conversation visible in the sidebar
+- **AND** selects none of them automatically
+- **AND** shows the new-conversation start canvas
+
+#### Scenario: Open Work from an explicit target
+
+- **WHEN** the user selects a conversation, follows an attention action, resumes history, or opens a Board handoff
+- **THEN** the application shows the targeted active-run or seeded start flow
 - **AND** does not show a Conversation / Board mode switch
 
 ### Requirement: Conversation launches genuine supported local providers
@@ -182,14 +189,20 @@ The Work conversation SHALL expose honest active-turn feedback, provider-aware m
 
 ### Requirement: Conversation navigation is grouped by project and operational state
 
-The Work conversation sidebar SHALL group verified local conversations by their repository project, MUST show a plain-language operational state for every opened thread, and SHALL expose indexed history only after its working directory is confirmed to exist locally.
+The Work conversation sidebar SHALL group verified local conversations by their repository project, MUST show a plain-language operational state and provider identity for every opened thread, and SHALL expose indexed history only after its working directory is confirmed to exist locally.
 
 #### Scenario: View conversations from multiple projects
 
 - **WHEN** Work contains conversations whose normalized working directories belong to different repositories
-- **THEN** the sidebar shows one labelled group per repository project
+- **THEN** the sidebar labels the collection as Projects and shows one labelled group per repository project
 - **AND** each conversation appears exactly once under its owning project
 - **AND** registered project display names are preferred over path-derived labels
+
+#### Scenario: Distinguish providers
+
+- **WHEN** Codex and Claude conversations appear in a project group
+- **THEN** each row shows a distinct local provider mark and accessible provider name
+- **AND** the marks require no network request
 
 #### Scenario: View a conversation state
 
@@ -222,7 +235,14 @@ The Work conversation sidebar SHALL group verified local conversations by their 
 - **WHEN** indexed Codex or Claude sessions contain a concrete working directory that a bounded local check confirms still exists
 - **THEN** Work shows those sessions under the matching project as Previous threads
 - **AND** an indexed session already represented by a saved or live provider thread appears only once
-- **AND** resuming a Previous thread requires a separate explicit user action
+- **AND** selecting a Previous thread opens a read-only preview without starting or resuming an agent
+
+#### Scenario: Inspect and continue a Previous thread
+
+- **WHEN** the user selects a directory-verified Previous thread
+- **THEN** Work shows its bounded normalized archived messages in chronological order with provider, repository, role, and truncation context
+- **AND** secret-like message content is redacted before it reaches the frontend
+- **AND** no provider process starts until the user explicitly activates Resume or Fork in the preview
 
 #### Scenario: Exclude stale indexed directories
 

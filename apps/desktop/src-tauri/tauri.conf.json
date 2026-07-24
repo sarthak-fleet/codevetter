@@ -2,10 +2,10 @@
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-utils/schema.json",
   "identifier": "com.codevetter.desktop",
   "productName": "CodeVetter",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run prepare:mcp-sidecar:release && npm run build",
+    "beforeBuildCommand": "npm run prepare:mcp-sidecar:release && npm run prepare:agent-island:release && npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../out"
   },
@@ -54,6 +54,6 @@
     "shortDescription": "AI code review and agent management",
     "longDescription": "CodeVetter Desktop combines AI-powered code review, agent session management (Mission Control), and unified chat history into a single desktop application.",
     "copyright": "Copyright 2026 CodeVetter",
-    "externalBin": ["binaries/codevetter-mcp"]
+    "externalBin": ["binaries/codevetter-mcp", "binaries/codevetter-agent-island"]
   }
 }

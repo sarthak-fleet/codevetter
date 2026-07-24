@@ -1,0 +1,59 @@
+---
+import Footer from '@/components/Footer.astro';
+import Nav from '@/components/Nav.astro';
+import examples from '@/data/xray-examples.json';
+import Layout from '@/layouts/Layout.astro';
+
+export function getStaticPaths() {
+  return examples.map((example) => ({ params: { id: example.id }, props: { example } }));
+}
+
+const { example } = Astro.props;
+---
+
+<Layout
+  title={`${example.title} — Agent PR X-Ray`}
+  description={example.finding.summary}
+  path={`/xray/${example.id}/`}
+>
+  <Nav />
+  <main class="report">
+    <a class="back" href="/xray/">← All X-Rays</a>
+    <header>
+      <div class="eyebrow">CodeVetter · local evidence export</div>
+      <h1>{example.title}</h1>
+      <p>{example.source}</p>
+      <div class="outcome">{example.outcome.replace('_', ' ')} · {example.confidence} confidence</div>
+    </header>
+
+    <section>
+      <h2>Verification</h2>
+      <div class="stages">
+        <article><strong>Code review</strong><span>completed</span><p>Qualified static finding recorded.</p></article>
+        <article><strong>Executable test</strong><span class="warn">not verified</span><p>No exact-current runtime evidence is included.</p></article>
+        <article><strong>Audience</strong><span class="warn">not run</span><p>No audience validation occurred.</p></article>
+      </div>
+    </section>
+
+    <section>
+      <h2>Finding</h2>
+      <article class="finding">
+        <div class="finding-meta"><b>{example.finding.severity}</b><em>benchmark ground truth</em></div>
+        <h3>{example.finding.title}</h3>
+        <p>{example.finding.summary}</p>
+        <code>{example.finding.file}:{example.finding.line}</code>
+      </article>
+    </section>
+
+    <aside>
+      This is an adjudicated synthetic benchmark example, not a claim about an uploaded repository.
+      CodeVetter runs locally and exports the same portable evidence shape from your completed review.
+      <a href="/download/">Download the desktop app.</a>
+    </aside>
+  </main>
+  <Footer />
+</Layout>
+
+<style>
+  .report{width:min(920px,calc(100% - 40px));margin:0 auto;padding:140px 0 90px}.back{color:#8c8e94;text-decoration:none;font-size:.85rem}header{padding:54px 0 34px;border-bottom:1px solid #24262b}.eyebrow{color:#85888f;text-transform:uppercase;letter-spacing:.16em;font-size:.7rem}h1{color:#f0efeb;font-size:clamp(2.4rem,6vw,4.5rem);line-height:1.02;letter-spacing:-.055em;margin:16px 0}header p{color:#85888f}.outcome{color:#e1b75f;margin-top:18px;text-transform:capitalize}section{margin-top:44px}h2{color:#e9e8e4;font-size:1.1rem}.stages{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.stages article,.finding{border:1px solid #25282e;border-radius:14px;background:#101216;padding:20px}.stages strong,.stages span{display:block}.stages span{color:#77d7ad;margin-top:10px}.stages .warn{color:#e1b75f}.stages p,.finding p{color:#92969e;line-height:1.6}.finding-meta{display:flex;justify-content:space-between;text-transform:uppercase;letter-spacing:.08em;font-size:.72rem}.finding-meta b{color:#e1b75f}.finding-meta em{color:#73767d;font-style:normal}.finding h3{color:#eeede9;font-size:1.45rem;margin:24px 0 8px}.finding code{display:block;color:#8b8e95;margin-top:24px}aside{margin-top:36px;padding:20px;border-left:2px solid #d4a039;background:#101114;color:#92959c;line-height:1.65}aside a{color:#d9b567}@media(max-width:700px){.stages{grid-template-columns:1fr}}
+</style>

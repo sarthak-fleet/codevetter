@@ -634,7 +634,10 @@ fn build_verification_summary(
     })
 }
 
-fn load_bundle(conn: &Connection, review_id: &str) -> Result<AudienceValidationBundle, String> {
+pub(crate) fn load_bundle(
+    conn: &Connection,
+    review_id: &str,
+) -> Result<AudienceValidationBundle, String> {
     let run = latest_run(conn, review_id).map_err(|error| error.to_string())?;
     let responses = match run.as_ref() {
         Some(run) => responses_for_run(conn, &run.id).map_err(|error| error.to_string())?,

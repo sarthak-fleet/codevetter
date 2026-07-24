@@ -550,9 +550,9 @@ export default function SyntheticQaPanel({
         <div className="mt-3 rounded-lg border border-[var(--cv-line)] bg-[#050505] p-2">
           <div className="cv-label text-slate-500">Recent QA runs</div>
           <ul className="mt-1.5 space-y-1">
-            {qaRunHistory.slice(0, 3).map((run) => (
+            {qaRunHistory.slice(0, 3).map((run, index) => (
               <li
-                key={`${run.createdAt}-${run.loopId}`}
+                key={`${run.createdAt}-${run.loopId}-${run.flowKey ?? 'legacy'}-${index}`}
                 className="flex items-start gap-2 text-[10px] leading-4 text-slate-400"
               >
                 <span

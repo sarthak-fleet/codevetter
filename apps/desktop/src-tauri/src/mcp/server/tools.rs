@@ -292,6 +292,24 @@ pub(super) fn dispatch_tool(
             }
             serde_json::to_value(history.evidence(&ids)?)
         }
+        "review_list_manifests" => {
+            let review_id = optional_string(&arguments, "review_id")?;
+            let fingerprint = format!("review-manifests-v1:{}", review_id.unwrap_or(""));
+            let offset =
+                decode_offset_cursor(arguments.get("cursor"), repo_id, name, &fingerprint)?;
+            let mut page = crate::commands::deterministic_review::public_manifest_page(
+                connection, repo_path, review_id, limit, offset,
+            )?;
+            if let Some(next_offset) = page.get_mut("next_offset") {
+                *next_offset = next_offset
+                    .as_u64()
+                    .map(|next| McpCursor::new(repo_id, name, next as usize, &fingerprint).encode())
+                    .transpose()?
+                    .map(Value::String)
+                    .unwrap_or(Value::Null);
+            }
+            serde_json::to_value(page)
+        }
         _ => return Err("Unknown CodeVetter history tool".to_string()),
     }
     .map_err(|error| format!("Serialize canonical query result: {error}"))?;

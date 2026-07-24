@@ -12,13 +12,15 @@ import {
   type ReviewConfig,
   saveReviewConfig,
 } from '@/lib/review-service';
-import type { GitHubAuthStatus, LinearUser } from '@/lib/tauri-ipc';
+import type { GitHubAuthStatus, LinearUser, NativeAgentIslandStatus } from '@/lib/tauri-ipc';
 import {
   checkGitHubAuth,
   checkLinearConnection,
   disconnectLinear,
+  getNativeAgentIslandStatus,
   getPreference,
   isTauriAvailable,
+  previewNativeAgentIsland,
   setPreference,
   startLinearOAuth,
   syncGitHubToken,
@@ -608,6 +610,52 @@ export default function Settings() {
   const [notifyAgentError, toggleNotifyAgentError] = useBoolPref('notify_agent_error', true);
   const [notifyTaskComplete, toggleNotifyTaskComplete] = useBoolPref('notify_task_complete', false);
   const [notificationSound, toggleNotificationSound] = useBoolPref('notification_sound', true);
+  const [nativeAgentIslandEnabled, toggleNativeAgentIslandEnabled] = useBoolPref(
+    'native_agent_island_enabled',
+    false
+  );
+  const [nativeSpeechMuted, toggleNativeSpeechMuted] = useBoolPref(
+    'native_agent_island_speech_muted',
+    false
+  );
+  const [nativeSpeakCompletion, toggleNativeSpeakCompletion] = useBoolPref(
+    'native_agent_island_speak_completion',
+    true
+  );
+  const [nativeSpeakAttention, toggleNativeSpeakAttention] = useBoolPref(
+    'native_agent_island_speak_attention',
+    true
+  );
+  const [nativeSpeakFailure, toggleNativeSpeakFailure] = useBoolPref(
+    'native_agent_island_speak_failure',
+    true
+  );
+  const [nativeCodexVoice, setNativeCodexVoice] = usePref('native_agent_island_codex_voice', '');
+  const [nativeClaudeVoice, setNativeClaudeVoice] = usePref('native_agent_island_claude_voice', '');
+  const [nativeSpeechVolume, setNativeSpeechVolume] = usePref(
+    'native_agent_island_speech_volume',
+    '0.8'
+  );
+  const [nativeSpeechRate, setNativeSpeechRate] = usePref(
+    'native_agent_island_speech_rate',
+    '0.48'
+  );
+  const [nativeSpeechCooldown, setNativeSpeechCooldown] = usePref(
+    'native_agent_island_speech_cooldown',
+    '30'
+  );
+  const [nativeQuietStart, setNativeQuietStart] = usePref('native_agent_island_quiet_start', '');
+  const [nativeQuietEnd, setNativeQuietEnd] = usePref('native_agent_island_quiet_end', '');
+  const [agentIslandPreview, setAgentIslandPreview] = useState<
+    'idle' | 'opening' | 'open' | 'error'
+  >('idle');
+  const [agentIslandStatus, setAgentIslandStatus] = useState<NativeAgentIslandStatus | null>(null);
+  useEffect(() => {
+    if (!isTauriAvailable()) return;
+    void getNativeAgentIslandStatus()
+      .then(setAgentIslandStatus)
+      .catch(() => setAgentIslandStatus(null));
+  }, [nativeAgentIslandEnabled]);
   const [notifyQuotaThresholds, toggleNotifyQuotaThresholds] = useBoolPref(
     'notify_quota_thresholds',
     true
@@ -992,6 +1040,207 @@ export default function Settings() {
                 enabled={notificationSound}
                 onToggle={toggleNotificationSound}
               />
+            </div>
+
+            <h3 className="mt-6 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Agent Island
+            </h3>
+            <div className="rounded-xl border border-[var(--cv-line)] bg-[var(--cv-surface)] p-6">
+              <Toggle
+                label="Native Agent Island"
+                description="Show a compact native Mac surface for active, completed, failed, and blocked Codex and Claude sessions."
+                enabled={nativeAgentIslandEnabled}
+                onToggle={toggleNativeAgentIslandEnabled}
+              />
+
+              <Divider />
+
+              <Toggle
+                label="Mute Voice Callouts"
+                description="Keep visual status available without speaking agent updates."
+                enabled={nativeSpeechMuted}
+                onToggle={toggleNativeSpeechMuted}
+              />
+
+              <Divider />
+
+              <Toggle
+                label="Speak Completions"
+                description="Announce the provider and project when a turn finishes."
+                enabled={nativeSpeakCompletion}
+                onToggle={toggleNativeSpeakCompletion}
+              />
+
+              <Divider />
+
+              <Toggle
+                label="Speak Attention Requests"
+                description="Announce confirmed questions and permission requests."
+                enabled={nativeSpeakAttention}
+                onToggle={toggleNativeSpeakAttention}
+              />
+
+              <Divider />
+
+              <Toggle
+                label="Speak Failures"
+                description="Announce when an owned agent session fails."
+                enabled={nativeSpeakFailure}
+                onToggle={toggleNativeSpeakFailure}
+              />
+
+              <Divider />
+
+              <SelectSetting
+                label="Voice Volume"
+                description="Set the local system voice volume for Agent Island callouts."
+                value={nativeSpeechVolume}
+                options={[
+                  { value: '0.5', label: 'Quiet' },
+                  { value: '0.8', label: 'Balanced' },
+                  { value: '1', label: 'Full' },
+                ]}
+                onChange={setNativeSpeechVolume}
+              />
+
+              <Divider />
+
+              <SelectSetting
+                label="Voice Pace"
+                description="Choose a calm local speech rate."
+                value={nativeSpeechRate}
+                options={[
+                  { value: '0.4', label: 'Measured' },
+                  { value: '0.48', label: 'Balanced' },
+                  { value: '0.56', label: 'Quick' },
+                ]}
+                onChange={setNativeSpeechRate}
+              />
+
+              <Divider />
+
+              <SelectSetting
+                label="Repeat Cooldown"
+                description="Coalesce repeated callouts for the same session and state."
+                value={nativeSpeechCooldown}
+                options={[
+                  { value: '15', label: '15 seconds' },
+                  { value: '30', label: '30 seconds' },
+                  { value: '60', label: '1 minute' },
+                ]}
+                onChange={setNativeSpeechCooldown}
+              />
+
+              <Divider />
+
+              <SelectSetting
+                label="Quiet Hours Start"
+                description="Optional local hour when voice callouts pause."
+                value={nativeQuietStart}
+                options={[
+                  { value: '', label: 'Off' },
+                  { value: '20', label: '8 PM' },
+                  { value: '21', label: '9 PM' },
+                  { value: '22', label: '10 PM' },
+                  { value: '23', label: '11 PM' },
+                ]}
+                onChange={setNativeQuietStart}
+              />
+
+              <Divider />
+
+              <SelectSetting
+                label="Quiet Hours End"
+                description="Optional local hour when voice callouts resume."
+                value={nativeQuietEnd}
+                options={[
+                  { value: '', label: 'Off' },
+                  { value: '6', label: '6 AM' },
+                  { value: '7', label: '7 AM' },
+                  { value: '8', label: '8 AM' },
+                  { value: '9', label: '9 AM' },
+                ]}
+                onChange={setNativeQuietEnd}
+              />
+
+              <Divider />
+
+              <TextInputSetting
+                label="Codex Voice"
+                description="Optional macOS voice identifier. Leave blank to use CodeVetter's distinct Codex default."
+                value={nativeCodexVoice}
+                placeholder="System default"
+                onChange={setNativeCodexVoice}
+              />
+
+              <Divider />
+
+              <TextInputSetting
+                label="Claude Voice"
+                description="Optional macOS voice identifier. Leave blank to use CodeVetter's distinct Claude default."
+                value={nativeClaudeVoice}
+                placeholder="System default"
+                onChange={setNativeClaudeVoice}
+              />
+
+              <div className="mt-4 flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!isTauriAvailable() || agentIslandPreview === 'opening'}
+                  onClick={() => {
+                    setAgentIslandPreview('opening');
+                    void previewNativeAgentIsland()
+                      .then((status) => {
+                        setAgentIslandStatus(status);
+                        setAgentIslandPreview('open');
+                      })
+                      .catch(() => setAgentIslandPreview('error'));
+                  }}
+                >
+                  {agentIslandPreview === 'opening' ? 'Opening…' : 'Preview Agent Island'}
+                </Button>
+                <span className="text-xs text-slate-500" aria-live="polite">
+                  {agentIslandPreview === 'open'
+                    ? 'Preview opened'
+                    : agentIslandPreview === 'error'
+                      ? 'Build the native helper, then try again'
+                      : 'Runs locally and remains off until enabled'}
+                </span>
+              </div>
+              <p className="mt-4 max-w-2xl text-xs leading-5 text-slate-500">
+                Inline replies and approvals appear only when CodeVetter has an exact,
+                provider-confirmed request channel. Ambiguous prompts stay focus-only and open the
+                matching Work conversation.
+              </p>
+              {agentIslandStatus && (
+                <div
+                  className="mt-3 rounded-lg border border-[var(--cv-line)] bg-black/10 px-3 py-2 text-xs text-slate-400"
+                  aria-live="polite"
+                >
+                  <p>
+                    {agentIslandStatus.connected
+                      ? `Connected · ${agentIslandStatus.session_count} session${agentIslandStatus.session_count === 1 ? '' : 's'}`
+                      : agentIslandStatus.last_error
+                        ? agentIslandStatus.last_error
+                        : nativeAgentIslandEnabled
+                          ? 'Ready · launches with the next owned session'
+                          : 'Off · existing Work notifications remain active'}
+                  </p>
+                  {agentIslandStatus.receipts.at(-1) && (
+                    <p className="mt-1 text-slate-500">
+                      Last action ·{' '}
+                      {[
+                        agentIslandStatus.receipts.at(-1)?.provider,
+                        agentIslandStatus.receipts.at(-1)?.action,
+                        agentIslandStatus.receipts.at(-1)?.disposition,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <h3 className="mt-6 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">

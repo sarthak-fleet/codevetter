@@ -69,7 +69,7 @@ pub(crate) fn validate_tool_arguments(
         return Err(format!("Unknown '{field}' argument for {name}"));
     }
 
-    for field in ["query", "node", "from", "to", "entity"] {
+    for field in ["query", "node", "from", "to", "entity", "review_id"] {
         if let Some(value) = arguments.get(field) {
             let text = value
                 .as_str()

@@ -81,6 +81,7 @@ fn every_tool_is_explicitly_read_only_and_schema_bounded() {
             "history_trace",
             "history_compare",
             "history_get_evidence",
+            "review_list_manifests",
             "archaeology_list_rules",
             "archaeology_list_domains",
             "archaeology_get_rule",
@@ -263,7 +264,7 @@ async fn protocol_lifecycle_is_scoped_structured_and_live_revocable() {
     });
     let client = TestClient.serve(client_transport).await.expect("client");
     let tools = client.list_tools(None).await.expect("tools");
-    assert_eq!(tools.tools.len(), 22);
+    assert_eq!(tools.tools.len(), 23);
     assert!(tools.tools.iter().all(|tool| tool.output_schema.is_some()));
     let templates = client
         .list_resource_templates(None)

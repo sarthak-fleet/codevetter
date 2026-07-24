@@ -1,12 +1,13 @@
 ---
-title: Local Graph and Release History MCP
-description: Opt-in, read-only, stdio-only MCP server exposing one repo's structural graph and release history to local coding agents.
+title: Local evidence MCP
+description: Opt-in, read-only, stdio-only MCP server exposing one repository's qualified graph, history, review, and business-rule evidence.
 ---
 
-CodeVetter can expose one repository's persisted structural graph and Git
-history to local agents through a packaged, read-only MCP server. The server
-uses stdio, opens no network listener, requires no credentials, and cannot
-modify the repository or refresh its indexes.
+CodeVetter can expose one repository's persisted structural graph, Git history,
+deterministic review manifests, and evidence-traced business rules to local
+agents through a packaged, read-only MCP server. The server uses stdio, opens
+no network listener, requires no credentials, and cannot modify the repository
+or refresh its indexes.
 
 ## Setup
 
@@ -78,11 +79,19 @@ limits, stable links, and structured data.
 | `history_trace` | Trace bounded evidence from intent through verification and outcome. |
 | `history_compare` | Compare two persisted states without inventing causation. |
 | `history_get_evidence` | Hydrate an explicit batch of stable evidence IDs. |
+| `review_list_manifests` | List redacted deterministic review coverage and qualification manifests. |
+| `archaeology_list_rules` | List or search bounded evidence-traced business rules. |
+| `archaeology_list_domains` | List bounded business-rule domain summaries. |
+| `archaeology_get_rule` | Explain one exact evidence-traced business rule. |
+| `archaeology_reverse_source` | Find rules linked to one opaque source identity. |
+| `archaeology_list_relations` | List rule dependencies, conflicts, aliases, and supersession. |
+| `archaeology_compare_temporal` | Compare two persisted archaeology generations, revisions, or releases. |
+| `archaeology_hydrate_evidence` | Hydrate explicitly selected evidence owned by one rule. |
 
-Start with graph overview, release listing, or history search. Follow stable IDs
-into explanation, lineage, or trace results, then call
-`history_get_evidence` only for citations the agent actually needs. Normal
-execution never makes a model or provider call.
+Start with graph overview, release listing, history search, review manifests,
+or the business-rule catalog. Follow stable IDs into explanation, lineage,
+trace, or hydration calls, and request only citations the agent actually needs.
+Normal execution never makes a model or provider call.
 
 ## Resources
 

@@ -1,0 +1,13 @@
+{
+  "id": 41,
+  "method": "item/commandExecution/requestApproval",
+  "params": {
+    "threadId": "thread-codex",
+    "turnId": "turn-approval",
+    "itemId": "item-command",
+    "startedAtMs": 1784890000000,
+    "reason": "Needs network access",
+    "command": "curl private.example",
+    "availableDecisions": ["accept", "decline", "cancel"]
+  }
+}

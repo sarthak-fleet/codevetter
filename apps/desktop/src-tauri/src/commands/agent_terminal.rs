@@ -13,6 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 
 use super::review::resolve_agent_cli_path;
@@ -75,6 +76,7 @@ struct RunningCodexAgent {
     agent_events: Arc<Mutex<Vec<AgentStructuredEvent>>>,
     codex_session_id: Arc<Mutex<Option<String>>>,
     transcript_path: Arc<Mutex<Option<String>>>,
+    claude_response_dir: Option<PathBuf>,
     stop_requested: Arc<AtomicBool>,
 }
 
@@ -82,6 +84,7 @@ struct ClaudeHookBridge {
     directory: PathBuf,
     settings_path: PathBuf,
     events_path: PathBuf,
+    response_dir: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,6 +108,9 @@ fn codex_agents() -> &'static Mutex<HashMap<String, RunningCodexAgent>> {
 pub(crate) fn resolve_live_agent_session_identity(
     terminal_id: &str,
 ) -> Result<Option<LiveAgentSessionIdentity>, String> {
+    if let Some(identity) = super::codex_app_server::identity(terminal_id)? {
+        return Ok(Some(identity));
+    }
     let sessions = codex_agents()
         .lock()
         .map_err(|error| format!("agent registry lock poisoned: {error}"))?;
@@ -315,7 +321,11 @@ pub fn list_codex_agent_terminals() -> Result<Vec<CodexAgentTerminalSnapshot>, S
     let sessions = codex_agents()
         .lock()
         .map_err(|e| format!("agent registry lock poisoned: {e}"))?;
-    Ok(collect_agent_snapshots(&sessions))
+    let mut snapshots = collect_agent_snapshots(&sessions);
+    drop(sessions);
+    snapshots.extend(super::codex_app_server::snapshots()?);
+    snapshots.sort_by_key(|snapshot| std::cmp::Reverse(snapshot.started_at_ms));
+    Ok(snapshots)
 }
 
 #[tauri::command]
@@ -455,6 +465,12 @@ fn start_agent_terminal_impl(
             ));
         }
     }
+    if super::codex_app_server::is_running(&session_id) {
+        return Err(format!(
+            "{} agent already running: {session_id}",
+            provider.display_name()
+        ));
+    }
 
     let cwd = resolve_cwd(cwd.as_deref())?;
     let agent_path = resolve_agent_cli_path(provider.as_str());
@@ -468,6 +484,30 @@ fn start_agent_terminal_impl(
         .filter(|value| !value.is_empty());
     if resume_session_id.is_some() && fork_session_id.is_some() {
         return Err("resume_session_id and fork_session_id are mutually exclusive".into());
+    }
+    let prefer_codex_app_server = provider == AgentProvider::Codex
+        && resume_session_id.is_none()
+        && fork_session_id.is_none()
+        && std::env::var("CODEVETTER_CODEX_TRANSPORT")
+            .map(|value| !value.eq_ignore_ascii_case("pty"))
+            .unwrap_or(true);
+    if prefer_codex_app_server {
+        match super::codex_app_server::start(
+            app.clone(),
+            &session_id,
+            &cwd,
+            prompt.as_deref(),
+            model.as_deref(),
+            sandbox.as_deref(),
+            approval_policy.as_deref(),
+        ) {
+            Ok(result) => return Ok(result),
+            Err(error) => {
+                eprintln!(
+                    "Codex app-server unavailable for {session_id}; falling back to PTY: {error}"
+                );
+            }
+        }
     }
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -524,6 +564,13 @@ fn start_agent_terminal_impl(
             "CODEVETTER_AGENT_EVENT_FILE",
             bridge.events_path.as_os_str(),
         );
+        command.env(
+            "CODEVETTER_AGENT_RESPONSE_DIR",
+            bridge.response_dir.as_os_str(),
+        );
+        if let Ok(executable) = std::env::current_exe() {
+            command.env("CODEVETTER_AGENT_HOOK_BIN", executable.as_os_str());
+        }
     }
     command.cwd(&cwd);
 
@@ -570,6 +617,9 @@ fn start_agent_terminal_impl(
                 agent_events: Arc::clone(&agent_events),
                 codex_session_id: Arc::clone(&codex_session_id),
                 transcript_path: Arc::clone(&transcript_path),
+                claude_response_dir: claude_hook_bridge
+                    .as_ref()
+                    .map(|bridge| bridge.response_dir.clone()),
                 stop_requested: Arc::clone(&stop_requested),
             },
         );
@@ -900,6 +950,19 @@ fn create_claude_hook_bridge(session_id: &str) -> Result<ClaudeHookBridge, Strin
 
     let settings_path = directory.join("settings.json");
     let events_path = directory.join("events.jsonl");
+    let response_dir = directory.join("responses");
+    let mut response_directory_options = fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        response_directory_options.mode(0o700);
+    }
+    if let Err(error) = response_directory_options.create(&response_dir) {
+        let _ = fs::remove_dir_all(&directory);
+        return Err(format!(
+            "create Claude hook response directory for {session_id}: {error}"
+        ));
+    }
     let mut events_options = OpenOptions::new();
     events_options.create_new(true).write(true);
     #[cfg(unix)]
@@ -918,8 +981,8 @@ fn create_claude_hook_bridge(session_id: &str) -> Result<ClaudeHookBridge, Strin
         "matcher": "",
         "hooks": [{
             "type": "command",
-            "command": "cat >> \"$CODEVETTER_AGENT_EVENT_FILE\"; printf '\\n' >> \"$CODEVETTER_AGENT_EVENT_FILE\"",
-            "timeout": 5
+            "command": "\"$CODEVETTER_AGENT_HOOK_BIN\" --claude-hook-bridge",
+            "timeout": 120
         }]
     }]);
     let mut hooks = serde_json::Map::new();
@@ -965,11 +1028,232 @@ fn create_claude_hook_bridge(session_id: &str) -> Result<ClaudeHookBridge, Strin
         directory,
         settings_path,
         events_path,
+        response_dir,
     })
 }
 
 fn cleanup_claude_hook_bridge(bridge: &ClaudeHookBridge) {
     let _ = fs::remove_dir_all(&bridge.directory);
+}
+
+pub fn maybe_run_claude_hook_bridge() -> bool {
+    if !std::env::args().any(|argument| argument == "--claude-hook-bridge") {
+        return false;
+    }
+    if let Err(error) = run_claude_hook_bridge() {
+        eprintln!("CodeVetter Claude hook bridge: {error}");
+    }
+    true
+}
+
+fn run_claude_hook_bridge() -> Result<(), String> {
+    let event_path = std::env::var_os("CODEVETTER_AGENT_EVENT_FILE")
+        .map(PathBuf::from)
+        .ok_or_else(|| "event file is unavailable".to_string())?;
+    let response_dir = std::env::var_os("CODEVETTER_AGENT_RESPONSE_DIR")
+        .map(PathBuf::from)
+        .ok_or_else(|| "response directory is unavailable".to_string())?;
+    let mut raw = String::new();
+    std::io::stdin()
+        .take((CLAUDE_HOOK_EVENT_LIMIT_CHARS + 1) as u64)
+        .read_to_string(&mut raw)
+        .map_err(|error| format!("read hook input: {error}"))?;
+    if raw.chars().count() > CLAUDE_HOOK_EVENT_LIMIT_CHARS {
+        return Err("hook input exceeded the event limit".to_string());
+    }
+    let pending_request = append_claude_hook_payload(&raw, &event_path, &response_dir)?;
+    let Some((pending_path, response_path)) = pending_request else {
+        return Ok(());
+    };
+
+    if let Some(response) = wait_for_claude_permission_response(
+        &pending_path,
+        &response_path,
+        Duration::from_secs(110),
+    )? {
+        println!("{response}");
+    }
+    Ok(())
+}
+
+fn wait_for_claude_permission_response(
+    pending_path: &Path,
+    response_path: &Path,
+    timeout: Duration,
+) -> Result<Option<String>, String> {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if response_path.is_file() {
+            let response = fs::read_to_string(response_path)
+                .map_err(|error| format!("read hook response: {error}"))?;
+            let _ = fs::remove_file(response_path);
+            let _ = fs::remove_file(pending_path);
+            if response.chars().count() <= CLAUDE_HOOK_EVENT_LIMIT_CHARS {
+                return Ok(Some(response.trim().to_string()));
+            }
+            return Ok(None);
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    let _ = fs::remove_file(pending_path);
+    Ok(None)
+}
+
+fn append_claude_hook_payload(
+    raw: &str,
+    event_path: &Path,
+    response_dir: &Path,
+) -> Result<Option<(PathBuf, PathBuf)>, String> {
+    let input =
+        serde_json::from_str::<Value>(raw).map_err(|error| format!("parse hook input: {error}"))?;
+    if !input.is_object() {
+        return Err("hook input must be an object".to_string());
+    }
+    let pending_request =
+        if input.get("hook_event_name").and_then(Value::as_str) == Some("PermissionRequest") {
+            claude_hook_request_id(&input).map(|request_id| {
+                let pending_path = claude_hook_pending_path(response_dir, &request_id);
+                let response_path = claude_hook_response_path(response_dir, &request_id);
+                (pending_path, response_path)
+            })
+        } else {
+            None
+        };
+    if let Some((pending_path, _)) = pending_request.as_ref() {
+        create_private_marker(pending_path)?;
+    }
+
+    let append_result =
+        OpenOptions::new()
+            .append(true)
+            .open(event_path)
+            .and_then(|mut event_file| {
+                event_file
+                    .write_all(raw.trim().as_bytes())
+                    .and_then(|_| event_file.write_all(b"\n"))
+                    .and_then(|_| event_file.flush())
+            });
+    if let Err(error) = append_result {
+        if let Some((pending_path, _)) = pending_request.as_ref() {
+            let _ = fs::remove_file(pending_path);
+        }
+        return Err(format!("append hook event: {error}"));
+    }
+    Ok(pending_request)
+}
+
+pub(crate) fn claude_permission_response_available(terminal_id: &str, request_id: &str) -> bool {
+    codex_agents()
+        .lock()
+        .ok()
+        .and_then(|sessions| {
+            sessions
+                .get(terminal_id.trim())
+                .and_then(|session| session.claude_response_dir.as_ref())
+                .map(|directory| claude_hook_pending_path(directory, request_id).is_file())
+        })
+        .unwrap_or(false)
+}
+
+pub(crate) fn resolve_claude_permission_request(
+    terminal_id: &str,
+    request_id: &str,
+    allow: bool,
+) -> Result<(), String> {
+    let response_dir = {
+        let sessions = codex_agents()
+            .lock()
+            .map_err(|error| format!("agent registry lock poisoned: {error}"))?;
+        let session = sessions
+            .get(terminal_id.trim())
+            .ok_or_else(|| format!("Agent is not running: {}", terminal_id.trim()))?;
+        if session.provider != AgentProvider::Claude {
+            return Err("Only Claude hook requests use this response channel".to_string());
+        }
+        session
+            .claude_response_dir
+            .clone()
+            .ok_or_else(|| "Claude response bridge is unavailable".to_string())?
+    };
+    let pending_path = claude_hook_pending_path(&response_dir, request_id);
+    if !pending_path.is_file() {
+        return Err("Claude permission request is stale".to_string());
+    }
+    let response_path = claude_hook_response_path(&response_dir, request_id);
+    let temporary_path = response_path.with_extension(format!(
+        "json.{}.{}.tmp",
+        std::process::id(),
+        current_unix_millis()
+    ));
+    let response = claude_permission_decision(allow);
+    write_private_file(
+        &temporary_path,
+        serde_json::to_string(&response)
+            .map_err(|error| format!("serialize Claude permission decision: {error}"))?
+            .as_bytes(),
+    )?;
+    fs::rename(&temporary_path, &response_path)
+        .map_err(|error| format!("publish Claude permission decision: {error}"))?;
+    Ok(())
+}
+
+fn claude_permission_decision(allow: bool) -> Value {
+    json!({
+        "hookSpecificOutput": {
+            "hookEventName": "PermissionRequest",
+            "decision": {
+                "behavior": if allow { "allow" } else { "deny" },
+                "message": if allow {
+                    Value::Null
+                } else {
+                    Value::String("Denied from CodeVetter".to_string())
+                }
+            }
+        }
+    })
+}
+
+fn claude_hook_request_id(input: &Value) -> Option<String> {
+    [
+        "/tool_use_id",
+        "/permission_request_id",
+        "/tool_input/request_id",
+    ]
+    .into_iter()
+    .find_map(|pointer| input.pointer(pointer).and_then(Value::as_str))
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .map(|value| value.chars().take(256).collect())
+}
+
+fn claude_hook_pending_path(directory: &Path, request_id: &str) -> PathBuf {
+    directory.join(format!("{}.pending", claude_hook_request_key(request_id)))
+}
+
+fn claude_hook_response_path(directory: &Path, request_id: &str) -> PathBuf {
+    directory.join(format!("{}.json", claude_hook_request_key(request_id)))
+}
+
+fn claude_hook_request_key(request_id: &str) -> String {
+    format!("{:x}", Sha256::digest(request_id.as_bytes()))
+}
+
+fn create_private_marker(path: &Path) -> Result<(), String> {
+    write_private_file(path, b"pending")
+}
+
+fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let mut options = OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+        .open(path)
+        .and_then(|mut file| file.write_all(bytes).and_then(|_| file.flush()))
+        .map_err(|error| format!("write private hook bridge file: {error}"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1049,82 +1333,7 @@ fn start_claude_hook_event_reader(
 }
 
 fn normalize_claude_hook_event(raw: &str) -> Option<String> {
-    let input = serde_json::from_str::<Value>(raw).ok()?;
-    let hook = input.get("hook_event_name")?.as_str()?;
-    let tool_name = input.get("tool_name").and_then(Value::as_str);
-    let notification_type = input.get("notification_type").and_then(Value::as_str);
-    let event = match (hook, tool_name, notification_type) {
-        ("SessionStart", _, _) => "session_start",
-        ("SessionEnd", _, _) => "session_end",
-        ("UserPromptSubmit", _, _) => "prompt_submit",
-        ("PermissionRequest", _, _) => "permission_request",
-        ("PreToolUse", Some("AskUserQuestion"), _) => "question_asked",
-        ("PreToolUse", _, _) => "tool_start",
-        ("PostToolUse", _, _) => "tool_complete",
-        ("PostToolUseFailure", _, _) => "tool_error",
-        ("Stop", _, _) => "stop",
-        ("StopFailure", _, _) => "stop_failure",
-        ("Notification", _, Some("permission_prompt")) => "permission_request",
-        ("Notification", _, Some("elicitation_dialog")) => "question_asked",
-        ("Notification", _, Some("idle_prompt")) => "idle_prompt",
-        _ => return None,
-    };
-
-    let mut output = serde_json::Map::new();
-    output.insert("v".to_string(), Value::from(1));
-    output.insert("agent".to_string(), Value::from("claude"));
-    output.insert("event".to_string(), Value::from(event));
-    for key in ["session_id", "transcript_path", "cwd"] {
-        if let Some(value) = input.get(key).and_then(Value::as_str) {
-            output.insert(key.to_string(), Value::from(truncate_hook_text(value)));
-        }
-    }
-    if let Some(tool_name) = tool_name {
-        output.insert(
-            "tool_name".to_string(),
-            Value::from(truncate_hook_text(tool_name)),
-        );
-    }
-
-    let detail = match event {
-        "prompt_submit" => input.get("prompt").and_then(Value::as_str),
-        "question_asked" => input
-            .pointer("/tool_input/questions/0/question")
-            .and_then(Value::as_str),
-        "stop" => input.get("last_assistant_message").and_then(Value::as_str),
-        "tool_error" | "stop_failure" => input
-            .get("error")
-            .and_then(Value::as_str)
-            .or_else(|| input.get("error_message").and_then(Value::as_str)),
-        _ => None,
-    };
-    if let Some(detail) = detail {
-        let field = match event {
-            "prompt_submit" => "query",
-            "stop" => "response",
-            _ => "summary",
-        };
-        output.insert(field.to_string(), Value::from(truncate_hook_text(detail)));
-    } else if event == "permission_request" {
-        output.insert(
-            "summary".to_string(),
-            Value::from(match tool_name {
-                Some(tool) => format!("Claude requested permission for {tool}"),
-                None => "Claude requested permission".to_string(),
-            }),
-        );
-    }
-
-    serde_json::to_string(&Value::Object(output)).ok()
-}
-
-fn truncate_hook_text(value: &str) -> String {
-    const LIMIT: usize = 500;
-    let value = value.trim();
-    if value.chars().count() <= LIMIT {
-        return value.to_string();
-    }
-    value.chars().take(LIMIT).collect::<String>() + "…"
+    super::agent_stream::normalize_claude_hook_event(raw)
 }
 
 fn claude_agent_command_args(
@@ -1620,6 +1829,9 @@ pub fn send_codex_agent_terminal_input(session_id: String, data: String) -> Resu
 }
 
 fn send_agent_terminal_input_impl(session_id: String, data: String) -> Result<(), String> {
+    if super::codex_app_server::is_running(session_id.trim()) {
+        return super::codex_app_server::send_input(session_id.trim(), &data);
+    }
     let (tx, provider) = {
         let sessions = codex_agents()
             .lock()
@@ -1633,6 +1845,13 @@ fn send_agent_terminal_input_impl(session_id: String, data: String) -> Result<()
         .map_err(|e| format!("send {} input: {e}", provider.display_name()))
 }
 
+pub(crate) fn send_agent_terminal_input_from_native(
+    session_id: &str,
+    data: &str,
+) -> Result<(), String> {
+    send_agent_terminal_input_impl(session_id.to_string(), data.to_string())
+}
+
 #[tauri::command]
 pub fn send_agent_terminal_input(session_id: String, data: String) -> Result<(), String> {
     send_agent_terminal_input_impl(session_id, data)
@@ -1644,6 +1863,9 @@ pub fn stop_codex_agent_terminal(session_id: String) -> Result<(), String> {
 }
 
 fn stop_agent_terminal_impl(session_id: String) -> Result<(), String> {
+    if super::codex_app_server::is_running(session_id.trim()) {
+        return super::codex_app_server::stop(session_id.trim());
+    }
     let (tx, provider, stop_requested) = {
         let sessions = codex_agents()
             .lock()
@@ -1678,6 +1900,9 @@ pub fn resize_codex_agent_terminal(session_id: String, cols: u16, rows: u16) -> 
 }
 
 fn resize_agent_terminal_impl(session_id: String, cols: u16, rows: u16) -> Result<(), String> {
+    if super::codex_app_server::is_running(session_id.trim()) {
+        return Ok(());
+    }
     let (tx, provider) = {
         let sessions = codex_agents()
             .lock()
@@ -1755,7 +1980,7 @@ fn flush_pending_pty_output(
     *last_output_emit = Instant::now();
 }
 
-fn emit_agent_event(
+pub(crate) fn emit_agent_event(
     app: &AppHandle,
     session_id: &str,
     kind: &str,
@@ -1766,23 +1991,22 @@ fn emit_agent_event(
     exit_code: Option<u32>,
     success: Option<bool>,
 ) {
-    let _ = app.emit(
-        AGENT_TERMINAL_EVENT,
-        AgentTerminalEvent {
-            session_id: session_id.to_string(),
-            kind: kind.to_string(),
-            data,
-            pid,
-            idle_ms,
-            seq,
-            exit_code,
-            success,
-            intentional_stop: None,
-        },
-    );
+    let event = AgentTerminalEvent {
+        session_id: session_id.to_string(),
+        kind: kind.to_string(),
+        data,
+        pid,
+        idle_ms,
+        seq,
+        exit_code,
+        success,
+        intentional_stop: None,
+    };
+    let _ = app.emit(AGENT_TERMINAL_EVENT, event.clone());
+    super::native_agent_island::ingest_agent_terminal_event(app, &event);
 }
 
-fn emit_agent_exit_event(
+pub(crate) fn emit_agent_exit_event(
     app: &AppHandle,
     session_id: &str,
     pid: Option<u32>,
@@ -1792,7 +2016,8 @@ fn emit_agent_exit_event(
     intentional_stop: bool,
 ) {
     let event = agent_exit_event(session_id, pid, exit_code, success, data, intentional_stop);
-    let _ = app.emit(AGENT_TERMINAL_EVENT, event);
+    let _ = app.emit(AGENT_TERMINAL_EVENT, event.clone());
+    super::native_agent_island::ingest_agent_terminal_event(app, &event);
 }
 
 fn agent_exit_event(
@@ -2493,10 +2718,11 @@ mod tests {
             .pointer("/hooks/PermissionRequest/0/hooks/0/command")
             .and_then(Value::as_str)
             .expect("hook command");
-        assert!(command.contains("CODEVETTER_AGENT_EVENT_FILE"));
+        assert!(command.contains("CODEVETTER_AGENT_HOOK_BIN"));
         assert!(settings
             .pointer("/hooks/PermissionRequest/0/hooks/0/args")
             .is_none());
+        assert!(bridge.response_dir.exists());
 
         #[cfg(unix)]
         {
@@ -2526,22 +2752,12 @@ mod tests {
                 0o600
             );
 
-            let mut hook_process = StdCommand::new("/bin/sh")
-                .args(["-c", command])
-                .env("CODEVETTER_AGENT_EVENT_FILE", &bridge.events_path)
-                .stdin(Stdio::piped())
-                .spawn()
-                .expect("run hook command");
-            hook_process
-                .stdin
-                .take()
-                .expect("hook stdin")
-                .write_all(br#"{"hook_event_name":"Stop"}"#)
-                .expect("write hook event");
-            assert!(hook_process
-                .wait()
-                .expect("wait for hook command")
-                .success());
+            append_claude_hook_payload(
+                r#"{"hook_event_name":"Stop"}"#,
+                &bridge.events_path,
+                &bridge.response_dir,
+            )
+            .expect("append hook payload");
             assert_eq!(
                 fs::read_to_string(&bridge.events_path).expect("read hook event stream"),
                 "{\"hook_event_name\":\"Stop\"}\n"
@@ -2551,6 +2767,58 @@ mod tests {
         let directory = bridge.directory.clone();
         cleanup_claude_hook_bridge(&bridge);
         assert!(!directory.exists());
+    }
+
+    #[test]
+    fn claude_permission_bridge_preserves_request_identity_and_decision_shape() {
+        let bridge = create_claude_hook_bridge("permission-session").expect("bridge");
+        let pending = append_claude_hook_payload(
+            r#"{"hook_event_name":"PermissionRequest","tool_use_id":"request/../../unsafe"}"#,
+            &bridge.events_path,
+            &bridge.response_dir,
+        )
+        .expect("append permission")
+        .expect("pending permission");
+
+        assert!(pending.0.starts_with(&bridge.response_dir));
+        assert!(pending.0.is_file());
+        assert!(!pending.0.to_string_lossy().contains("unsafe"));
+        assert_eq!(
+            claude_permission_decision(true)
+                .pointer("/hookSpecificOutput/decision/behavior")
+                .and_then(Value::as_str),
+            Some("allow")
+        );
+        assert_eq!(
+            claude_permission_decision(false)
+                .pointer("/hookSpecificOutput/decision/behavior")
+                .and_then(Value::as_str),
+            Some("deny")
+        );
+
+        cleanup_claude_hook_bridge(&bridge);
+    }
+
+    #[test]
+    fn claude_permission_bridge_times_out_without_fabricating_a_decision() {
+        let bridge = create_claude_hook_bridge("timeout-session").expect("bridge");
+        let (pending_path, response_path) = append_claude_hook_payload(
+            r#"{"hook_event_name":"PermissionRequest","tool_use_id":"request-timeout"}"#,
+            &bridge.events_path,
+            &bridge.response_dir,
+        )
+        .expect("append permission")
+        .expect("pending permission");
+
+        assert_eq!(
+            wait_for_claude_permission_response(&pending_path, &response_path, Duration::ZERO)
+                .expect("timeout"),
+            None
+        );
+        assert!(!pending_path.exists());
+        assert!(!response_path.exists());
+
+        cleanup_claude_hook_bridge(&bridge);
     }
 
     #[test]
@@ -2582,6 +2850,7 @@ mod tests {
                 agent_events,
                 codex_session_id,
                 transcript_path,
+                claude_response_dir: None,
                 stop_requested: Arc::new(AtomicBool::new(false)),
             },
         );
@@ -2712,6 +2981,7 @@ mod tests {
             agent_events: Arc::new(Mutex::new(Vec::new())),
             codex_session_id: Arc::new(Mutex::new(None)),
             transcript_path: Arc::new(Mutex::new(None)),
+            claude_response_dir: None,
             stop_requested: Arc::new(AtomicBool::new(false)),
         }
     }

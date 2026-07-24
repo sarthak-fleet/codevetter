@@ -4,7 +4,9 @@ import {
   ChevronDown,
   Bot,
   Columns3,
+  GitFork,
   Loader2,
+  MessageSquare,
   Play,
   Plus,
   RotateCcw,
@@ -26,6 +28,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
+import { AgentProviderMark } from '@/components/work/AgentProviderMark';
 import { AgentLiveOutput } from '@/components/work/AgentLiveOutput';
 import { WorkBoard } from '@/components/work/WorkBoard';
 import {
@@ -41,10 +44,12 @@ import { presentAgentTerminalExit } from '@/lib/agent-terminal-exit';
 import {
   attachWorkItemSession,
   checkDirectoriesExist,
+  getSessionTranscript,
   getRepoProjectGitStatus,
   isTauriAvailable,
   listSessions,
   listenToAgentTerminalEvents,
+  listenToNativeAgentIslandFocus,
   listenToSessionArchiveUpdates,
   listAgentTerminals,
   listRepoProjects,
@@ -61,6 +66,8 @@ import {
   type RepoProject,
   type RepoProjectGitStatus,
   type SessionRow,
+  type SessionTranscript,
+  type SessionTranscriptMessage,
 } from '@/lib/tauri-ipc';
 import { cn } from '@/lib/utils';
 import type { WorkItem, WorkSessionLink } from '@/lib/work-items';
@@ -287,7 +294,8 @@ export default function AgentPanel() {
   const [terminals, setTerminals] = useState<AgentTerminal[]>(
     () => savedWorkspaceRef.current?.terminals.map(terminalFromSaved) ?? []
   );
-  const [selectedId, setSelectedId] = useState(() => savedWorkspaceRef.current?.selectedId ?? '');
+  const [selectedId, setSelectedId] = useState('');
+  const [previewSession, setPreviewSession] = useState<SessionRow | null>(null);
   const [layout, setLayout] = useState<AgentLayout>(
     () => savedWorkspaceRef.current?.layout ?? 'focus'
   );
@@ -309,8 +317,8 @@ export default function AgentPanel() {
     [selectedId, terminals]
   );
   const workspaceSnapshot = useMemo(
-    () => serializeAgentWorkspace({ layout, selectedId, terminals }),
-    [layout, selectedId, terminals]
+    () => serializeAgentWorkspace({ layout, terminals }),
+    [layout, terminals]
   );
   const indexedDirectorySignature = useMemo(
     () => indexedSessionDirectoryPaths(recentCodexSessions).join('\n'),
@@ -329,9 +337,7 @@ export default function AgentPanel() {
     [availableIndexedSessions, terminals]
   );
 
-  const selected =
-    terminals.find((terminal) => terminal.id === selectedId) ??
-    (selectedId ? (terminals[0] ?? null) : null);
+  const selected = terminals.find((terminal) => terminal.id === selectedId) ?? null;
   const foregroundTerminals = terminals.filter((terminal) => !terminal.background);
   const runningTerminals = terminals.filter((terminal) => terminal.running);
   const attentionTerminals = terminals.filter(
@@ -517,7 +523,6 @@ export default function AgentPanel() {
           if (reattached.length === 0) return updated;
           return [...updated, ...reattached];
         });
-        setSelectedId((current) => current || snapshots[0]?.session_id || '');
       })
       .catch(() => {
         // Reattach is best-effort; event listening still works for terminals created in this view.
@@ -867,6 +872,22 @@ export default function AgentPanel() {
   }, [handleTerminalEvent]);
 
   useEffect(() => {
+    if (!isTauriAvailable()) return;
+    let unlisten: (() => void) | null = null;
+    void listenToNativeAgentIslandFocus(({ session_id }) => {
+      setConversationSeed(null);
+      setPreviewSession(null);
+      setSelectedId(session_id);
+      navigate('/agents');
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [navigate]);
+
+  useEffect(() => {
     for (const terminal of terminals) {
       if (!terminal.background || (terminal.status !== 'yellow' && terminal.status !== 'red')) {
         notifiedAttentionRef.current.delete(terminal.id);
@@ -910,6 +931,7 @@ export default function AgentPanel() {
       }
     );
     setTerminals((current) => [...current, terminal]);
+    setPreviewSession(null);
     setSelectedId(id);
     setConversationSeed(null);
     await startTerminal(id, { terminalOverride: terminal });
@@ -922,6 +944,7 @@ export default function AgentPanel() {
     if (attached) {
       updateTerminal(attached.id, { workItemId: item.id });
       setConversationSeed(null);
+      setPreviewSession(null);
       setSelectedId(attached.id);
       navigate('/agents');
       return;
@@ -933,6 +956,7 @@ export default function AgentPanel() {
       model: '',
       workItemId: item.id,
     });
+    setPreviewSession(null);
     setSelectedId('');
     navigate('/agents');
   }
@@ -1046,6 +1070,7 @@ export default function AgentPanel() {
       ],
     };
     setTerminals((current) => [...current, sessionTerminal]);
+    setPreviewSession(null);
     setSelectedId(nextId);
     if (shouldSplit) setLayout('columns');
     await startTerminal(nextId, {
@@ -1279,9 +1304,7 @@ export default function AgentPanel() {
     outputSequences.delete(id);
     notifiedAttentionRef.current.delete(id);
     setTerminals((current) => current.filter((item) => item.id !== id));
-    setSelectedId((current) =>
-      current === id ? (orderedTerminals.find((item) => item.id !== id)?.id ?? '') : current
-    );
+    setSelectedId((current) => (current === id ? '' : current));
   }
 
   async function sendPrompt(id: string, prompt: string) {
@@ -1530,6 +1553,7 @@ export default function AgentPanel() {
                 );
                 if (!next) return;
                 setConversationSeed(null);
+                setPreviewSession(null);
                 setSelectedId(next.id);
                 navigate('/agents');
               }}
@@ -1551,6 +1575,7 @@ export default function AgentPanel() {
                 value={selected?.started ? selected.id : ''}
                 onChange={(event) => {
                   setConversationSeed(null);
+                  setPreviewSession(null);
                   setSelectedId(event.target.value);
                 }}
                 className="h-9 max-w-48 appearance-none rounded-lg border border-white/[0.08] bg-black/20 py-0 pl-3 pr-8 text-xs text-zinc-300 outline-none hover:border-white/[0.14] focus:border-amber-300/30"
@@ -1569,13 +1594,14 @@ export default function AgentPanel() {
               />
             </label>
           ) : null}
-          {!isBoardRoute && selected?.started ? (
+          {!isBoardRoute && (selected?.started || previewSession) ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => {
                 setConversationSeed(null);
+                setPreviewSession(null);
                 setSelectedId('');
               }}
               className="gap-2 lg:hidden"
@@ -1605,19 +1631,33 @@ export default function AgentPanel() {
               repoProjects={repoProjects}
               isVerifyingIndexedDirectories={isVerifyingSessionDirectories}
               selectedId={selected?.started ? selected.id : ''}
+              selectedSessionKey={previewSession ? indexedSessionKey(previewSession) : ''}
               onSelect={(id) => {
                 setConversationSeed(null);
+                setPreviewSession(null);
                 setSelectedId(id);
               }}
               onArchive={(id) => void archiveTerminal(id)}
               onNew={() => {
                 setConversationSeed(null);
+                setPreviewSession(null);
                 setSelectedId('');
               }}
-              onResumeSession={(session) => void launchIndexedSession(session, 'resume')}
+              onPreviewSession={(session) => {
+                setConversationSeed(null);
+                setSelectedId('');
+                setPreviewSession(session);
+              }}
             />
             <div className="min-w-0 flex-1 overflow-hidden">
-              {!selected?.started ? (
+              {previewSession ? (
+                <PreviousConversationPreview
+                  key={indexedSessionKey(previewSession)}
+                  session={previewSession}
+                  onResume={() => void launchIndexedSession(previewSession, 'resume')}
+                  onFork={() => void launchIndexedSession(previewSession, 'fork')}
+                />
+              ) : !selected?.started ? (
                 <ConversationStart
                   key={`${conversationSeed?.workItemId ?? 'new'}-${conversationSeed?.provider ?? 'codex'}-${conversationSeed?.cwd ?? defaultCwd}`}
                   repoProjects={repoProjects}
@@ -1626,8 +1666,6 @@ export default function AgentPanel() {
                   defaultPrompt={conversationSeed?.prompt ?? selected?.prompt ?? ''}
                   workItemId={conversationSeed?.workItemId ?? selected?.workItemId ?? null}
                   recentSessions={availableIndexedSessions}
-                  onResumeSession={(session) => void launchIndexedSession(session, 'resume')}
-                  onForkSession={(session) => void launchIndexedSession(session, 'fork')}
                   onStart={(seed) => void startConversation(seed)}
                 />
               ) : (
@@ -1655,20 +1693,22 @@ function WorkConversationSidebar({
   repoProjects,
   isVerifyingIndexedDirectories,
   selectedId,
+  selectedSessionKey,
   onSelect,
   onArchive,
   onNew,
-  onResumeSession,
+  onPreviewSession,
 }: {
   terminals: AgentTerminal[];
   indexedSessions: SessionRow[];
   repoProjects: RepoProject[];
   isVerifyingIndexedDirectories: boolean;
   selectedId: string;
+  selectedSessionKey: string;
   onSelect: (id: string) => void;
   onArchive: (id: string) => void;
   onNew: () => void;
-  onResumeSession: (session: SessionRow) => void;
+  onPreviewSession: (session: SessionRow) => void;
 }) {
   const disclosureId = useId();
   const [query, setQuery] = useState('');
@@ -1741,10 +1781,10 @@ function WorkConversationSidebar({
       <button
         type="button"
         onClick={onNew}
-        aria-current={selectedId ? undefined : 'page'}
+        aria-current={selectedId || selectedSessionKey ? undefined : 'page'}
         className={cn(
           'mt-2 flex h-9 w-full items-center gap-2 rounded-lg border px-2.5 text-left text-xs font-medium transition-colors',
-          selectedId
+          selectedId || selectedSessionKey
             ? 'border-white/[0.08] bg-white/[0.035] text-zinc-300 hover:border-white/[0.13] hover:bg-white/[0.055]'
             : 'border-amber-200/20 bg-amber-200/[0.07] text-amber-100'
         )}
@@ -1752,7 +1792,7 @@ function WorkConversationSidebar({
         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white/[0.06]">
           <Plus size={12} />
         </span>
-        <span>New conversation</span>
+        <span>Start new conversation</span>
       </button>
 
       <label className="relative mt-2 block">
@@ -1773,7 +1813,7 @@ function WorkConversationSidebar({
 
       <div className="flex items-center justify-between px-1.5 pb-1.5 pt-4">
         <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400">
-          Recent
+          Projects
         </span>
         {isVerifyingIndexedDirectories ? (
           <span className="text-[10px] text-zinc-500">Checking projects…</span>
@@ -1854,7 +1894,7 @@ function WorkConversationSidebar({
                                 aria-hidden="true"
                                 className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.065] bg-black/20 text-[10px] font-semibold text-zinc-400"
                               >
-                                {terminal.provider === 'claude' ? 'C' : <Bot size={12} />}
+                                <AgentProviderMark provider={terminal.provider} />
                                 <span
                                   className={cn(
                                     'absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-[#0d0e10]',
@@ -1909,23 +1949,30 @@ function WorkConversationSidebar({
                       {group.indexedSessions.map((session) => {
                         const provider = sessionAgentProvider(session);
                         const title = indexedSessionTitle(session);
+                        const selected = indexedSessionKey(session) === selectedSessionKey;
                         return (
                           <button
                             key={`${provider}:${session.id}`}
                             type="button"
-                            onClick={() => onResumeSession(session)}
-                            aria-label={`Resume ${providerLabel(provider)} session ${title}`}
-                            title={`Resume ${title}`}
-                            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-zinc-400 outline-none transition-colors hover:bg-white/[0.035] hover:text-zinc-200 focus-visible:ring-1 focus-visible:ring-amber-300/40"
+                            onClick={() => onPreviewSession(session)}
+                            aria-label={`Open ${providerLabel(provider)} previous conversation ${title}`}
+                            aria-current={selected ? 'page' : undefined}
+                            title={`Open ${title}`}
+                            className={cn(
+                              'flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-none transition-colors focus-visible:ring-1 focus-visible:ring-amber-300/40',
+                              selected
+                                ? 'bg-white/[0.065] text-zinc-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.035)]'
+                                : 'text-zinc-400 hover:bg-white/[0.035] hover:text-zinc-200'
+                            )}
                           >
                             <span
                               aria-hidden="true"
                               className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.065] bg-black/20 text-[10px] font-semibold text-zinc-400"
                             >
-                              {provider === 'claude' ? 'C' : <Bot size={12} />}
-                              <RotateCcw
+                              <AgentProviderMark provider={provider} />
+                              <MessageSquare
                                 className="absolute -bottom-1 -right-1 rounded-full bg-[#0d0e10] p-0.5"
-                                size={10}
+                                size={11}
                               />
                             </span>
                             <span className="min-w-0 flex-1">
@@ -1958,6 +2005,167 @@ function WorkConversationSidebar({
         )}
       </nav>
     </aside>
+  );
+}
+
+function PreviousConversationPreview({
+  session,
+  onResume,
+  onFork,
+}: {
+  session: SessionRow;
+  onResume: () => void;
+  onFork: () => void;
+}) {
+  const [transcript, setTranscript] = useState<SessionTranscript | null>(null);
+  const [error, setError] = useState(false);
+  const provider = sessionAgentProvider(session);
+  const providerName = providerLabel(provider);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTranscript(null);
+    setError(false);
+    void getSessionTranscript(session.id)
+      .then((result) => {
+        if (!cancelled) setTranscript(result);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.id]);
+
+  return (
+    <section
+      aria-label="Previous conversation preview"
+      className="mx-auto flex h-full w-full max-w-4xl min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.075] bg-[#0b0c0f]/75 shadow-[0_24px_70px_-50px_rgba(0,0,0,1)]"
+    >
+      <header className="flex shrink-0 items-start justify-between gap-5 border-b border-white/[0.065] px-6 py-5">
+        <div className="flex min-w-0 items-start gap-3.5">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.035]">
+            <AgentProviderMark provider={provider} className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
+              <span>{providerName}</span>
+              <span aria-hidden="true">·</span>
+              <span>Read-only history</span>
+            </div>
+            <h2 className="mt-1 truncate text-lg font-semibold tracking-[-0.02em] text-zinc-100">
+              {indexedSessionTitle(session)}
+            </h2>
+            <p className="mt-1 truncate text-xs text-zinc-400">{indexedSessionMeta(session)}</p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={onFork} className="gap-2">
+            <GitFork size={13} /> Fork
+          </Button>
+          <Button type="button" size="sm" onClick={onResume} className="gap-2">
+            <RotateCcw size={13} /> Resume
+          </Button>
+        </div>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+        {!transcript && !error ? (
+          <div className="flex h-full min-h-48 items-center justify-center gap-2 text-sm text-zinc-400">
+            <Loader2 size={14} className="animate-spin" /> Loading conversation…
+          </div>
+        ) : error ? (
+          <div className="flex h-full min-h-48 flex-col items-center justify-center text-center">
+            <p className="text-sm font-medium text-zinc-200">Conversation history is unavailable</p>
+            <p className="mt-1 max-w-sm text-xs leading-5 text-zinc-400">
+              The indexed thread is still available to resume or fork, but its normalized message
+              archive could not be read.
+            </p>
+          </div>
+        ) : transcript && transcript.messages.length === 0 ? (
+          <div className="flex h-full min-h-48 flex-col items-center justify-center text-center">
+            <p className="text-sm font-medium text-zinc-200">No archived messages yet</p>
+            <p className="mt-1 max-w-sm text-xs leading-5 text-zinc-400">
+              CodeVetter indexed this session, but it has no normalized conversation rows to show.
+            </p>
+          </div>
+        ) : transcript ? (
+          <div className="mx-auto max-w-3xl space-y-5">
+            {transcript.truncated ? (
+              <p className="rounded-lg border border-amber-200/10 bg-amber-200/[0.035] px-3 py-2 text-[11px] text-amber-100/70">
+                Showing the first {transcript.messages.length.toLocaleString()} of{' '}
+                {transcript.total_messages.toLocaleString()} archived messages.
+              </p>
+            ) : null}
+            {transcript.messages.map((message) => (
+              <TranscriptMessage
+                key={message.id || `${session.id}-${message.message_index}`}
+                message={message}
+                providerName={providerName}
+              />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function TranscriptMessage({
+  message,
+  providerName,
+}: {
+  message: SessionTranscriptMessage;
+  providerName: string;
+}) {
+  const role = transcriptRole(message, providerName);
+  const isUser = role === 'You';
+  const content = message.content_text?.trim() || transcriptFallback(message);
+
+  return (
+    <article
+      aria-label={`${role} message`}
+      className={cn('flex gap-3', isUser && 'flex-row-reverse')}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold',
+          isUser
+            ? 'border-amber-200/15 bg-amber-200/[0.06] text-amber-100'
+            : 'border-white/[0.08] bg-white/[0.03] text-zinc-400'
+        )}
+      >
+        {isUser ? 'You'.slice(0, 1) : providerName.slice(0, 1)}
+      </span>
+      <div className={cn('min-w-0 max-w-[82%]', isUser && 'text-right')}>
+        <div
+          className={cn(
+            'mb-1 flex items-center gap-2 text-[10px] text-zinc-500',
+            isUser && 'justify-end'
+          )}
+        >
+          <span>{role}</span>
+          {message.timestamp ? <span>{formatTranscriptTime(message.timestamp)}</span> : null}
+        </div>
+        <div
+          className={cn(
+            'whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-[13px] leading-6',
+            isUser
+              ? 'rounded-tr-md border border-amber-200/10 bg-amber-200/[0.055] text-zinc-200'
+              : role === providerName
+                ? 'rounded-tl-md border border-white/[0.065] bg-white/[0.025] text-zinc-300'
+                : 'rounded-tl-md border border-white/[0.045] bg-black/15 font-mono text-[11px] leading-5 text-zinc-400'
+          )}
+        >
+          {content}
+          {message.content_truncated ? (
+            <span className="mt-2 block text-[10px] text-zinc-500">Message truncated</span>
+          ) : null}
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -2338,8 +2546,6 @@ function ConversationStart({
   defaultPrompt,
   workItemId,
   recentSessions,
-  onResumeSession,
-  onForkSession,
   onStart,
 }: {
   repoProjects: RepoProject[];
@@ -2348,8 +2554,6 @@ function ConversationStart({
   defaultPrompt: string;
   workItemId: string | null;
   recentSessions: SessionRow[];
-  onResumeSession: (session: SessionRow) => void;
-  onForkSession: (session: SessionRow) => void;
   onStart: (seed: ConversationSeed) => void;
 }) {
   const [provider, setProvider] = useState<AgentProvider>(defaultProvider);
@@ -2483,44 +2687,6 @@ function ConversationStart({
             </button>
           ))}
         </div>
-        {recentSessions.length > 0 ? (
-          <details className="mt-6 border-t border-white/[0.06] pt-4 text-xs text-zinc-400">
-            <summary className="cursor-pointer select-none hover:text-zinc-200">
-              Recent runs
-            </summary>
-            <div className="mt-3 space-y-2">
-              {recentSessions.slice(0, 5).map((session) => (
-                <div
-                  key={session.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.07] px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-zinc-200">{indexedSessionTitle(session)}</div>
-                    <div className="mt-0.5 truncate font-mono text-[10px] text-zinc-500">
-                      {indexedSessionMeta(session)}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onResumeSession(session)}
-                      className="rounded-md px-2 py-1 hover:bg-white/[0.05] hover:text-zinc-100"
-                    >
-                      Resume
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onForkSession(session)}
-                      className="rounded-md px-2 py-1 hover:bg-white/[0.05] hover:text-zinc-100"
-                    >
-                      Fork
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </details>
-        ) : null}
       </form>
     </div>
   );
@@ -2691,6 +2857,10 @@ function indexedSessionTitle(session: SessionRow): string {
   );
 }
 
+function indexedSessionKey(session: SessionRow): string {
+  return `${sessionAgentProvider(session)}:${session.id}`;
+}
+
 function indexedSessionPaneName(
   session: SessionRow,
   fallbackIndex: number,
@@ -2708,6 +2878,32 @@ function indexedSessionMeta(session: SessionRow): string {
     session.last_message ? formatShortDate(session.last_message) : null,
   ].filter(Boolean);
   return parts.join(' · ') || compactSessionId(session.id);
+}
+
+function transcriptRole(message: SessionTranscriptMessage, providerName: string): string {
+  const role = message.role?.trim().toLowerCase();
+  if (role === 'user' || role === 'human') return 'You';
+  if (role === 'assistant' || role === 'agent') return providerName;
+  if (role === 'system') return 'System';
+  if (role === 'tool' || message.tool_name) return message.tool_name || 'Tool';
+  if (role === 'result') return 'Result';
+  return message.kind || 'Event';
+}
+
+function transcriptFallback(message: SessionTranscriptMessage): string {
+  if (message.tool_name) return `${message.tool_name} completed`;
+  return message.kind ? `[${message.kind}]` : '[Archived event]';
+}
+
+function formatTranscriptTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
 function buildWorkSessionLinks(
@@ -2934,15 +3130,10 @@ function loadSavedAgentWorkspace(): SavedAgentWorkspace | null {
     const terminals = parsed.terminals
       .filter(isSavedAgentTerminal)
       .map(normalizeSavedAgentTerminal);
-    const selectedId =
-      typeof parsed.selectedId === 'string' &&
-      terminals.some((terminal) => terminal.id === parsed.selectedId)
-        ? parsed.selectedId
-        : (terminals[0]?.id ?? '');
     return {
       version: 1,
       layout: isAgentLayout(parsed.layout) ? parsed.layout : 'focus',
-      selectedId,
+      selectedId: '',
       terminals,
     };
   } catch {
@@ -2952,17 +3143,15 @@ function loadSavedAgentWorkspace(): SavedAgentWorkspace | null {
 
 function serializeAgentWorkspace({
   layout,
-  selectedId,
   terminals,
 }: {
   layout: AgentLayout;
-  selectedId: string;
   terminals: AgentTerminal[];
 }): string {
   const payload: SavedAgentWorkspace = {
     version: 1,
     layout,
-    selectedId,
+    selectedId: '',
     terminals: terminals.map((terminal) => ({
       id: terminal.id,
       provider: terminal.provider,

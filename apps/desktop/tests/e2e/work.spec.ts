@@ -36,6 +36,7 @@ async function installWorkMock(page: Page, withLiveSessions = false) {
         inputRequests: Array<Record<string, unknown>>;
         stopRequests: Array<Record<string, unknown>>;
         directoryRequests: string[][];
+        transcriptRequests: string[];
         emitTerminalEvent: (payload: Record<string, unknown>) => void;
         hasAgentListener: () => boolean;
       };
@@ -49,6 +50,7 @@ async function installWorkMock(page: Page, withLiveSessions = false) {
       inputRequests: [],
       stopRequests: [],
       directoryRequests: [],
+      transcriptRequests: [],
       emitTerminalEvent: (payload) => {
         for (const callbackId of listeners['agent-terminal-event'] ?? []) {
           callbacks[callbackId]?.({ event: 'agent-terminal-event', payload });
@@ -200,6 +202,42 @@ async function installWorkMock(page: Page, withLiveSessions = false) {
             exists: path !== '/tmp/deleted-project',
           }));
         }
+        if (cmd === 'get_session_transcript') {
+          const sessionId = String(args.sessionId);
+          controlled.__WORK_TEST__.transcriptRequests.push(sessionId);
+          const claude = sessionId === 'historical-session-2';
+          return {
+            session_id: sessionId,
+            messages: [
+              {
+                id: `${sessionId}-user`,
+                message_index: 0,
+                role: 'user',
+                kind: 'message',
+                timestamp: '2026-07-20T01:00:00Z',
+                content_text: claude
+                  ? 'Explain how this repository changed over time.'
+                  : 'Fix the Work attachment regression.',
+                content_truncated: false,
+                tool_name: null,
+              },
+              {
+                id: `${sessionId}-assistant`,
+                message_index: 1,
+                role: 'assistant',
+                kind: 'message',
+                timestamp: '2026-07-20T01:01:00Z',
+                content_text: claude
+                  ? 'I traced the major releases and their motivations.'
+                  : 'I found and corrected the stale attachment identity.',
+                content_truncated: false,
+                tool_name: null,
+              },
+            ],
+            total_messages: 2,
+            truncated: false,
+          };
+        }
         if (cmd === 'list_reviews') return { reviews: [] };
         if (cmd === 'get_codex_warp_plugin_status') {
           return {
@@ -350,6 +388,7 @@ test.describe('Work surface', () => {
     await installWorkMock(
       page,
       testInfo.title.includes('focuses live runs') ||
+        testInfo.title.includes('opens with existing conversations') ||
         testInfo.title.includes('groups conversations') ||
         testInfo.title.includes('pre-fills verified history') ||
         testInfo.title.includes('reviews confirmed approval') ||
@@ -371,6 +410,45 @@ test.describe('Work surface', () => {
     expect(bounds).not.toBeNull();
     expect(bounds?.x).toBeLessThanOrEqual(32);
     expect(bounds?.width).toBe(252);
+  });
+
+  test('opens with existing conversations unselected and makes starting explicit', async ({
+    page,
+  }) => {
+    const sidebar = page.getByLabel('Conversation sidebar');
+
+    await expect(page.getByRole('heading', { name: 'What should we work on?' })).toBeVisible();
+    await expect(sidebar.getByText('Projects', { exact: true })).toBeVisible();
+    await expect(sidebar.getByText('Recent', { exact: true })).toHaveCount(0);
+    await expect(sidebar.getByText('Previous', { exact: true }).first()).toBeVisible();
+    await expect(sidebar.locator('[data-agent-provider-mark="codex"]').first()).toBeVisible();
+    await expect(sidebar.locator('[data-agent-provider-mark="claude"]').first()).toBeVisible();
+
+    await sidebar.getByRole('button', { name: /Open Codex run/ }).click();
+    await expect(page.getByLabel('Codex work session')).toBeVisible();
+
+    await sidebar.getByRole('button', { name: 'Start new conversation' }).click();
+    await expect(page.getByRole('heading', { name: 'What should we work on?' })).toBeVisible();
+    await page.getByRole('button', { name: 'claude', exact: true }).click();
+    await page
+      .getByPlaceholder('Describe the change, bug, or question…')
+      .fill('Start a clean Claude conversation');
+    await page.getByRole('button', { name: 'Start Claude', exact: true }).click();
+
+    await expect(page.getByLabel('Claude work session')).toBeVisible();
+    const startRequests = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __WORK_TEST__: { startRequests: Array<Record<string, unknown>> };
+          }
+        ).__WORK_TEST__.startRequests
+    );
+    expect(startRequests).toHaveLength(1);
+    expect(startRequests[0]).toMatchObject({
+      provider: 'claude',
+      prompt: 'Start a clean Claude conversation',
+    });
   });
 
   test('groups conversations by project and shows searchable operational states', async ({
@@ -438,9 +516,7 @@ test.describe('Work surface', () => {
     ).toEqual([]);
   });
 
-  test('pre-fills verified history behind expandable projects and explicit resume', async ({
-    page,
-  }) => {
+  test('previews verified history before an explicit resume', async ({ page }) => {
     const sidebar = page.getByLabel('Conversation sidebar');
     const codevetter = sidebar.getByRole('group', {
       name: 'codevetter project conversations',
@@ -452,12 +528,12 @@ test.describe('Work surface', () => {
       name: /Knowledge Base/,
     });
     const claudeHistory = knowledgeBase.getByRole('button', {
-      name: 'Resume Claude session Explain repo history',
+      name: 'Open Claude previous conversation Explain repo history',
     });
 
     await expect(
       codevetter.getByRole('button', {
-        name: 'Resume Codex session Fix the Work attachment regression',
+        name: 'Open Codex previous conversation Fix the Work attachment regression',
       })
     ).toBeVisible();
     await expect(claudeHistory).toBeVisible();
@@ -497,7 +573,31 @@ test.describe('Work surface', () => {
 
     await knowledgeDisclosure.click();
     await claudeHistory.click();
-    const startRequests = await page.evaluate(
+    await expect(page.getByLabel('Previous conversation preview')).toBeVisible();
+    await expect(
+      page.getByText('Explain how this repository changed over time.', { exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByText('I traced the major releases and their motivations.', { exact: true })
+    ).toBeVisible();
+
+    const previewState = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __WORK_TEST__: {
+              startRequests: Array<Record<string, unknown>>;
+              transcriptRequests: string[];
+            };
+          }
+        ).__WORK_TEST__
+    );
+    expect(previewState.transcriptRequests.length).toBeGreaterThan(0);
+    expect(new Set(previewState.transcriptRequests)).toEqual(new Set(['historical-session-2']));
+    expect(previewState.startRequests).toEqual([]);
+
+    await page.getByRole('button', { name: 'Resume', exact: true }).click();
+    const startRequestsAfterResume = await page.evaluate(
       () =>
         (
           window as unknown as {
@@ -505,8 +605,8 @@ test.describe('Work surface', () => {
           }
         ).__WORK_TEST__.startRequests
     );
-    expect(startRequests).toHaveLength(1);
-    expect(startRequests[0]).toMatchObject({
+    expect(startRequestsAfterResume).toHaveLength(1);
+    expect(startRequestsAfterResume[0]).toMatchObject({
       provider: 'claude',
       cwd: '/tmp/knowledge-base',
       resumeSessionId: 'historical-session-2',
@@ -672,7 +772,8 @@ test.describe('Work surface', () => {
 
     await conversations.getByRole('button', { name: /Archive Claude run/ }).click();
     await expect(claudeRun).toHaveCount(0);
-    await expect(page.getByLabel('Codex work session')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'What should we work on?' })).toBeVisible();
+    await expect(page.getByLabel('Codex work session')).toHaveCount(0);
   });
 
   test('archives a live run only after stopping its owned process', async ({ page }) => {

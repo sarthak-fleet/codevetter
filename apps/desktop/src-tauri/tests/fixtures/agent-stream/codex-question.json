@@ -1,0 +1,22 @@
+{
+  "id": "request-question",
+  "method": "item/tool/requestUserInput",
+  "params": {
+    "threadId": "thread-codex",
+    "turnId": "turn-question",
+    "itemId": "item-question",
+    "questions": [
+      {
+        "id": "scope",
+        "header": "Scope",
+        "question": "Which change should I make?",
+        "options": [
+          { "label": "Small", "description": "Keep the edit bounded" },
+          { "label": "Broad", "description": "Include related cleanup" }
+        ],
+        "isOther": true,
+        "isSecret": false
+      }
+    ]
+  }
+}

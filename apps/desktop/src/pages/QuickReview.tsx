@@ -27,6 +27,7 @@ import VerificationEvidencePanel from '@/components/quick-review/VerificationEvi
 import VerificationSummaryPanel, {
   type WarmExecutionFinding,
 } from '@/components/quick-review/VerificationSummaryPanel';
+import XrayExportPanel from '@/components/quick-review/XrayExportPanel';
 import SandboxRunner from '@/components/SandboxRunner';
 import ScoreBadge from '@/components/score-badge';
 import { Badge } from '@/components/ui/badge';
@@ -124,6 +125,7 @@ import {
   unpackDeepGraphStatus,
   type UnpackDeepGraphDetectChanges,
   cancelReviewVerificationCommand,
+  cancelCliReview,
   deleteReview,
   discardFix,
   discoverPlaywrightSpecs,
@@ -132,6 +134,7 @@ import {
   getPreference,
   getRepoHistoryContext,
   getReview,
+  getReviewManifest,
   isTauriAvailable,
   listGitBranches,
   listPullRequests,
@@ -498,7 +501,7 @@ export default function QuickReview() {
   const handleLoadPastReview = useCallback(
     async (id: string) => {
       try {
-        const data = await getReview(id);
+        const [data, reviewManifest] = await Promise.all([getReview(id), getReviewManifest(id)]);
         const review = data.review;
         const findings = (data.findings ?? []).map((f) => ({
           id: f.id,
@@ -531,6 +534,7 @@ export default function QuickReview() {
           duration_ms: 0,
           diff_range: diffRangeFromSourceLabel(review.source_label),
           findings_count: findings.length,
+          review_manifest: reviewManifest,
         });
         setSelectedBranch('');
         setDiffRange(diffRangeFromSourceLabel(review.source_label));
@@ -869,6 +873,18 @@ export default function QuickReview() {
     activeProcedureSteps,
     storedProcedureEvents,
   ]);
+
+  const handleCancelReview = useCallback(async () => {
+    if (!repoPath || !isReviewing) return;
+    try {
+      const result = await cancelCliReview(repoPath);
+      if (!result.cancelled && result.reason === 'no_active_review') {
+        setError('The review is already stopping or has finished.');
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, [isReviewing, repoPath]);
 
   const qaPostFixComparison = useMemo(
     () => buildQaPostFixComparison(qaEvidenceHistory, fixCompletedAt),
@@ -2741,6 +2757,17 @@ export default function QuickReview() {
     const evidenceCandidates = result.evidence_candidates ?? [];
     const evidenceProcedureSteps = result.evidence_procedure_steps ?? [];
     const reviewMemoryGraph = result.review_memory_graph;
+    const reviewManifest = result.review_manifest;
+    const coverageCounts =
+      reviewManifest && !('coverage_kind' in reviewManifest)
+        ? reviewManifest.units.reduce(
+            (counts, unit) => {
+              counts[unit.coverage_state] += 1;
+              return counts;
+            },
+            { reviewed: 0, reused: 0, skipped: 0, failed: 0, cancelled: 0 }
+          )
+        : null;
     const focusedReviewMemoryGraph = buildFocusedReviewMemoryGraph(
       reviewMemoryGraph,
       activeFinding
@@ -2790,6 +2817,54 @@ export default function QuickReview() {
           {/* Error banner */}
           {error && (
             <div className="shrink-0 bg-red-500/10 px-4 py-2 text-xs text-red-400">{error}</div>
+          )}
+
+          {reviewManifest && (
+            <div
+              className={cn(
+                'mb-3 flex shrink-0 items-center justify-between gap-4 rounded-xl border px-4 py-2.5 text-xs',
+                reviewManifest.complete_coverage && !('coverage_kind' in reviewManifest)
+                  ? 'border-emerald-400/15 bg-emerald-400/[0.035] text-slate-400'
+                  : 'border-amber-400/20 bg-amber-400/[0.045] text-slate-400'
+              )}
+              data-testid="review-coverage"
+            >
+              {'coverage_kind' in reviewManifest ? (
+                <>
+                  <span>
+                    <span className="font-medium text-amber-200">Coverage unknown</span>
+                    {' — '}
+                    {reviewManifest.limitation}
+                  </span>
+                  <span className="shrink-0 text-slate-600">Legacy review</span>
+                </>
+              ) : (
+                <>
+                  <span>
+                    <span
+                      className={cn(
+                        'font-medium',
+                        reviewManifest.complete_coverage ? 'text-emerald-200' : 'text-amber-200'
+                      )}
+                    >
+                      {reviewManifest.complete_coverage ? 'Complete coverage' : 'Partial coverage'}
+                    </span>
+                    {' — '}
+                    {(coverageCounts?.reviewed ?? 0) + (coverageCounts?.reused ?? 0)} reviewed
+                    {coverageCounts?.reused ? ` (${coverageCounts.reused} reused)` : ''}
+                    {coverageCounts?.skipped ? ` · ${coverageCounts.skipped} policy-skipped` : ''}
+                    {coverageCounts?.failed ? ` · ${coverageCounts.failed} failed` : ''}
+                    {coverageCounts?.cancelled ? ` · ${coverageCounts.cancelled} cancelled` : ''}
+                    {reviewManifest.stale ? ' · target changed during review' : ''}
+                  </span>
+                  <span className="shrink-0 text-slate-600">
+                    {reviewManifest.qualification_counts.rejected} rejected ·{' '}
+                    {reviewManifest.qualification_counts.unresolved} unresolved ·{' '}
+                    {reviewManifest.qualification_counts.stale} stale
+                  </span>
+                </>
+              )}
+            </div>
           )}
 
           {/* Editor + verdict body */}
@@ -2980,6 +3055,8 @@ export default function QuickReview() {
                   defaultArtifact={qaLastRun?.screenshot_path ?? qaLastRun?.route ?? qaBaseUrl}
                   onBundleChange={setAudienceBundle}
                 />
+
+                <XrayExportPanel reviewId={reviewId} findings={sortedFindings} />
 
                 {(blastReport ||
                   blastLoading ||
@@ -3187,6 +3264,7 @@ export default function QuickReview() {
               commandSourcePreview={commandSourcePreview}
               setCommandSourcePreview={setCommandSourcePreview}
               handleReview={handleReview}
+              handleCancelReview={handleCancelReview}
               isReviewing={isReviewing}
               pastReviewsLoading={pastReviewsLoading}
               pastReviews={pastReviews}

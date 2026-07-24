@@ -2,11 +2,14 @@ pub mod accounts;
 #[cfg(feature = "browser-agent")]
 pub mod agent;
 pub mod agent_memories;
+pub mod agent_stream;
 pub mod agent_terminal;
 pub mod audience_validation;
 pub mod blast_radius;
 pub mod business_rule_archaeology;
 pub mod cli_stream;
+pub mod codex_app_server;
+pub mod deterministic_review;
 pub mod differential_verification;
 pub mod dora;
 pub mod evidence_pattern;
@@ -22,6 +25,7 @@ pub mod history_read;
 pub mod history_summary_graph;
 pub mod intel;
 pub mod mcp_access;
+pub mod native_agent_island;
 pub mod observability;
 #[cfg(test)]
 mod perf_bench;
@@ -56,3 +60,4 @@ pub mod unpack_types;
 pub mod warm_verification;
 pub mod warm_verification_bridge;
 pub mod work_items;
+pub mod xray;

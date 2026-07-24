@@ -1,0 +1,7 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "session_id": "claude-session",
+  "is_error": false,
+  "result": "Private provider output"
+}

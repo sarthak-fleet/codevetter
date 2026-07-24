@@ -30,10 +30,15 @@ user's machine against a local SQLite database.
 │   ├─ pages/        route screens                            │
 │   ├─ components/   feature panels + shadcn/ui primitives    │
 │   └─ lib/          review-service, tauri-ipc, analytics, …  │
+├─────────────────────────────────────────────────────────────┤
+│  Optional supervised Swift helper                           │
+│   └─ native Agent Island status + local speech              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-The webview is the *only* user surface. The Rust side does file I/O, git,
+The webview is the primary product surface. The optional off-by-default
+[Native Agent Island](./native-agent-island.md) is a presentation-only child
+process; Rust remains authoritative. The Rust side does file I/O, git,
 SQLite, subprocess spawning (CLI agents), the structural graph, history
 reconstruction, and the optional MCP sidecar.
 
@@ -48,6 +53,7 @@ reconstruction, and the optional MCP sidecar.
 | DB | `apps/desktop/src-tauri/src/db/` (`schema.rs`, `queries.rs`) | SQLite schema + migrations + queries via `rusqlite`. Single file at the Tauri app data dir. |
 | MCP sidecar | `apps/desktop/src-tauri/src/mcp/` | Opt-in, read-only, stdio-only MCP server binary bundled beside the app. See [mcp-sidecar.md](./mcp-sidecar.md). |
 | Agent runner | `apps/desktop/src-tauri/src/agent/` | Spawns `claude-code` / `codex` / `gemini` CLI subprocesses, PTY terminals, optional browser agent (feature-gated `chromiumoxide`). |
+| Native Agent Island | `apps/desktop/native/AgentIsland/` | Optional supervised AppKit/SwiftUI session status and local speech; receives bounded state and returns typed intents only. |
 
 ## Critical invariants
 
@@ -83,6 +89,7 @@ reconstruction, and the optional MCP sidecar.
 - [repo-unpacked.md](./repo-unpacked.md) — evidence-backed repo briefs.
 - [mcp-sidecar.md](./mcp-sidecar.md) — opt-in local MCP server.
 - [history-evidence-import.md](./history-evidence-import.md) — importing provider-side outcomes.
+- [native-agent-island.md](./native-agent-island.md) — native status, speech, protocol, safety, and qualification.
 - Pinned technical decisions: [decisions/mcp-sdk.md](./decisions/mcp-sdk.md), [decisions/oss-integration.md](./decisions/oss-integration.md), [decisions/structural-graph-contract.md](./decisions/structural-graph-contract.md).
 
 ## What was removed (do not resurrect)

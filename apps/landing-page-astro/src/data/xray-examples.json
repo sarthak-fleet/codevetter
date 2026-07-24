@@ -1,0 +1,56 @@
+[
+  {
+    "id": "ts-sql-injection",
+    "title": "SQL injection in a TypeScript lookup",
+    "language": "TypeScript",
+    "category": "Security",
+    "source": "codevetter-public-benchmark/ts-sql-injection",
+    "corpusState": "benchmark_ground_truth",
+    "outcome": "needs_review",
+    "confidence": "medium",
+    "score": 80,
+    "finding": {
+      "severity": "critical",
+      "title": "User input is interpolated into an executed SQL query",
+      "summary": "The lookup builds SQL with user-controlled email input instead of a parameterized query.",
+      "file": "source.ts",
+      "line": 13
+    }
+  },
+  {
+    "id": "go-race-condition",
+    "title": "Data race on a shared Go map",
+    "language": "Go",
+    "category": "Concurrency",
+    "source": "codevetter-public-benchmark/go-race-condition",
+    "corpusState": "benchmark_ground_truth",
+    "outcome": "needs_review",
+    "confidence": "medium",
+    "score": 80,
+    "finding": {
+      "severity": "high",
+      "title": "Concurrent map access is not synchronized",
+      "summary": "Multiple goroutines read and write the same map without a mutex or another synchronization boundary.",
+      "file": "source.go",
+      "line": 14
+    }
+  },
+  {
+    "id": "py-path-traversal",
+    "title": "Path traversal in a Python file handler",
+    "language": "Python",
+    "category": "Security",
+    "source": "codevetter-public-benchmark/py-path-traversal",
+    "corpusState": "benchmark_ground_truth",
+    "outcome": "needs_review",
+    "confidence": "medium",
+    "score": 80,
+    "finding": {
+      "severity": "high",
+      "title": "Untrusted path escapes the intended directory",
+      "summary": "The requested filename is joined to the storage root without canonical containment validation.",
+      "file": "source.py",
+      "line": 9
+    }
+  }
+]

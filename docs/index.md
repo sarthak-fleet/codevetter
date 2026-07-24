@@ -33,6 +33,7 @@ is only the presentation and search layer.
 - [repo-unpacked.md](./architecture/repo-unpacked.md) — evidence-backed repo briefs.
 - [mcp-sidecar.md](./architecture/mcp-sidecar.md) — opt-in local MCP server.
 - [history-evidence-import.md](./architecture/history-evidence-import.md) — importing provider-side outcomes.
+- [native-agent-island.md](./architecture/native-agent-island.md) — supervised Swift status, speech, and provider-action boundary.
 
 ### Decisions
 

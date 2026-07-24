@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "PermissionRequest",
+  "session_id": "claude-session",
+  "tool_name": "Bash",
+  "tool_use_id": "claude-approval",
+  "tool_input": { "command": "curl private.example" }
+}

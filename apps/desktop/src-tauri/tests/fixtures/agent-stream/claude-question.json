@@ -1,0 +1,18 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "claude-session",
+  "tool_name": "AskUserQuestion",
+  "tool_use_id": "claude-question",
+  "tool_input": {
+    "questions": [
+      {
+        "header": "Choice",
+        "question": "Choose one",
+        "options": [
+          { "label": "A", "description": "First choice" },
+          { "label": "B", "description": "Second choice" }
+        ]
+      }
+    ]
+  }
+}

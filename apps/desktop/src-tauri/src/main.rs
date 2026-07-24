@@ -107,6 +107,9 @@ fn run_usage_maintenance(app_data_dir: std::path::PathBuf) {
 }
 
 fn main() {
+    if commands::agent_terminal::maybe_run_claude_hook_bridge() {
+        return;
+    }
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     tauri::Builder::default()
@@ -126,9 +129,35 @@ fn main() {
                 .expect("failed to resolve app data dir");
 
             let conn = db::init_db(app_data_dir.clone()).expect("failed to initialize database");
+            let native_island_preferences = [
+                "native_agent_island_enabled",
+                "native_agent_island_speech_muted",
+                "native_agent_island_speak_completion",
+                "native_agent_island_speak_attention",
+                "native_agent_island_speak_failure",
+                "native_agent_island_codex_voice",
+                "native_agent_island_claude_voice",
+                "native_agent_island_speech_rate",
+                "native_agent_island_speech_volume",
+                "native_agent_island_speech_cooldown",
+                "native_agent_island_quiet_start",
+                "native_agent_island_quiet_end",
+            ]
+            .into_iter()
+            .filter_map(|key| {
+                db::queries::get_preference(&conn, key)
+                    .ok()
+                    .flatten()
+                    .map(|value| (key.to_string(), value))
+            })
+            .collect();
             app.manage(DbState(Arc::new(Mutex::new(conn))));
             app.manage(commands::trex_watcher::WatcherHandles::new());
             app.manage(commands::resources::ResourceState::new());
+            commands::native_agent_island::hydrate_preferences(
+                app.handle(),
+                &native_island_preferences,
+            );
 
             // v1.1.83: resume any T-Rex watchers that were enabled before the
             // last shutdown. Each enabled row spawns its own Tokio polling task.
@@ -341,11 +370,15 @@ fn main() {
             // Review
             commands::review::get_local_diff,
             commands::review::get_review,
+            commands::review::get_review_manifest,
             commands::review::delete_review,
             commands::review::set_finding_disposition,
             commands::review::list_reviews,
             commands::review::get_standards_pack_usage,
             commands::review::run_cli_review,
+            commands::review::cancel_cli_review,
+            commands::xray::build_agent_pr_xray,
+            commands::xray::save_agent_pr_xray,
             commands::review::fix_findings,
             commands::review::merge_fix,
             commands::review::discard_fix,
@@ -365,6 +398,7 @@ fn main() {
             commands::blast_radius::analyze_blast_radius,
             // Sessions (used by Home for index stats)
             commands::sessions::list_sessions,
+            commands::sessions::get_session_transcript,
             commands::agent_memories::list_agent_memory_sources,
             commands::agent_memories::read_agent_memory_source,
             commands::agent_terminal::start_codex_agent_terminal,
@@ -380,6 +414,9 @@ fn main() {
             commands::agent_terminal::install_codex_warp_plugin,
             commands::agent_terminal::list_codex_agent_terminals,
             commands::agent_terminal::list_agent_terminals,
+            commands::native_agent_island::set_native_agent_island_enabled,
+            commands::native_agent_island::get_native_agent_island_status,
+            commands::native_agent_island::preview_native_agent_island,
             commands::work_items::list_work_items,
             commands::work_items::create_work_item,
             commands::work_items::update_work_item,

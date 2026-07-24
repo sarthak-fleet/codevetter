@@ -4277,8 +4277,8 @@ mod tests {
 
     #[test]
     fn live_transcript_catch_up_has_a_conservative_tick_budget() {
-        assert!(LIVE_TRANSCRIPT_SESSION_BYTE_BUDGET <= 64 * 1024);
-        assert!(LIVE_TRANSCRIPT_TICK_BUDGET_MS <= 200);
+        const { assert!(LIVE_TRANSCRIPT_SESSION_BYTE_BUDGET <= 64 * 1024) };
+        const { assert!(LIVE_TRANSCRIPT_TICK_BUDGET_MS <= 200) };
         assert_eq!(LIVE_CODEX_DISCOVERY_SESSION_BUDGET, 1);
     }
 

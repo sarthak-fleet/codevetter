@@ -22,7 +22,7 @@ Source: `navItems` in `apps/desktop/src/components/sidebar.tsx`.
 | Repo Unpack | `/unpack` | `apps/desktop/src/pages/RepoPage.tsx` | Whole-repo evidence-backed system brief. Tab `match`es `/unpack` and `/intel`. Scanner in `src-tauri/src/commands/unpack*.rs`; persisted to `repo_unpacked_reports`. See [architecture/repo-unpacked.md](../architecture/repo-unpacked.md). |
 | Work | `/agents` | `apps/desktop/src/pages/AgentPanel.tsx` | Outcome-first Codex/Claude conversations in expandable repository-project groups with visible operational state. Indexed history appears only when its local working directory still exists, and resumes only through an explicit action. PTY execution stays behind the conversation and activity interface. |
 | Board | `/board` | `apps/desktop/src/pages/AgentPanel.tsx` | Persistent Plan/Build/Review/Verify/Done orchestration with handoffs to Work, Review, Testing, and Repo Unpack. Shares one mounted workspace instance with Work so live provider state survives navigation. |
-| Review | `/review` | `apps/desktop/src/pages/QuickReview.tsx` | AI code review with diff + fix + verification proof. Editor-primary layout with verdict sidebar. |
+| Review | `/review` | `apps/desktop/src/pages/QuickReview.tsx` | Deterministic changed-file review with source-qualified findings, explicit coverage/limitations, cancellation, fix + verification proof, and local Agent PR X-Ray export. Editor-primary layout with verdict sidebar. |
 | Testing | `/trex` | `apps/desktop/src/pages/TRex.tsx` | Changed-capability verification and PR watchers with retry + per-PR base-branch inference. |
 
 Settings (`/settings`) is a labelled utility at the right of the same top rail,

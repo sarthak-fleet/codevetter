@@ -18,10 +18,12 @@ target/
 # Desktop app build
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/binaries/codevetter-mcp-*
+apps/desktop/src-tauri/binaries/codevetter-agent-island-*
 apps/desktop/src-tauri/sidecar/
 apps/desktop/src-tauri/binaries/codevetter-mcp-*
 apps/desktop/out/
 apps/desktop/.next/
+apps/desktop/native/AgentIsland/.build/
 
 # Environment
 .env

@@ -108,7 +108,12 @@ function audienceBundle() {
   };
 }
 
-async function installReviewMock(page: Page, newestIsStale: boolean) {
+async function installReviewMock(
+  page: Page,
+  newestIsStale: boolean,
+  legacyManifest = false,
+  withSuggestion = false
+) {
   const newest = warmResult(newestIsStale ? 'newest-stale' : 'newest-pass', {
     stale: newestIsStale,
   });
@@ -145,7 +150,7 @@ async function installReviewMock(page: Page, newestIsStale: boolean) {
     pr_number: null,
     agent_used: 'claude',
     score_composite: 100,
-    findings_count: 0,
+    findings_count: withSuggestion ? 1 : 0,
     review_action: null,
     summary_markdown: 'No findings.',
     status: 'completed',
@@ -155,9 +160,35 @@ async function installReviewMock(page: Page, newestIsStale: boolean) {
     created_at: '2026-07-15T07:00:00.000Z',
     standards_pack: null,
   };
+  const findings = withSuggestion
+    ? [
+        {
+          id: 'finding-approval',
+          review_id: REVIEW_ID,
+          severity: 'medium',
+          title: 'Guard invalid state',
+          summary: 'The guard accepts an invalid state.',
+          suggestion: 'Return an error.',
+          file_path: 'src/portfolio.tsx',
+          line: 12,
+          confidence: 0.9,
+          disposition: 'unreviewed',
+        },
+      ]
+    : [];
 
   await page.addInitScript(
-    ({ repoPath, reviewId, projectRow, reviewRow, bundle, warmRuns, currentIdentity }) => {
+    ({
+      repoPath,
+      reviewId,
+      projectRow,
+      reviewRow,
+      findingRows,
+      bundle,
+      warmRuns,
+      currentIdentity,
+      legacy,
+    }) => {
       const controlled = window as unknown as {
         __reviewWarmCommands: Array<{ cmd: string; args: Record<string, unknown> | undefined }>;
         __TAURI_INTERNALS__: {
@@ -187,7 +218,51 @@ async function installReviewMock(page: Page, newestIsStale: boolean) {
           if (cmd === 'list_repo_projects') return [projectRow];
           if (cmd === 'register_repo_project') return projectRow;
           if (cmd === 'list_reviews') return { reviews: [reviewRow] };
-          if (cmd === 'get_review') return { review: reviewRow, findings: [] };
+          if (cmd === 'get_review') return { review: reviewRow, findings: findingRows };
+          if (cmd === 'get_review_manifest')
+            return legacy
+              ? {
+                  schema_version: 1,
+                  review_id: reviewId,
+                  coverage_kind: 'legacy_aggregate',
+                  complete_coverage: false,
+                  limitation: 'Coverage predates deterministic manifests.',
+                }
+              : {
+                  schema_version: 1,
+                  run_id: 'run-coverage',
+                  review_id: reviewId,
+                  target: {
+                    schema_version: 1,
+                    identity: 'target',
+                    diff_mode: 'range',
+                    requested_range: 'main...feature',
+                    head_sha: 'b'.repeat(40),
+                    base_sha: 'a'.repeat(40),
+                    source_fingerprint: 'source',
+                  },
+                  executor_id: 'claude',
+                  executor_version: 'cli-v1',
+                  policy_fingerprint: 'policy',
+                  units: [
+                    {
+                      id: 'unit-1',
+                      file_path: 'src/app.ts',
+                      file_status: 'M',
+                      fingerprint: 'unit',
+                      diff_bytes: 120,
+                      prompt_budget_bytes: 81920,
+                      coverage_state: 'reviewed',
+                      coverage_reason: null,
+                    },
+                  ],
+                  qualification_counts: { qualified: 0, stale: 0, unresolved: 0, rejected: 2 },
+                  complete_coverage: true,
+                  stale: false,
+                  cancelled: false,
+                  created_at: '2026-07-15T07:00:00.000Z',
+                  completed_at: '2026-07-15T07:00:01.000Z',
+                };
           if (cmd === 'list_git_branches')
             return { branches: ['main', 'feature'], current: 'feature' };
           if (cmd === 'list_pull_requests') return { pull_requests: [] };
@@ -198,6 +273,51 @@ async function installReviewMock(page: Page, newestIsStale: boolean) {
           if (cmd === 'list_synthetic_qa_runs') return { runs: [] };
           if (cmd === 'list_review_procedure_events') return { events: [] };
           if (cmd === 'suggest_review_verification_commands') return { commands: [] };
+          if (cmd === 'build_agent_pr_xray') {
+            const request = args?.request as
+              | { public_source_confirmed?: boolean; public_source?: string }
+              | undefined;
+            const eligible = !!request?.public_source_confirmed && !!request.public_source;
+            return {
+              eligible,
+              missing_requirements: eligible ? [] : ['Confirm a public source.'],
+              sanitizer_issues: [],
+              payload: {
+                schema_version: 1,
+                xray_id: 'xray-test',
+                source: request?.public_source ?? '',
+                generated_at: '2026-07-15T07:00:01.000Z',
+                corpus_state: 'dogfood',
+                outcome: 'incomplete',
+                confidence: 'low',
+                score: 100,
+                review_status: 'completed',
+                findings: [],
+                stages: [],
+                coverage: {
+                  kind: 'deterministic_units',
+                  complete: true,
+                  reviewed: 1,
+                  reused: 0,
+                  skipped: 0,
+                  failed: 0,
+                  cancelled: 0,
+                  rejected_candidates: 0,
+                  unresolved_candidates: 0,
+                  stale_candidates: 0,
+                },
+                changed_behavior: [],
+                trusted_impact_paths: [],
+                checks_run: [],
+                verified_claims: [],
+                missing_proof: ['executable_test: no evidence'],
+                unresolved_risks: [],
+              },
+              json: '{}',
+              markdown: '# X-Ray',
+              html: '<!doctype html><title>X-Ray preview</title><p>Portable evidence</p>',
+            };
+          }
           throw new Error(`unhandled mocked command: ${cmd} for ${reviewId}`);
         },
         transformCallback: () => 1,
@@ -210,6 +330,7 @@ async function installReviewMock(page: Page, newestIsStale: boolean) {
       reviewId: REVIEW_ID,
       projectRow: project,
       reviewRow: review,
+      findingRows: findings,
       bundle: audienceBundle(),
       warmRuns: [
         {
@@ -226,14 +347,79 @@ async function installReviewMock(page: Page, newestIsStale: boolean) {
         },
       ],
       currentIdentity: current,
+      legacy: legacyManifest,
     }
   );
 }
 
+test('Review presents deterministic coverage and rejected candidate counts', async ({ page }) => {
+  await installReviewMock(page, false);
+  await openPastReview(page);
+  await expect(page.getByTestId('review-coverage')).toContainText('Complete coverage');
+  await expect(page.getByTestId('review-coverage')).toContainText('2 rejected');
+});
+
+test('Review labels legacy aggregate coverage as unknown', async ({ page }) => {
+  await installReviewMock(page, false, true);
+  await openPastReview(page);
+  await expect(page.getByTestId('review-coverage')).toContainText('Coverage unknown');
+  await expect(page.getByTestId('review-coverage')).toContainText('Legacy review');
+});
+
+test('Completed review can preview a sanitized offline X-Ray', async ({ page }) => {
+  await installReviewMock(page, false);
+  await openPastReview(page);
+  await page.getByText('Agent PR X-Ray', { exact: true }).click();
+  await page.getByPlaceholder('owner/repository#123').fill('owner/repo#42');
+  await page
+    .getByLabel('I confirm this repository/change and the finding summaries are safe to publish.')
+    .check();
+  await page.getByRole('button', { name: 'Preview' }).click();
+  await expect(page.getByText('Ready to publish')).toBeVisible();
+  await expect(page.getByTitle('Agent PR X-Ray preview')).toBeVisible();
+});
+
+test('X-Ray preview stays blocked until the public source is confirmed', async ({ page }) => {
+  await installReviewMock(page, false);
+  await openPastReview(page);
+  await page.getByText('Agent PR X-Ray', { exact: true }).click();
+  await page.getByPlaceholder('owner/repository#123').fill('owner/repo#42');
+  await page.getByRole('button', { name: 'Preview' }).click();
+  await expect(page.getByText('Export blocked')).toBeVisible();
+  await expect(page.getByText('Confirm a public source.')).toBeVisible();
+});
+
+test('X-Ray sends only explicitly approved suggestion excerpts', async ({ page }) => {
+  await installReviewMock(page, false, false, true);
+  await openPastReview(page);
+  await page.getByText('Agent PR X-Ray', { exact: true }).click();
+  await page.getByLabel('Guard invalid state').check();
+  await page.getByPlaceholder('owner/repository#123').fill('owner/repo#42');
+  await page
+    .getByLabel('I confirm this repository/change and the finding summaries are safe to publish.')
+    .check();
+  await page.getByRole('button', { name: 'Preview' }).click();
+  const approved = await page.evaluate(() => {
+    const controlled = window as unknown as {
+      __reviewWarmCommands: Array<{ cmd: string; args?: Record<string, unknown> }>;
+    };
+    const command = controlled.__reviewWarmCommands
+      .filter(({ cmd }) => cmd === 'build_agent_pr_xray')
+      .at(-1);
+    return (command?.args?.request as { approved_excerpt_finding_ids?: string[] } | undefined)
+      ?.approved_excerpt_finding_ids;
+  });
+  expect(approved).toEqual(['finding-approval']);
+});
+
 async function openPastReview(page: Page) {
   await navigateTo(page, '/review');
   await waitForNoSpinners(page);
-  await page.locator('button').filter({ hasText: '0 findings' }).last().click();
+  await page
+    .locator('button')
+    .filter({ hasText: /findings/ })
+    .last()
+    .click();
   await expect(page.getByTestId('audience-validation-panel')).toBeVisible();
 }
 

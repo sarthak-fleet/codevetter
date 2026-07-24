@@ -4,6 +4,7 @@ import {
   GitPullRequest,
   ListOrdered,
   Loader2,
+  Square,
   Trash2,
   Zap,
 } from 'lucide-react';
@@ -80,6 +81,7 @@ export interface ReviewSetupPanelProps {
   commandSourcePreview: CommandSourcePreview | null;
   setCommandSourcePreview: (value: CommandSourcePreview | null) => void;
   handleReview: () => Promise<void>;
+  handleCancelReview: () => Promise<void>;
   isReviewing: boolean;
   pastReviewsLoading: boolean;
   pastReviews: LocalReviewRow[];
@@ -126,6 +128,7 @@ export default function ReviewSetupPanel({
   commandSourcePreview,
   setCommandSourcePreview,
   handleReview,
+  handleCancelReview,
   isReviewing,
   pastReviewsLoading,
   pastReviews,
@@ -261,12 +264,12 @@ export default function ReviewSetupPanel({
         <Separator className="bg-[var(--cv-line)]" />
 
         <Button
-          onClick={handleReview}
-          disabled={!diffRange || isReviewing}
+          onClick={() => void (isReviewing ? handleCancelReview() : handleReview())}
+          disabled={!diffRange}
           className="w-full gap-2 disabled:opacity-50"
         >
-          {isReviewing ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
-          {isReviewing ? 'Reviewing…' : 'Review with Claude'}
+          {isReviewing ? <Square size={15} /> : <Zap size={16} />}
+          {isReviewing ? 'Cancel review' : 'Review with Claude'}
         </Button>
 
         <details className="rounded-xl border border-[var(--cv-line)] bg-[var(--cv-canvas)] p-3">

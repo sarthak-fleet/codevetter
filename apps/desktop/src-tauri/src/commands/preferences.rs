@@ -1,7 +1,7 @@
 use crate::db::queries;
 use crate::DbState;
 use serde_json::{json, Value};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 /// Get a preference value by key.
 #[tauri::command]
@@ -14,11 +14,14 @@ pub async fn get_preference(db: State<'_, DbState>, key: String) -> Result<Value
 /// Set a preference value.
 #[tauri::command]
 pub async fn set_preference(
+    app: AppHandle,
     db: State<'_, DbState>,
     key: String,
     value: String,
 ) -> Result<Value, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     queries::set_preference(&conn, &key, &value).map_err(|e| e.to_string())?;
+    drop(conn);
+    super::native_agent_island::apply_preference(&app, &key, &value);
     Ok(json!({ "key": key, "value": value, "saved": true }))
 }

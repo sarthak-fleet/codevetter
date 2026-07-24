@@ -1,0 +1,7 @@
+{
+  "method": "turn/completed",
+  "params": {
+    "threadId": "thread-codex",
+    "turn": { "id": "turn-complete", "status": "completed", "items": [] }
+  }
+}

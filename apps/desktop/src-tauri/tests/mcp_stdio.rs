@@ -26,7 +26,7 @@ fn stdio_boundary_is_json_only_scoped_and_paginated() {
         "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}
     }));
     let tool_definitions = tools["result"]["tools"].as_array().expect("tools");
-    assert_eq!(tool_definitions.len(), 22);
+    assert_eq!(tool_definitions.len(), 23);
     assert!(tool_definitions.iter().any(|tool| {
         tool["name"] == "history_list_landmarks"
             && tool["inputSchema"]["additionalProperties"] == false

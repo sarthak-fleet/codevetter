@@ -65,6 +65,22 @@ pnpm bench:public      # 27 public cases, catch-rate/precision/F1
 
 See [benchmark.md](./benchmark.md).
 
+## Native Agent Island
+
+On macOS, the Apple-framework-only helper has a framework-independent protocol
+self-test and focused Rust coverage:
+
+```bash
+cd apps/desktop
+pnpm test:agent-island
+cargo test --manifest-path src-tauri/Cargo.toml native_agent_island --lib
+cargo test --manifest-path src-tauri/Cargo.toml agent_stream --lib
+cargo test --manifest-path src-tauri/Cargo.toml claude_hook --lib
+```
+
+Architecture, privacy boundaries, and remaining release qualification are in
+[native-agent-island.md](../architecture/native-agent-island.md).
+
 ## CI order
 
 `ci.yml` runs, in order: lint → typecheck → unit tests → MCP sidecar build

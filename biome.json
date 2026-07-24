@@ -11,6 +11,7 @@
       "!**/out",
       "!**/dist",
       "!**/build",
+      "!**/.build",
       "!**/node_modules",
       "!**/coverage",
       "!**/next-env.d.ts",

@@ -1162,6 +1162,17 @@ pub fn list_session_message_archive(
     rows.collect()
 }
 
+pub fn count_session_message_archive(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<i64, rusqlite::Error> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM session_message_archive WHERE session_id = ?1",
+        params![session_id],
+        |row| row.get(0),
+    )
+}
+
 pub fn session_conversation_window_by_source_line(
     conn: &Connection,
     session_id: &str,

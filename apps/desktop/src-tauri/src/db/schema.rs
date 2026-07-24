@@ -1424,6 +1424,75 @@ CREATE TABLE IF NOT EXISTS mcp_access_audit (
 
 CREATE INDEX IF NOT EXISTS idx_mcp_access_audit_repo_time
     ON mcp_access_audit(repo_id, created_at DESC, id DESC);
+
+-- Deterministic review manifests are additive and leave legacy aggregate reviews untouched.
+CREATE TABLE IF NOT EXISTS deterministic_review_runs (
+    run_id              TEXT PRIMARY KEY,
+    schema_version      INTEGER NOT NULL CHECK(schema_version = 1),
+    review_id           TEXT REFERENCES local_reviews(id) ON DELETE SET NULL,
+    repo_path           TEXT NOT NULL,
+    target_identity     TEXT NOT NULL,
+    source_fingerprint  TEXT NOT NULL,
+    executor_id         TEXT NOT NULL,
+    policy_fingerprint  TEXT NOT NULL,
+    status              TEXT NOT NULL,
+    manifest_json       TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_deterministic_review_runs_review
+    ON deterministic_review_runs(review_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_deterministic_review_runs_repo
+    ON deterministic_review_runs(repo_path, updated_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deterministic_review_runs_active_target
+    ON deterministic_review_runs(target_identity, executor_id, policy_fingerprint)
+    WHERE status IN ('planning', 'running');
+
+CREATE TABLE IF NOT EXISTS deterministic_review_units (
+    run_id             TEXT NOT NULL REFERENCES deterministic_review_runs(run_id) ON DELETE CASCADE,
+    unit_id            TEXT NOT NULL,
+    file_path          TEXT NOT NULL,
+    fingerprint        TEXT NOT NULL,
+    coverage_state     TEXT NOT NULL,
+    coverage_reason    TEXT,
+    checkpoint_json    TEXT,
+    updated_at         TEXT NOT NULL,
+    PRIMARY KEY(run_id, unit_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_deterministic_review_units_coverage
+    ON deterministic_review_units(run_id, coverage_state, file_path);
+CREATE INDEX IF NOT EXISTS idx_deterministic_review_units_checkpoint
+    ON deterministic_review_units(fingerprint, coverage_state, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS deterministic_review_attempts (
+    id                 TEXT PRIMARY KEY,
+    run_id             TEXT NOT NULL REFERENCES deterministic_review_runs(run_id) ON DELETE CASCADE,
+    unit_id            TEXT NOT NULL,
+    attempt_number     INTEGER NOT NULL,
+    executor_id        TEXT NOT NULL,
+    status             TEXT NOT NULL,
+    reason             TEXT,
+    output_bytes       INTEGER NOT NULL DEFAULT 0,
+    started_at         TEXT NOT NULL,
+    completed_at       TEXT,
+    UNIQUE(run_id, unit_id, attempt_number)
+);
+
+CREATE TABLE IF NOT EXISTS deterministic_review_qualification (
+    run_id             TEXT NOT NULL REFERENCES deterministic_review_runs(run_id) ON DELETE CASCADE,
+    candidate_index    INTEGER NOT NULL,
+    state              TEXT NOT NULL,
+    reason             TEXT NOT NULL,
+    file_path          TEXT,
+    original_line      INTEGER,
+    resolved_line      INTEGER,
+    PRIMARY KEY(run_id, candidate_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_deterministic_review_qualification_state
+    ON deterministic_review_qualification(run_id, state, reason);
 "#;
 
 #[cfg(test)]

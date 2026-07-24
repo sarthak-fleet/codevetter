@@ -1,3 +1,5 @@
+> **Superseded 2026-07-22:** Archived without implementation after Work moved to a calm, conversation-first workspace with a separate Board. The proposed graph, completion inbox, multi-pane persistence, and orchestration cockpit would duplicate current lifecycle/history evidence while making the primary Work surface heavier. Durable provider lifecycle, attention, historical transcripts, and Board handoffs remain owned by the canonical Work specifications; any future lineage or overlap feature must begin as a smaller evidence need rather than revive this change wholesale.
+
 ## Why
 
 CodeVetter's Agent Panel can run and supervise many local agents, but it stores them as mostly flat terminal sessions. After work branches or finishes, the user cannot reliably answer which run created which child, what depended on what, which files each agent affected, where agents overlapped, or what completed in the background.

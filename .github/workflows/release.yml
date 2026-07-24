@@ -105,6 +105,13 @@ jobs:
       - name: Verify MCP sidecar in app bundle
         run: test -x apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/CodeVetter.app/Contents/MacOS/codevetter-mcp
 
+      - name: Qualify Agent Island app and updater payload
+        working-directory: apps/desktop
+        run: |
+          node scripts/verify-agent-island-release.mjs \
+            --app src-tauri/target/aarch64-apple-darwin/release/bundle/macos/CodeVetter.app \
+            --updater src-tauri/target/aarch64-apple-darwin/release/bundle/macos/CodeVetter.app.tar.gz
+
       # tauri-action repackages the .app -> .tar.gz AFTER tauri build signed
       # the original tarball, so the on-disk .sig is stale (or absent). Sign
       # the final tarball ourselves with the same minisign key, then upload
