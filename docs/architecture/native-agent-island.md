@@ -128,11 +128,11 @@ architectures, and has a valid nested code signature. Publication, installed
 updater behavior, and rollback remain release gates rather than unit-test
 claims.
 
-The host app still declares macOS 10.15. The current local Swift toolchain emits
-the helper with a macOS 12 deployment target, so older hosts continue without
-Agent Island and use Work/notifications. A lower deployment target must be
-proved from the produced binary before the native feature is enabled by
-default.
+The host app still declares macOS 10.15, while the Swift package explicitly
+declares macOS 12 because its SwiftUI and accessibility APIs require the newer
+deployment target. Older hosts continue without Agent Island and use
+Work/notifications. A lower helper target must be proved from the produced
+binary and supported APIs before the native feature is enabled by default.
 
 ## Validation
 
